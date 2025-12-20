@@ -1,0 +1,22 @@
+# --- IGNORE FOLDERS (Massive Data) ---
+Processed_Database/
+Backups/
+__pycache__/
+models/
+raw data/
+Manual_Uploads/
+
+# --- IGNORE DATA FILES ---
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.zip
+
+# --- IGNORE EXCEL/DB (Keep local) ---
+*.xlsx
+*.csv
+
+# --- SYSTEM FILES ---
+.DS_Store
+Thumbs.db
