@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "supercoach-9513f",
+  "private_key_id": "8cb7b61e1a5dd55f886dfca69dd33b0c550bee14",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDnWTN4DyY2geCK\njMBcGPW/CQTQuTi2Wh9rbXiEXVxdnWVzlykwkFA0uk0C6xBM5bOMrbr2ndixilZk\nThzGevoz76l5U6b1f3hgLv2M3kPAJeaCmUGLKupqfDclh6wU6nxQ3ujdaRX4qVqB\nC2LXRQcu0OEBbP3JUNFM0H8Wdl31si1vccBNnCfKkuRJoRgbr8Fxvav7L9XE6yyL\nroAlAjDeurLHzyJZGRz69yH9u4FRxcg8sZ4X6JNGhGjfXj8hMhPYHMw+oftzs7Q7\nVzgcGdn1Yd/klLZDN+hnfFxpPaiGtsYCoxB66P4S6ONCJ86VBiC7SFHThGtMAxAx\nrVk/yFGlAgMBAAECggEAEMCxHTHNpNdRVP8dw92L2B5VUq8C+BN9IHigKEehc2b9\nLHpnAW0F3dea0YoHl2Xv01FWT1r9UNfxaxiL9WR830ts1IwV9EObii2E71E+CzlD\nYLQr3qHIMVdW3/kb4TTctTd7GeNs86GB3APgz7FgNIfsLz/+/bfEPEGB3nTKV4sB\nB4dZB4dTPxMs1MExWJdFx7I3ydmxES1XJ+uyU/ca22TQr2KLnLkji6ocf4ofDNxq\niTzBBZcUx6sAmWoh68tO4jFr/4AtD6Jd1h7vYCKHHYpiyhwI0DTg/dS7nFxRDN8a\nIoFarpqrOECMtauGAJezKUPbq6hGf3ggWvJXJXqKwQKBgQD1YuAKhHghSKzRf7DS\nfOYji8OwedYf4ATp50vCR1knfegW6Mf+TEQvAII/+00ip3vmdRk7bX/3TGZQpruh\neQi00m++JSxU+cknFUQVM4GvOVMC+mZt2hMVqBtIgStvyuyRQBawsn3vigaXgWdW\nMKCKHRPvVjqBuaPQNU0mn6OrZQKBgQDxWuM2/9VSPDxObTWR3evkG1prfL1Hv+ZI\nZmLc9Iya0nUzynaS4AFL9Slk8q/TJH+Pj+/5kO2xlMwglj2ktsEabv8o1RdGEDgD\n3U3yqpCurO1OW24ddYbhhEJR5T46/TACerJk1CwdYwPS0+3yy8tuuqGtPXatPJ96\ngpNNwVJJQQKBgEEY6+qeXegmiYJCZ7xPWhZP+6gTilSGb4dFzvlJSEOLyUhalMPH\no8b8UZF7r2jkGaB3rCvxzqLiZ7o5oUki/MZLlU1SO0KHyW9O2vLs6Rh9EqKVnxrB\nYZK7OBGyAr3zjXKzF9HkaDhl233R3IInAE/jiuhRbdAAWY7gtQjsDNVpAoGBAOI4\nES303wpkQRY1UHe3LSmx5a9HzNXabUrBBLsbUEqxJn9zrm3+HdkHIlRnEBv0Yse5\n3vDpQZEn6ahFiePAFADltq2cBWN7QjWFEVF5Q4ElvouqMOzVwqXP5KWEHC8ILx6z\nyE+veuXUb7oFQEtJbxULQwzwxjKb1tLqXo0LvUfBAoGAeKttRdydmHfKsLNIUmwm\nyhQElLWe+3i4uZ/BFkbj/RF9VbANa9oMOOhwS1KfEuiQfXYomSYFgp3kuYEjS7Te\nDCRWRjda1tOgBjeTmouKxBWLPw5JKAKmQqkJk81FJqKrgZi5Al+GhUR627rjFtm3\naZAsxIKuXw0y79xw3OpyY5M=\n-----END PRIVATE KEY-----\n",
+  "client_email": "driveuploader@supercoach-9513f.iam.gserviceaccount.com",
+  "client_id": "116019608938564580453",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/driveuploader%40supercoach-9513f.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

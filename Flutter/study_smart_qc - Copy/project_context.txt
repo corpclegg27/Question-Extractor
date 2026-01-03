@@ -1,0 +1,2930 @@
+--- FLUTTER PROJECT CONTEXT ---
+
+================================================================================
+FILE: pubspec.yaml
+================================================================================
+name: study_smart_qc
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  firebase_core: ^4.3.0
+  cloud_firestore: ^6.1.1
+  firebase_auth: ^6.1.3
+  google_sign_in: 6.2.1
+  fl_chart: ^0.68.0
+  intl: ^0.19.0 # Added for date formatting
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/google_logo.png
+
+
+================================================================================
+FILE: lib/attempt_item_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// Represents a single item in the 'attempt_items' collection for detailed analytics.
+class AttemptItemModel {
+  final String userId;
+  final String questionId;
+  final String chapterId;
+  final String topicId;
+  final String status; // e.g., 'CORRECT', 'INCORRECT', 'SKIPPED'
+  final int timeSpent; // in seconds
+  final Timestamp attemptedAt;
+
+  AttemptItemModel({
+    required this.userId,
+    required this.questionId,
+    required this.chapterId,
+    required this.topicId,
+    required this.status,
+    required this.timeSpent,
+    required this.attemptedAt,
+  });
+
+  // Method to convert an AttemptItemModel instance to a map for Firestore.
+  Map<String, dynamic> toFirestore() {
+    return {
+      'userId': userId,
+      'questionId': questionId,
+      'chapterId': chapterId,
+      'topicId': topicId,
+      'status': status,
+      'timeSpent': timeSpent,
+      'attemptedAt': attemptedAt,
+    };
+  }
+
+  // Note: A fromFirestore factory is not strictly necessary for this model
+  // as we are primarily using it for writing, not reading, in this flow.
+}
+
+
+================================================================================
+FILE: lib/attempt_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// Represents the response for a single question within an attempt.
+class ResponseObject {
+  final String status; // e.g., 'CORRECT', 'INCORRECT', 'SKIPPED'
+  final String? selectedOption;
+  final String correctOption;
+  final int timeSpent; // in seconds
+  final int visitCount;
+  final int q_no; // Added question number
+
+  ResponseObject({
+    required this.status,
+    this.selectedOption,
+    required this.correctOption,
+    required this.timeSpent,
+    required this.visitCount,
+    required this.q_no,
+  });
+
+  factory ResponseObject.fromMap(Map<String, dynamic> map) {
+    return ResponseObject(
+      status: map['status'] ?? 'SKIPPED',
+      selectedOption: map['selectedOption'],
+      correctOption: map['correctOption'] ?? '',
+      timeSpent: map['timeSpent'] ?? 0,
+      visitCount: map['visitCount'] ?? 0,
+      q_no: map['q_no'] ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'status': status,
+      'selectedOption': selectedOption,
+      'correctOption': correctOption,
+      'timeSpent': timeSpent,
+      'visitCount': visitCount,
+      'q_no': q_no,
+    };
+  }
+}
+
+// Represents an attempt document in the 'attempts' collection.
+class AttemptModel {
+  final String id;
+  final String testId;
+  final String userId;
+  final Timestamp startedAt;
+  final Timestamp completedAt;
+  final int score;
+  final int timeTakenSeconds;
+  final Map<String, ResponseObject> responses;
+
+  AttemptModel({
+    required this.id,
+    required this.testId,
+    required this.userId,
+    required this.startedAt,
+    required this.completedAt,
+    required this.score,
+    required this.timeTakenSeconds,
+    required this.responses,
+  });
+
+  factory AttemptModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    dynamic rawStartedAt = data['startedAt'];
+    Timestamp startedAtTimestamp = (rawStartedAt is String) ? Timestamp.fromDate(DateTime.parse(rawStartedAt)) : rawStartedAt ?? Timestamp.now();
+
+    dynamic rawCompletedAt = data['completedAt'];
+    Timestamp completedAtTimestamp = (rawCompletedAt is String) ? Timestamp.fromDate(DateTime.parse(rawCompletedAt)) : rawCompletedAt ?? Timestamp.now();
+
+    Map<String, ResponseObject> parsedResponses = {};
+    if (data['responses'] is Map) {
+      (data['responses'] as Map).forEach((key, value) {
+        if (value is Map) {
+          parsedResponses[key] = ResponseObject.fromMap(value as Map<String, dynamic>);
+        }
+      });
+    }
+
+    return AttemptModel(
+      id: doc.id,
+      testId: data['testId'] ?? '',
+      userId: data['userId'] ?? '',
+      startedAt: startedAtTimestamp,
+      completedAt: completedAtTimestamp,
+      score: data['score'] ?? 0,
+      timeTakenSeconds: data['timeTakenSeconds'] ?? 0,
+      responses: parsedResponses,
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'testId': testId,
+      'userId': userId,
+      'startedAt': startedAt,
+      'completedAt': completedAt,
+      'score': score,
+      'timeTakenSeconds': timeTakenSeconds,
+      'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
+    };
+  }
+}
+
+
+================================================================================
+FILE: lib/auth_page.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/Screens/login_screen.dart';
+import 'package:study_smart_qc/register_screen.dart';
+
+class AuthPage extends StatefulWidget {
+  const AuthPage({super.key});
+
+  @override
+  State<AuthPage> createState() => _AuthPageState();
+}
+
+class _AuthPageState extends State<AuthPage> {
+  bool _showLoginScreen = true;
+
+  void toggleScreens() {
+    setState(() {
+      _showLoginScreen = !_showLoginScreen;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showLoginScreen) {
+      return LoginScreen(showRegisterScreen: toggleScreens);
+    } else {
+      return RegisterScreen(showLoginScreen: toggleScreens);
+    }
+  }
+}
+
+
+================================================================================
+FILE: lib/custom_test_history_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/custom_test_model.dart';
+import 'package:study_smart_qc/nta_test_models.dart';
+import 'package:study_smart_qc/question_model.dart';
+import 'package:study_smart_qc/screens/results_screen.dart';
+import 'package:study_smart_qc/screens/syllabus_screen.dart';
+import 'package:intl/intl.dart';
+import 'package:study_smart_qc/test_model.dart';
+import 'package:study_smart_qc/test_orchestration_service.dart';
+import 'package:study_smart_qc/test_result.dart';
+import 'package:study_smart_qc/test_screen.dart';
+
+class CustomTestHistoryScreen extends StatefulWidget {
+  const CustomTestHistoryScreen({super.key});
+
+  @override
+  State<CustomTestHistoryScreen> createState() => _CustomTestHistoryScreenState();
+}
+
+class _CustomTestHistoryScreenState extends State<CustomTestHistoryScreen> {
+  final TestOrchestrationService _testService = TestOrchestrationService();
+  String _filter = 'All';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Create Your Own Test'),
+      ),
+      body: Column(
+        children: [
+          _buildFilterChips(),
+          Expanded(
+            child: StreamBuilder<List<TestModel>>(
+              stream: _testService.getSavedTestsStream(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  return const Center(child: Text('No tests created yet.'));
+                }
+
+                final allTests = snapshot.data!;
+                final filteredTests = allTests.where((test) {
+                  if (_filter == 'All') return true;
+                  return test.status == _filter;
+                }).toList();
+
+                if (filteredTests.isEmpty) {
+                  return Center(child: Text('No tests match the \'$_filter\' filter.'));
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 100), 
+                  itemCount: filteredTests.length,
+                  itemBuilder: (context, index) {
+                    final test = filteredTests[index];
+                    return _buildTestListItem(test);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.of(context).push(MaterialPageRoute(builder: (context) => const SyllabusScreen()));
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Create new custom test'),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+    );
+  }
+
+  Widget _buildFilterChips() {
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: ['All', 'Attempted', 'Not Attempted'].map((filter) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: ChoiceChip(
+              label: Text(filter),
+              selected: _filter == filter,
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() => _filter = filter);
+                }
+              },
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildTestListItem(TestModel test) {
+    final formattedDate = DateFormat('d MMM yyyy').format(test.createdAt.toDate());
+    bool isAttempted = test.status == 'Attempted';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(test.testName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text('JEE Main • $formattedDate', style: TextStyle(color: Colors.grey.shade600)),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () async {
+                    if (isAttempted) {
+                      final attempt = await _testService.getAttemptForTest(test.id);
+                      final questions = await _testService.getQuestionsByIds(test.questionIds);
+                      if (mounted && attempt != null) {
+                        
+                        final answerStates = <int, AnswerState>{};
+                        for (int i = 0; i < questions.length; i++) {
+                           final questionId = questions[i].id;
+                           final response = attempt.responses[questionId];
+                           answerStates[i] = AnswerState(
+                             userAnswer: response?.selectedOption,
+                             status: response?.status == 'CORRECT' || response?.status == 'INCORRECT' ? AnswerStatus.answered : AnswerStatus.notAnswered, 
+                           );
+                        }
+
+                        final result = TestResult(
+                            questions: questions,
+                            answerStates: answerStates, 
+                            timeTaken: Duration(seconds: attempt.timeTakenSeconds),
+                            totalMarks: questions.length * 4,
+                            responses: attempt.responses);
+
+                        Navigator.of(context).push(MaterialPageRoute(builder: (context) => ResultsScreen(result: result)));
+                      }
+                    } else {
+                      final List<Question> questions = await _testService.getQuestionsByIds(test.questionIds);
+                      if (mounted) {
+                        Navigator.of(context).push(MaterialPageRoute(builder: (context) => TestScreen(questions: questions, timeLimitInMinutes: test.config.durationSeconds ~/ 60, testId: test.id)));
+                      }
+                    }
+                  },
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [Text(isAttempted ? 'View Analysis' : 'Attempt now'), const Icon(Icons.arrow_forward_ios, size: 14)]),
+                ),
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/custom_test_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// Represents a test that has been generated and potentially saved.
+class CustomTest {
+  final String id;
+  final String userId;
+  final String testName;
+  final String status; // e.g., 'Not Attempted', 'Attempted'
+  final List<String> questionIds;
+  final int totalQuestions;
+  final int timeLimitInMinutes;
+  final Timestamp createdAt;
+  final List<String> chapterNames;
+
+  CustomTest({
+    required this.id,
+    required this.userId,
+    required this.testName,
+    required this.status,
+    required this.questionIds,
+    required this.totalQuestions,
+    required this.timeLimitInMinutes,
+    required this.createdAt,
+    required this.chapterNames,
+  });
+
+  // Factory to create a CustomTest from a Firestore document.
+  factory CustomTest.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return CustomTest(
+      id: doc.id,
+      userId: data['userId'] ?? '',
+      testName: data['testName'] ?? 'Custom Test',
+      status: data['status'] ?? 'Not Attempted',
+      questionIds: List<String>.from(data['questionIds'] ?? []),
+      totalQuestions: data['totalQuestions'] ?? 0,
+      timeLimitInMinutes: data['timeLimitInMinutes'] ?? 0,
+      createdAt: data['createdAt'] ?? Timestamp.now(),
+      chapterNames: List<String>.from(data['chapterNames'] ?? []),
+    );
+  }
+
+  // Method to convert a CustomTest instance to a map for Firestore.
+  Map<String, dynamic> toFirestore() {
+    return {
+      'userId': userId,
+      'testName': testName,
+      'status': status,
+      'questionIds': questionIds,
+      'totalQuestions': totalQuestions,
+      'timeLimitInMinutes': timeLimitInMinutes,
+      'createdAt': createdAt,
+      'chapterNames': chapterNames,
+    };
+  }
+}
+
+
+================================================================================
+FILE: lib/custom_test_service.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:study_smart_qc/custom_test_model.dart';
+
+class CustomTestService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  // Get the current user's ID
+  String? get _userId => _auth.currentUser?.uid;
+
+  // Save a generated test to Firestore
+  Future<void> saveTest(CustomTest test) async {
+    if (_userId == null) return;
+    
+    final docRef = _firestore
+        .collection('users')
+        .doc(_userId)
+        .collection('custom_tests')
+        .doc(); // Auto-generate ID
+
+    await docRef.set(test.toFirestore());
+  }
+
+  // Retrieve all tests for the current user
+  Stream<List<CustomTest>> getCustomTests() {
+    if (_userId == null) return Stream.value([]);
+
+    return _firestore
+        .collection('users')
+        .doc(_userId)
+        .collection('custom_tests')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => CustomTest.fromFirestore(doc)).toList();
+    });
+  }
+
+   // Fetch the full Question objects for a saved test
+   Future<List<Map<String, dynamic>>> getQuestionsForTest(List<String> questionIds) async {
+    if (questionIds.isEmpty) return [];
+    
+    final querySnapshot = await _firestore
+        .collection('questions')
+        .where(FieldPath.documentId, whereIn: questionIds)
+        .get();
+        
+    return querySnapshot.docs.map((doc) => doc.data()).toList();
+  }
+}
+
+
+================================================================================
+FILE: lib/enter_code_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/question_model.dart';
+import 'package:study_smart_qc/test_model.dart';
+import 'package:study_smart_qc/test_orchestration_service.dart';
+import 'package:study_smart_qc/test_preview_screen.dart';
+
+class EnterCodeScreen extends StatefulWidget {
+  const EnterCodeScreen({super.key});
+
+  @override
+  State<EnterCodeScreen> createState() => _EnterCodeScreenState();
+}
+
+class _EnterCodeScreenState extends State<EnterCodeScreen> {
+  final _codeController = TextEditingController();
+  final _testService = TestOrchestrationService();
+  bool _isLoading = false;
+  String? _errorText;
+
+  Future<void> _findTest() async {
+    if (_codeController.text.isEmpty) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorText = null;
+    });
+
+    final test = await _testService.getTestByShareCode(_codeController.text.trim());
+
+    if (test == null) {
+      setState(() {
+        _isLoading = false;
+        _errorText = 'Invalid or expired test code.';
+      });
+      return;
+    }
+
+    final questions = await _testService.getQuestionsByIds(test.questionIds);
+
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+    
+    // Navigate to Test Preview Screen
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (context) => TestPreviewScreen(
+        questions: questions,
+        timeLimitInMinutes: test.config.durationSeconds ~/ 60,
+        selectedSyllabus: { for (var v in test.chapters) v : [] }, // Reconstruct a simplified map
+        testName: test.testName,
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Enter Test Code')),
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextField(
+              controller: _codeController,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 8),
+              decoration: InputDecoration(
+                hintText: '_ _ _ _',
+                errorText: _errorText,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 20),
+            if (_isLoading)
+              const CircularProgressIndicator()
+            else
+              ElevatedButton(
+                onPressed: _findTest,
+                child: const Text('Find Test'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/home_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/custom_test_history_screen.dart';
+import 'package:study_smart_qc/enter_code_screen.dart';
+import 'package:study_smart_qc/services/auth_service.dart';
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('StudySmart'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+      ),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Colors.deepPurple),
+              child: Text('StudySmart', style: TextStyle(color: Colors.white, fontSize: 24)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('Logout'),
+              onTap: () {
+                Navigator.of(context).pop();
+                AuthService().signOut();
+              },
+            ),
+          ],
+        ),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ElevatedButton.icon(
+                icon: const Icon(Icons.edit_note),
+                label: const Text('Create your own test'),
+                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15), textStyle: const TextStyle(fontSize: 18)),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => const CustomTestHistoryScreen()),
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+              OutlinedButton.icon(
+                 icon: const Icon(Icons.qr_code_scanner),
+                 label: const Text('Attempt pre-made tests'),
+                 style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15), textStyle: const TextStyle(fontSize: 18)),
+                 onPressed: () {
+                   Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => const EnterCodeScreen()),
+                  );
+                 },
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/main.dart
+================================================================================
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/auth_page.dart';
+import 'package:study_smart_qc/home_screen.dart';
+import 'package:study_smart_qc/services/auth_service.dart';
+
+import 'firebase_options.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'StudySmart',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+      ),
+      home: StreamBuilder(
+        stream: AuthService().userStream, // Using the new robust stream
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+          if (snapshot.hasData) {
+            return const HomeScreen(); 
+          }
+          return const AuthPage(); // Go to AuthPage to handle login/register toggle
+        },
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/nta_test_models.dart
+================================================================================
+import 'package:flutter/material.dart';
+
+enum AnswerStatus {
+  notVisited,
+  notAnswered, // Visited but skipped
+  answered,
+  markedForReview, // Not answered, but marked
+  answeredAndMarked, // Answered and marked for review
+}
+
+extension AnswerStatusExtension on AnswerStatus {
+  Color get color {
+    switch (this) {
+      case AnswerStatus.answered:
+        return Colors.green;
+      case AnswerStatus.notAnswered:
+        return Colors.red;
+      case AnswerStatus.markedForReview:
+        return Colors.purple;
+      case AnswerStatus.answeredAndMarked:
+        return Colors.blue;
+      case AnswerStatus.notVisited:
+      default:
+        return Colors.grey.shade400;
+    }
+  }
+}
+
+class AnswerState {
+  String? userAnswer;
+  AnswerStatus status;
+
+  AnswerState({this.userAnswer, this.status = AnswerStatus.notVisited});
+}
+
+
+================================================================================
+FILE: lib/question_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class Question {
+  final String id;
+  final String chapterId;
+  final String topicId;
+  final String type;
+  final String imageUrl;
+  final String? solutionUrl;
+  final String correctAnswer;
+  final String difficulty;
+  final String source;
+
+  Question({
+    required this.id,
+    required this.chapterId,
+    required this.topicId,
+    required this.type,
+    required this.imageUrl,
+    this.solutionUrl,
+    required this.correctAnswer,
+    required this.difficulty,
+    required this.source,
+  });
+
+  factory Question.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return Question(
+      id: doc.id,
+      chapterId: data['chapterId'] ?? '',
+      topicId: data['topicId'] ?? '',
+      type: data['Question type'] ?? 'SCQ',
+      imageUrl: data['image_url'] ?? '',
+      solutionUrl: data['solution_url'],
+      // FIX: Using the correct field name as you specified
+      correctAnswer: data['Correct Answer'] ?? '',
+      difficulty: data['Difficulty_tag'] ?? 'Medium',
+      source: data['Exam'] ?? '',
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/register_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/services/auth_service.dart';
+
+class RegisterScreen extends StatefulWidget {
+  final VoidCallback showLoginScreen;
+  const RegisterScreen({super.key, required this.showLoginScreen});
+
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _displayNameController = TextEditingController();
+  bool _isLoading = false;
+
+  Future<void> _signUp() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+      await AuthService().signUpWithEmailAndPassword(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+        _displayNameController.text.trim(),
+      );
+      // The auth stream will handle navigation
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _displayNameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Register')),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextFormField(
+                  controller: _displayNameController,
+                  decoration: const InputDecoration(labelText: 'Full Name'),
+                  validator: (value) => value!.isEmpty ? 'Please enter your name' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  validator: (value) => value!.isEmpty ? 'Please enter an email' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(labelText: 'Password'),
+                  obscureText: true,
+                  validator: (value) => value!.length < 6 ? 'Password must be at least 6 characters' : null,
+                ),
+                const SizedBox(height: 20),
+                if (_isLoading)
+                  const CircularProgressIndicator()
+                else
+                  ElevatedButton(
+                    onPressed: _signUp,
+                    child: const Text('Sign Up'),
+                  ),
+                TextButton(
+                  onPressed: widget.showLoginScreen,
+                  child: const Text('Already have an account? Login'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/test_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class TestConfig {
+  final int durationSeconds;
+  final int totalQuestions;
+
+  TestConfig({
+    required this.durationSeconds,
+    required this.totalQuestions,
+  });
+
+  factory TestConfig.fromMap(Map<String, dynamic> map) {
+    return TestConfig(
+      durationSeconds: map['durationSeconds'] ?? 0,
+      totalQuestions: map['totalQuestions'] ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'durationSeconds': durationSeconds,
+      'totalQuestions': totalQuestions,
+    };
+  }
+}
+
+class TestModel {
+  final String id;
+  final String createdBy;
+  final Timestamp createdAt;
+  final String status;
+  final String testName;
+  final TestConfig config;
+  final List<String> questionIds;
+  final List<String> chapters;
+  final String? shareCode; // New field
+  final List<String> uidsAttemptedTests; // New field
+
+  TestModel({
+    required this.id,
+    required this.createdBy,
+    required this.createdAt,
+    required this.status,
+    required this.testName,
+    required this.config,
+    required this.questionIds,
+    required this.chapters,
+    this.shareCode,
+    required this.uidsAttemptedTests,
+  });
+
+  factory TestModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    dynamic rawTimestamp = data['createdAt'];
+    Timestamp createdAtTimestamp;
+    if (rawTimestamp is String) {
+      createdAtTimestamp = Timestamp.fromDate(DateTime.parse(rawTimestamp));
+    } else if (rawTimestamp is Timestamp) {
+      createdAtTimestamp = rawTimestamp;
+    } else {
+      createdAtTimestamp = Timestamp.now();
+    }
+
+    return TestModel(
+      id: doc.id,
+      createdBy: data['createdBy'] ?? '',
+      createdAt: createdAtTimestamp,
+      status: data['status'] ?? 'GENERATED',
+      testName: data['testName'] ?? 'Unnamed Test',
+      config: TestConfig.fromMap(data['config'] ?? {}),
+      questionIds: List<String>.from(data['questionIds'] ?? []),
+      chapters: List<String>.from(data['chapters'] ?? []),
+      shareCode: data['shareCode'],
+      uidsAttemptedTests: List<String>.from(data['uidsAttemptedTests'] ?? []),
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'createdBy': createdBy,
+      'createdAt': createdAt,
+      'status': status,
+      'testName': testName,
+      'config': config.toMap(),
+      'questionIds': questionIds,
+      'chapters': chapters,
+      'shareCode': shareCode,
+      'uidsAttemptedTests': uidsAttemptedTests,
+    };
+  }
+}
+
+
+================================================================================
+FILE: lib/test_orchestration_service.dart
+================================================================================
+import 'dart:math';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:study_smart_qc/attempt_item_model.dart';
+import 'package:study_smart_qc/question_model.dart';
+import 'package:study_smart_qc/test_model.dart';
+import 'package:study_smart_qc/attempt_model.dart';
+
+class TestOrchestrationService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  String? get _userId => _auth.currentUser?.uid;
+
+  String _generateShareCode() {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    final rnd = Random();
+    return String.fromCharCodes(Iterable.generate(4, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
+  }
+
+  Future<TestModel?> createAndSaveTestBlueprint({
+    required List<Question> questions,
+    required int durationSeconds,
+    required List<String> chapterNames,
+    required String testName,
+  }) async {
+    if (_userId == null) return null;
+
+    String shareCode;
+    bool isUnique = false;
+    do {
+      shareCode = _generateShareCode();
+      final existing = await _firestore.collection('tests').where('shareCode', isEqualTo: shareCode).limit(1).get();
+      if (existing.docs.isEmpty) {
+        isUnique = true;
+      }
+    } while (!isUnique);
+
+    final testRef = _firestore.collection('tests').doc();
+
+    final newTest = TestModel(
+      id: testRef.id,
+      createdBy: _userId!,
+      createdAt: Timestamp.now(),
+      status: 'Not Attempted',
+      testName: testName,
+      config: TestConfig(durationSeconds: durationSeconds, totalQuestions: questions.length),
+      questionIds: questions.map((q) => q.id).toList(),
+      chapters: chapterNames,
+      shareCode: shareCode, 
+      uidsAttemptedTests: [], 
+    );
+
+    await testRef.set(newTest.toFirestore());
+    return newTest;
+  }
+
+  Future<void> saveTestAttempt({
+    required String testId,
+    required List<Question> questions,
+    required int score,
+    required int timeTakenSeconds,
+    required Map<String, ResponseObject> responses,
+  }) async {
+    if (_userId == null) return;
+    final batch = _firestore.batch();
+    final attemptRef = _firestore.collection('attempts').doc();
+    final newAttempt = AttemptModel(
+      id: attemptRef.id,
+      testId: testId,
+      userId: _userId!,
+      startedAt: Timestamp.now(),
+      completedAt: Timestamp.now(),
+      score: score,
+      timeTakenSeconds: timeTakenSeconds,
+      responses: responses,
+    );
+    batch.set(attemptRef, newAttempt.toFirestore());
+
+    for (final question in questions) {
+      final response = responses[question.id];
+      if (response != null) {
+        final attemptItemRef = _firestore.collection('attempt_items').doc('${_userId}_${question.id}');
+        final attemptItem = AttemptItemModel(
+          userId: _userId!,
+          questionId: question.id,
+          chapterId: question.chapterId,
+          topicId: question.topicId,
+          status: response.status,
+          timeSpent: response.timeSpent,
+          attemptedAt: Timestamp.now(),
+        );
+        batch.set(attemptItemRef, attemptItem.toFirestore());
+      }
+    }
+    
+    final testRef = _firestore.collection('tests').doc(testId);
+    batch.update(testRef, {'status': 'Attempted'});
+
+    await batch.commit();
+  }
+
+  Stream<List<TestModel>> getSavedTestsStream() {
+    if (_userId == null) return Stream.value([]);
+    return _firestore.collection('tests').where('createdBy', isEqualTo: _userId).orderBy('createdAt', descending: true).snapshots().map(
+          (snapshot) => snapshot.docs.map((doc) => TestModel.fromFirestore(doc)).toList(),
+    );
+  }
+
+  Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
+    if (questionIds.isEmpty) return [];
+    final List<Question> questions = [];
+    final chunks = [];
+    for (var i = 0; i < questionIds.length; i += 10) {
+      chunks.add(questionIds.sublist(i, i + 10 > questionIds.length ? questionIds.length : i + 10));
+    }
+    for (final chunk in chunks) {
+      final querySnapshot = await _firestore.collection('questions').where(FieldPath.documentId, whereIn: chunk).get();
+      questions.addAll(querySnapshot.docs.map((doc) => Question.fromFirestore(doc)));
+    }
+    return questions;
+  }
+
+  Future<TestModel?> getTestByShareCode(String shareCode) async {
+    final querySnapshot = await _firestore.collection('tests').where('shareCode', isEqualTo: shareCode).limit(1).get();
+    if (querySnapshot.docs.isNotEmpty) {
+      return TestModel.fromFirestore(querySnapshot.docs.first);
+    }
+    return null;
+  }
+
+  Future<void> recordTestAttempt(String testId) async {
+    if (_userId == null) return;
+    final batch = _firestore.batch();
+
+    final testRef = _firestore.collection('tests').doc(testId);
+    batch.update(testRef, {
+      'uidsAttemptedTests': FieldValue.arrayUnion([_userId])
+    });
+
+    final userRef = _firestore.collection('users').doc(_userId);
+    batch.update(userRef, {
+      'testIDsattempted': FieldValue.arrayUnion([testId])
+    });
+
+    await batch.commit();
+  }
+
+  // FIX: Added missing method
+  Future<AttemptModel?> getAttemptForTest(String testId) async {
+    if (_userId == null) return null;
+    
+    final querySnapshot = await _firestore
+        .collection('attempts')
+        .where('testId', isEqualTo: testId)
+        .where('userId', isEqualTo: _userId)
+        .limit(1)
+        .get();
+        
+    if (querySnapshot.docs.isNotEmpty) {
+      return AttemptModel.fromFirestore(querySnapshot.docs.first);
+    }
+    return null;
+  }
+}
+
+
+================================================================================
+FILE: lib/test_preview_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/test_model.dart';
+import 'package:study_smart_qc/question_model.dart';
+import 'package:study_smart_qc/test_screen.dart';
+import 'package:study_smart_qc/test_orchestration_service.dart';
+
+class TestPreviewScreen extends StatelessWidget {
+  final List<Question> questions;
+  final int timeLimitInMinutes;
+  final Map<String, List<String>> selectedSyllabus;
+  final String testName;
+  final TestModel? existingTest; // To know if this is a pre-made test
+
+  const TestPreviewScreen({
+    super.key,
+    required this.questions,
+    required this.timeLimitInMinutes,
+    required this.selectedSyllabus,
+    required this.testName,
+    this.existingTest,
+  });
+
+  Future<void> _handleAttemptLater(BuildContext context) async {
+    final service = TestOrchestrationService();
+    // Only save a new test if it's not a pre-made one
+    if (existingTest == null) {
+      await service.createAndSaveTestBlueprint(
+        questions: questions,
+        durationSeconds: timeLimitInMinutes * 60,
+        chapterNames: selectedSyllabus.keys.toList(),
+        testName: testName,
+      );
+    }
+
+    if (context.mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  }
+
+  Future<void> _handleAttemptNow(BuildContext context) async {
+    final service = TestOrchestrationService();
+    TestModel? testToAttempt = existingTest;
+
+    // If it's a new custom test, save it first to get an ID
+    if (testToAttempt == null) {
+      testToAttempt = await service.createAndSaveTestBlueprint(
+        questions: questions,
+        durationSeconds: timeLimitInMinutes * 60,
+        chapterNames: selectedSyllabus.keys.toList(),
+        testName: testName,
+      );
+    }
+
+    if (testToAttempt == null) return; // Should not happen if user is logged in
+
+    // Record the attempt against the user and the test
+    await service.recordTestAttempt(testToAttempt.id);
+
+    if (context.mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => TestScreen(
+            questions: questions,
+            timeLimitInMinutes: timeLimitInMinutes,
+            testId: testToAttempt!.id,
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Test Preview'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(testName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            const Wrap(
+              spacing: 8.0,
+              children: [
+                Chip(label: Text('JEE Main'), avatar: Icon(Icons.check_circle, color: Colors.green)),
+                Chip(label: Text('Physics')),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(child: Card(child: Padding(padding: const EdgeInsets.all(16.0), child: Column(children: [const Icon(Icons.help_outline, color: Colors.deepPurple), const SizedBox(height: 8), Text('${questions.length} Qs')])))),
+                Expanded(child: Card(child: Padding(padding: const EdgeInsets.all(16.0), child: Column(children: [const Icon(Icons.timer_outlined, color: Colors.deepPurple), const SizedBox(height: 8), Text('$timeLimitInMinutes Mins')])))),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 10),
+            Text(
+              'Syllabus - ${selectedSyllabus.length} chapters',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: ListView.builder(
+                itemCount: selectedSyllabus.length,
+                itemBuilder: (context, index) {
+                  final chapterName = selectedSyllabus.keys.elementAt(index);
+                  final topicNames = selectedSyllabus[chapterName]!;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('• $chapterName', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        if (topicNames.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 20, top: 4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: topicNames.map((topic) => Text('    - $topic', style: TextStyle(color: Colors.grey.shade700))).toList(),
+                            ),
+                          )
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)), onPressed: () => _handleAttemptNow(context), child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Text('Attempt test now'), Icon(Icons.arrow_forward)])),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(width: double.infinity, child: OutlinedButton(onPressed: () => _handleAttemptLater(context), child: const Text('Attempt later'))),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/test_result.dart
+================================================================================
+import 'package:study_smart_qc/attempt_model.dart';
+import 'package:study_smart_qc/nta_test_models.dart';
+import 'package:study_smart_qc/question_model.dart';
+
+class TestResult {
+  final List<Question> questions;
+  final Map<int, AnswerState> answerStates;
+  final Duration timeTaken;
+  final int totalMarks;
+  final Map<String, ResponseObject> responses; // Added to carry full response data
+
+  TestResult({
+    required this.questions,
+    required this.answerStates,
+    required this.timeTaken,
+    required this.totalMarks,
+    required this.responses, // Added
+  });
+}
+
+
+================================================================================
+FILE: lib/test_screen.dart
+================================================================================
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/attempt_model.dart';
+import 'package:study_smart_qc/nta_test_models.dart';
+import 'package:study_smart_qc/question_model.dart';
+import 'package:study_smart_qc/screens/results_screen.dart';
+import 'package:study_smart_qc/test_orchestration_service.dart';
+import 'package:study_smart_qc/test_result.dart';
+import 'package:study_smart_qc/widgets/question_palette.dart';
+
+class TestScreen extends StatefulWidget {
+  final String? testId;
+  final List<Question> questions;
+  final int timeLimitInMinutes;
+
+  const TestScreen({
+    super.key,
+    required this.questions,
+    required this.timeLimitInMinutes,
+    this.testId,
+  });
+
+  @override
+  State<TestScreen> createState() => _TestScreenState();
+}
+
+class _TestScreenState extends State<TestScreen> {
+  late final PageController _pageController;
+  late final Timer _timer;
+  late Duration _timeRemaining;
+  final Map<int, AnswerState> _answerStates = {};
+  final Map<String, TextEditingController> _numericalControllers = {};
+  int _currentPage = 0;
+
+  final Map<int, int> _visitCounts = {};
+  final Map<int, Stopwatch> _timeTrackers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _timeRemaining = Duration(minutes: widget.timeLimitInMinutes);
+
+    for (int i = 0; i < widget.questions.length; i++) {
+      _answerStates[i] = AnswerState();
+      final q = widget.questions[i];
+      if (q.type.trim() == 'Numerical type') {
+        _numericalControllers[q.id] = TextEditingController();
+      }
+      _visitCounts[i] = 0;
+      _timeTrackers[i] = Stopwatch();
+    }
+
+    _onPageChanged(_currentPage, fromInit: true);
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_timeRemaining.inSeconds > 0) {
+        setState(() => _timeRemaining -= const Duration(seconds: 1));
+      } else {
+        _timer.cancel();
+        _handleSubmit();
+      }
+    });
+  }
+
+  void _onPageChanged(int page, {bool fromInit = false}) {
+    if (!fromInit && _timeTrackers.containsKey(_currentPage)) {
+      _timeTrackers[_currentPage]!.stop();
+    }
+    setState(() {
+      _currentPage = page;
+      _visitCounts[page] = (_visitCounts[page] ?? 0) + 1;
+      if (_answerStates[page]?.status == AnswerStatus.notVisited) {
+         _answerStates[page]?.status = AnswerStatus.notAnswered;
+      }
+    });
+    if (_timeTrackers.containsKey(page)) {
+      _timeTrackers[page]!.start();
+    }
+  }
+
+  Future<void> _showSubmitConfirmationDialog() async {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Submit Test?'),
+          content: const Text('Are you sure you want to end the test?'),
+          actions: <Widget>[
+            TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
+            TextButton(
+              child: const Text('Submit'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _handleSubmit();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _handleSaveAndNext() {
+    final state = _answerStates[_currentPage]!;
+    final question = widget.questions[_currentPage];
+    final currentAnswer = (question.type.trim() == 'Single Correct') ? state.userAnswer : _numericalControllers[question.id]?.text;
+
+    if (currentAnswer != null && currentAnswer.isNotEmpty) {
+      if (state.status != AnswerStatus.answeredAndMarked) {
+        state.status = AnswerStatus.answered;
+      }
+    } else {
+       if (state.status != AnswerStatus.markedForReview) {
+         state.status = AnswerStatus.notAnswered;
+       }
+    }
+
+    if (_currentPage < widget.questions.length - 1) {
+      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
+    } else {
+      _showSubmitConfirmationDialog();
+    }
+  }
+
+  void _handleClearResponse() {
+    final question = widget.questions[_currentPage];
+    setState(() {
+      _answerStates[_currentPage]?.userAnswer = null;
+      if (question.type.trim() == 'Numerical type') {
+        _numericalControllers[question.id]?.clear();
+      }
+      _answerStates[_currentPage]?.status = AnswerStatus.notAnswered;
+    });
+  }
+
+  void _handleMarkForReview() {
+     final state = _answerStates[_currentPage]!;
+     final question = widget.questions[_currentPage];
+     final currentAnswer = (question.type.trim() == 'Single Correct') ? state.userAnswer : _numericalControllers[question.id]?.text;
+
+     setState(() {
+       if (currentAnswer != null && currentAnswer.isNotEmpty) {
+         state.status = AnswerStatus.answeredAndMarked;
+       } else {
+         state.status = AnswerStatus.markedForReview;
+       }
+     });
+
+     if (_currentPage < widget.questions.length - 1) {
+      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
+    }
+  }
+
+  void _handleSubmit() async {
+    _timer.cancel();
+    _timeTrackers.values.forEach((sw) => sw.stop());
+
+    Map<String, ResponseObject> responses = {};
+    for (int i = 0; i < widget.questions.length; i++) {
+      final question = widget.questions[i];
+      final state = _answerStates[i]!;
+      String finalStatus = 'SKIPPED';
+      String? finalAnswer = state.userAnswer;
+
+      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
+        final isCorrect = finalAnswer?.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase();
+        finalStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
+      } else if (state.status == AnswerStatus.markedForReview) {
+        finalStatus = 'REVIEW';
+      }
+
+      responses[question.id] = ResponseObject(
+        status: finalStatus,
+        selectedOption: finalAnswer,
+        correctOption: question.correctAnswer,
+        timeSpent: _timeTrackers[i]!.elapsed.inSeconds,
+        visitCount: _visitCounts[i] ?? 0,
+        q_no: i + 1,
+      );
+    }
+    
+    final score = (responses.values.where((r) => r.status == 'CORRECT').length * 4) - (responses.values.where((r) => r.status == 'INCORRECT').length * 1);
+    
+    // **FIX**: Pass the required 'questions' parameter.
+    await TestOrchestrationService().saveTestAttempt(
+      testId: widget.testId ?? 'unsaved_test',
+      questions: widget.questions, // This was the missing parameter
+      score: score,
+      timeTakenSeconds: (Duration(minutes: widget.timeLimitInMinutes) - _timeRemaining).inSeconds,
+      responses: responses,
+    );
+
+    final result = TestResult(
+      questions: widget.questions,
+      answerStates: _answerStates,
+      timeTaken: Duration(minutes: widget.timeLimitInMinutes) - _timeRemaining,
+      totalMarks: widget.questions.length * 4,
+      responses: responses,
+    );
+
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
+      );
+    }
+  }
+  
+  void _showAllQuestions() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Question Paper'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: QuestionPalette(
+            questionCount: widget.questions.length,
+            answerStates: _answerStates,
+            currentQuestionIndex: _currentPage,
+            onQuestionTapped: (index) {
+              Navigator.of(context).pop();
+              _pageController.jumpToPage(index);
+            },
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _timer.cancel();
+    _timeTrackers.values.forEach((sw) => sw.stop());
+    _numericalControllers.values.forEach((c) => c.dispose());
+    super.dispose();
+  }
+
+  String get _formattedTime => '${_timeRemaining.inMinutes.toString().padLeft(2, '0')}:${(_timeRemaining.inSeconds % 60).toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(icon: const Icon(Icons.close), onPressed: _showSubmitConfirmationDialog),
+        title: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(border: Border.all(color: Colors.white), borderRadius: BorderRadius.circular(20)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.timer_outlined, size: 18), const SizedBox(width: 4), Text(_formattedTime)]),
+        ),
+        centerTitle: true,
+        actions: [TextButton(onPressed: _showSubmitConfirmationDialog, child: const Text('Submit', style: TextStyle(color: Colors.white)))],
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          _buildCompactQuestionPalette(),
+          const Divider(height: 1),
+          Expanded(
+            child: PageView.builder(
+              controller: _pageController,
+              onPageChanged: _onPageChanged,
+              itemCount: widget.questions.length,
+              itemBuilder: (context, index) {
+                final q = widget.questions[index];
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Q.${index + 1} (+4, -1)', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 10),
+                      InteractiveViewer(maxScale: 4.0, child: Image.network(q.imageUrl, fit: BoxFit.contain)),
+                      const SizedBox(height: 20),
+                      if (q.type.trim() == 'Single Correct') _buildScqOptions(q) else _buildNumericalInput(q),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: _buildBottomNavBar(),
+    );
+  }
+  
+  Widget _buildCompactQuestionPalette() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      child: Row(
+        children: [
+          const Text("Physics", style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: List.generate(widget.questions.length, (index) {
+                  final state = _answerStates[index] ?? AnswerState();
+                  final isCurrent = index == _currentPage;
+                  return GestureDetector(
+                    onTap: () => _pageController.jumpToPage(index),
+                    child: Container(
+                      width: 40, height: 40, margin: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: state.status.color,
+                        borderRadius: BorderRadius.circular(4),
+                        border: isCurrent ? Border.all(color: Colors.black, width: 2.5) : null,
+                      ),
+                      child: Center(child: Text('${index + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ),
+          TextButton(onPressed: _showAllQuestions, child: const Text('View All >')),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildScqOptions(Question question) {
+    final options = ['A', 'B', 'C', 'D'];
+    return Column(
+      children: options.map((option) {
+        return RadioListTile<String>(
+          title: Text(option),
+          value: option,
+          groupValue: _answerStates[_currentPage]?.userAnswer,
+          onChanged: (value) => setState(() => _answerStates[_currentPage]?.userAnswer = value),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildNumericalInput(Question question) {
+    return TextField(
+      controller: _numericalControllers[question.id],
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: const InputDecoration(labelText: 'Your Answer', border: OutlineInputBorder()),
+      onChanged: (value) => _answerStates[_currentPage]?.userAnswer = value,
+    );
+  }
+
+  Widget _buildBottomNavBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8).copyWith(bottom: MediaQuery.of(context).padding.bottom + 8),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.2), spreadRadius: 1, blurRadius: 3)]),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(child: OutlinedButton(onPressed: _handleClearResponse, child: const Text('Clear Response'))),
+              const SizedBox(width: 8),
+              Expanded(child: OutlinedButton(onPressed: _handleMarkForReview, child: const Text('Mark for Review'))),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: OutlinedButton(onPressed: _currentPage == 0 ? null : () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn), child: const Text('Previous'))),
+              const SizedBox(width: 8),
+              Expanded(child: ElevatedButton(onPressed: _handleSaveAndNext, child: Text(_currentPage == widget.questions.length - 1 ? 'Submit' : 'Save & Next'))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/test_service.dart
+================================================================================
+import 'dart:math';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:study_smart_qc/question_model.dart';
+
+class TestService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  Future<List<Question>> generateTest({
+    required Set<String> chapterIds,
+    required Set<String> topicIds,
+    required int questionCount,
+  }) async {
+    if (chapterIds.isEmpty || topicIds.isEmpty) {
+      return [];
+    }
+
+    // **CORRECTED LOGIC: Fetch Broad, Filter Local for correctness**
+    // Step 1: Fetch all questions from the selected CHAPTERS.
+    QuerySnapshot querySnapshot = await _firestore
+        .collection('questions')
+        .where('chapterId', whereIn: chapterIds.toList())
+        .get();
+
+    List<Question> fetchedQuestions = querySnapshot.docs
+        .map((doc) => Question.fromFirestore(doc))
+        .toList();
+
+    // Step 2: Locally filter those questions by the selected TOPICS.
+    List<Question> filteredByTopic = fetchedQuestions
+        .where((q) => topicIds.contains(q.topicId))
+        .toList();
+
+    // Step 3: Ensure questions have a valid image URL.
+    List<Question> validQuestions = filteredByTopic.where((q) {
+      final url = q.imageUrl;
+      return url.isNotEmpty && (url.startsWith('http') || url.startsWith('https'));
+    }).toList();
+
+    // Step 4: Apply 80/20 split for question types
+    final scqQuestions = validQuestions.where((q) => q.type.trim() == 'Single Correct').toList();
+    final numericalQuestions = validQuestions.where((q) => q.type.trim() == 'Numerical type').toList();
+
+    scqQuestions.shuffle();
+    numericalQuestions.shuffle();
+
+    final numNumerical = (questionCount * 0.2).round();
+    final numScq = questionCount - numNumerical;
+
+    final finalScq = scqQuestions.take(min(numScq, scqQuestions.length)).toList();
+    final finalNumerical = numericalQuestions.take(min(numNumerical, numericalQuestions.length)).toList();
+
+    final finalTestQuestions = [...finalScq, ...finalNumerical];
+    finalTestQuestions.shuffle();
+
+    return finalTestQuestions;
+  }
+}
+
+
+================================================================================
+FILE: lib/user_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class UserStats {
+  final int testsTaken;
+  final int questionsSolved;
+  final double averageAccuracy;
+
+  UserStats({
+    this.testsTaken = 0,
+    this.questionsSolved = 0,
+    this.averageAccuracy = 0.0,
+  });
+
+  factory UserStats.fromMap(Map<String, dynamic> map) {
+    return UserStats(
+      testsTaken: map['testsTaken'] ?? 0,
+      questionsSolved: map['questionsSolved'] ?? 0,
+      averageAccuracy: (map['averageAccuracy'] ?? 0.0).toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'testsTaken': testsTaken,
+      'questionsSolved': questionsSolved,
+      'averageAccuracy': averageAccuracy,
+    };
+  }
+}
+
+class UserModel {
+  final String uid;
+  final String email;
+  final String displayName;
+  final UserStats stats;
+  final List<String> testIDsattempted;
+  final Timestamp createdAt; // New field
+
+  UserModel({
+    required this.uid,
+    required this.email,
+    required this.displayName,
+    required this.stats,
+    required this.testIDsattempted,
+    required this.createdAt, // Added to constructor
+  });
+
+  factory UserModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return UserModel(
+      uid: doc.id,
+      email: data['email'] ?? '',
+      displayName: data['displayName'] ?? '',
+      stats: UserStats.fromMap(data['stats'] ?? {}),
+      testIDsattempted: List<String>.from(data['testIDsattempted'] ?? []),
+      createdAt: data['createdAt'] ?? Timestamp.now(), // Read the timestamp
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'email': email,
+      'displayName': displayName,
+      'stats': stats.toMap(),
+      'testIDsattempted': testIDsattempted,
+      'createdAt': createdAt, // Add to Firestore map
+    };
+  }
+}
+
+
+================================================================================
+FILE: lib/Screens/login_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/services/auth_service.dart';
+
+class LoginScreen extends StatefulWidget {
+  final VoidCallback showRegisterScreen;
+  const LoginScreen({super.key, required this.showRegisterScreen});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+
+  Future<void> _signIn() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+      await AuthService().signInWithEmailAndPassword(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+      );
+      // The auth stream will handle navigation
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.deepPurple[50],
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('StudySmart', style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                const SizedBox(height: 50),
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  validator: (value) => value!.isEmpty ? 'Please enter an email' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(labelText: 'Password'),
+                  obscureText: true,
+                  validator: (value) => value!.isEmpty ? 'Please enter a password' : null,
+                ),
+                const SizedBox(height: 20),
+                if (_isLoading)
+                  const CircularProgressIndicator()
+                else
+                  ElevatedButton(
+                    onPressed: _signIn,
+                    style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                    child: const Text('Sign In'),
+                  ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  icon: Image.asset('assets/google_logo.png', height: 24.0),
+                  label: const Text('Sign in with Google', style: TextStyle(fontSize: 16)),
+                  style: ElevatedButton.styleFrom(
+                      foregroundColor: Colors.black, backgroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)),
+                  onPressed: () => AuthService().signInWithGoogle(),
+                ),
+                TextButton(
+                  onPressed: widget.showRegisterScreen,
+                  child: const Text('Not a member? Register now'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/Screens/results_screen.dart
+================================================================================
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/nta_test_models.dart';
+import 'package:study_smart_qc/test_result.dart';
+import 'package:study_smart_qc/widgets/solution_detail_sheet.dart';
+
+class ResultsScreen extends StatefulWidget {
+  final TestResult result;
+
+  const ResultsScreen({super.key, required this.result});
+
+  @override
+  State<ResultsScreen> createState() => _ResultsScreenState();
+}
+
+class _ResultsScreenState extends State<ResultsScreen> {
+  int correctCount = 0;
+  int incorrectCount = 0;
+  int unattemptedCount = 0;
+  int attemptedCount = 0;
+  int marksObtained = 0;
+  double accuracy = 0.0;
+  double attemptPercentage = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateResults();
+  }
+
+  void _calculateResults() {
+    int tempCorrect = 0;
+    int tempIncorrect = 0;
+
+    widget.result.answerStates.forEach((index, state) {
+      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
+        final question = widget.result.questions[index];
+        final userAnswer = state.userAnswer;
+
+        if (userAnswer != null && userAnswer.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase()) {
+          tempCorrect++;
+        } else {
+          tempIncorrect++;
+        }
+      }
+    });
+
+    setState(() {
+      correctCount = tempCorrect;
+      incorrectCount = tempIncorrect;
+      attemptedCount = correctCount + incorrectCount;
+      unattemptedCount = widget.result.questions.length - attemptedCount;
+      marksObtained = (correctCount * 4) - (incorrectCount * 1);
+      accuracy = (attemptedCount > 0) ? (correctCount / attemptedCount) * 100 : 0.0;
+      attemptPercentage = (widget.result.questions.isNotEmpty) ? (attemptedCount / widget.result.questions.length) * 100 : 0.0;
+    });
+  }
+
+  void _showSolutionSheet(int initialIndex) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        // Simplified the call to remove the buggy DraggableScrollableSheet.
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.9,
+          child: SolutionDetailSheet(
+            result: widget.result,
+            initialIndex: initialIndex,
+          ),
+        );
+      },
+    );
+  }
+
+  String get _formattedTimeTaken {
+    final minutes = widget.result.timeTaken.inMinutes.toString().padLeft(2, '0');
+    final seconds = (widget.result.timeTaken.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Test Analysis'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildScoreCard(),
+            const SizedBox(height: 20),
+            _buildStatsRow(),
+            const SizedBox(height: 20),
+            _buildVisualAnalysis(),
+            const SizedBox(height: 20),
+            _buildReviewSolutionsGrid(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScoreCard() {
+    double percentage = (marksObtained / widget.result.totalMarks) * 100;
+    String motivation = percentage >= 75 ? 'Excellent Work!' : percentage >= 50 ? 'Good Effort!' : 'Keep Improving!';
+
+    return Card(
+      color: Colors.deepPurple.shade700,
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          children: [
+            Text('Marks Obtained', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 16)),
+            const SizedBox(height: 8),
+            Text('$marksObtained / ${widget.result.totalMarks}', style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(motivation, style: const TextStyle(color: Colors.yellowAccent, fontSize: 14)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsRow() {
+     return Row(
+      children: [
+        _buildStatCard('Accuracy', '${accuracy.toStringAsFixed(0)}%', Icons.track_changes),
+        _buildStatCard('Attempt %', '${attemptPercentage.toStringAsFixed(0)}%', Icons.rule),
+        _buildStatCard('Time Taken', _formattedTimeTaken, Icons.timer_outlined),
+      ],
+    );
+  }
+
+  Widget _buildStatCard(String title, String value, IconData icon) {
+    return Expanded(
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            children: [Icon(icon, color: Colors.deepPurple, size: 28), const SizedBox(height: 8), Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600])), const SizedBox(height: 4), Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVisualAnalysis() {
+     return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            const Text('Analysis', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 150,
+              child: PieChart(
+                PieChartData(
+                  sectionsSpace: 4,
+                  centerSpaceRadius: 40,
+                  pieTouchData: PieTouchData(touchCallback: (event, pieTouchResponse) {}),
+                  sections: [
+                    PieChartSectionData(value: correctCount.toDouble(), showTitle: false, color: Colors.green, radius: 25),
+                    PieChartSectionData(value: incorrectCount.toDouble(), showTitle: false, color: Colors.red, radius: 25),
+                    PieChartSectionData(value: unattemptedCount.toDouble(), showTitle: false, color: Colors.grey, radius: 25),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildLegend(),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildLegend() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _buildLegendItem(Colors.green, 'Correct ($correctCount)'),
+        _buildLegendItem(Colors.red, 'Incorrect ($incorrectCount)'),
+        _buildLegendItem(Colors.grey, 'Skipped ($unattemptedCount)'),
+      ],
+    );
+  }
+  
+  Widget _buildLegendItem(Color color, String text) {
+    return Row(
+      children: [
+        Container(width: 16, height: 16, color: color),
+        const SizedBox(width: 8),
+        Text(text),
+      ],
+    );
+  }
+
+  Widget _buildReviewSolutionsGrid() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Review Solutions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 15),
+            GridView.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 6, crossAxisSpacing: 8, mainAxisSpacing: 8),
+              itemCount: widget.result.questions.length,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemBuilder: (context, index) {
+                final state = widget.result.answerStates[index]!;
+                final question = widget.result.questions[index];
+                Color color = Colors.grey;
+                if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
+                  color = state.userAnswer == question.correctAnswer ? Colors.green : Colors.red;
+                }
+
+                return GestureDetector(
+                  onTap: () => _showSolutionSheet(index),
+                  child: CircleAvatar(
+                    backgroundColor: color,
+                    child: Text('${index + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/Screens/syllabus_screen.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/services/auth_service.dart';
+import 'package:study_smart_qc/widgets/test_configuration_bottom_sheet.dart';
+
+class SyllabusScreen extends StatefulWidget {
+  const SyllabusScreen({super.key});
+
+  @override
+  State<SyllabusScreen> createState() => _SyllabusScreenState();
+}
+
+class _SyllabusScreenState extends State<SyllabusScreen> {
+  // State for user selections
+  final Set<String> _selectedTopicIds = {};
+  final Set<String> _selectedChapterIds = {};
+  final Map<String, bool> _expansionState = {};
+
+  // State to hold parsed syllabus data, preventing re-parsing on every UI rebuild
+  Map<String, String> _chapterIdToNameMap = {};
+  Map<String, String> _topicIdToNameMap = {};
+  Map<String, Map<String, String>> _chapterIdToTopicsMap = {};
+  List<String> _chapterKeys = [];
+
+  void _onTopicSelected(bool isSelected, String chapterId, String topicId) {
+    setState(() {
+      if (isSelected) {
+        _selectedTopicIds.add(topicId);
+        _selectedChapterIds.add(chapterId);
+      } else {
+        _selectedTopicIds.remove(topicId);
+        final chapterTopics = _chapterIdToTopicsMap[chapterId]?.keys ?? [];
+        if (chapterTopics.every((topic) => !_selectedTopicIds.contains(topic))) {
+          _selectedChapterIds.remove(chapterId);
+        }
+      }
+    });
+  }
+
+  void _toggleSelectAll(String chapterId, Set<String> topicKeys) {
+    setState(() {
+      final areAllSelected = topicKeys.isNotEmpty && topicKeys.every((key) => _selectedTopicIds.contains(key));
+      if (areAllSelected) {
+        _selectedTopicIds.removeAll(topicKeys);
+        _selectedChapterIds.remove(chapterId);
+      } else {
+        _selectedTopicIds.addAll(topicKeys);
+        _selectedChapterIds.add(chapterId);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Select Topics"),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(icon: const Icon(Icons.logout), onPressed: () => AuthService().signOut()),
+        ],
+      ),
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance.collection('static_data').doc('syllabus').snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return const Center(child: Text("No Syllabus Found"));
+          }
+
+          if (snapshot.hasData) {
+            Map<String, dynamic> data = snapshot.data!.data() as Map<String, dynamic>;
+            final chapters = data['subjects']?['physics']?['chapters'] as Map<String, dynamic>? ?? {};
+            _chapterKeys = chapters.keys.toList();
+
+            _chapterIdToNameMap = {};
+            _topicIdToNameMap = {};
+            _chapterIdToTopicsMap = {};
+
+            for (var chapterKey in _chapterKeys) {
+              final chapterData = chapters[chapterKey] as Map<String, dynamic>;
+              _chapterIdToNameMap[chapterKey] = chapterData['name'] ?? 'Unnamed Chapter';
+              final topics = Map<String, String>.from(chapterData['topics'] ?? {});
+              _chapterIdToTopicsMap[chapterKey] = topics;
+              for (var topicEntry in topics.entries) {
+                _topicIdToNameMap[topicEntry.key] = topicEntry.value as String;
+              }
+            }
+          }
+
+          return ListView.builder(
+            key: const PageStorageKey<String>('syllabus_list'),
+            padding: const EdgeInsets.only(bottom: 120),
+            itemCount: _chapterKeys.length,
+            itemBuilder: (context, index) {
+              final chapterKey = _chapterKeys[index];
+              final chapterName = _chapterIdToNameMap[chapterKey]!;
+              final topics = _chapterIdToTopicsMap[chapterKey]!;
+              final topicKeys = topics.keys.toSet();
+
+              final areAllSelected = topicKeys.isNotEmpty && topicKeys.every((key) => _selectedTopicIds.contains(key));
+              final isExpanded = _expansionState[chapterKey] ?? false;
+
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: areAllSelected ? Colors.green : Colors.transparent, width: 2),
+                ),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.book, color: Colors.deepPurple),
+                      title: Text(chapterName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      onTap: () => _toggleSelectAll(chapterKey, topicKeys),
+                      trailing: IconButton(
+                        icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
+                        onPressed: () => setState(() => _expansionState[chapterKey] = !isExpanded),
+                      ),
+                    ),
+                    if (isExpanded)
+                      Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: GridView.builder(
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            childAspectRatio: 2.5,
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                          ),
+                          itemCount: topicKeys.length,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemBuilder: (context, gridIndex) {
+                            final topicKey = topicKeys.elementAt(gridIndex);
+                            final topicName = topics[topicKey]!;
+                            final isSelected = _selectedTopicIds.contains(topicKey);
+
+                            return GestureDetector(
+                              onTap: () => _onTopicSelected(!isSelected, chapterKey, topicKey),
+                              child: Card(
+                                color: isSelected ? Colors.green.withOpacity(0.15) : null,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade300)),
+                                child: Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: Text(topicName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+      bottomSheet: _selectedTopicIds.isNotEmpty ? _buildStickyBottomBar() : null,
+    );
+  }
+
+  Widget _buildStickyBottomBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15).copyWith(bottom: MediaQuery.of(context).padding.bottom + 10),
+      decoration: BoxDecoration(color: Colors.deepPurple.shade700, boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, -2))]),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${_selectedTopicIds.length} Topic(s) Selected', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              Text('${_selectedChapterIds.length} Chapter(s)', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            ],
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(foregroundColor: Colors.deepPurple, backgroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
+            onPressed: () {
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (ctx) => TestConfigurationBottomSheet(
+                  chapterIds: _selectedChapterIds,
+                  topicIds: _selectedTopicIds,
+                  chapterIdToNameMap: _chapterIdToNameMap,
+                  topicIdToNameMap: _topicIdToNameMap,
+                  chapterIdToTopicsMap: _chapterIdToTopicsMap, // FIX: This is now correctly passed
+                ),
+              );
+            },
+            child: const Row(children: [Text('Configure Test'), SizedBox(width: 5), Icon(Icons.arrow_forward_ios, size: 14)]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/services/auth_service.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:study_smart_qc/user_model.dart';
+
+class AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  Stream<User?> get userStream {
+    return _auth.authStateChanges().asyncMap((user) async {
+      if (user != null) {
+        await _createUserDocumentIfNotExist(user);
+      }
+      return user;
+    });
+  }
+
+  Future<void> _createUserDocumentIfNotExist(User user, {String? displayName}) async {
+    final userRef = _firestore.collection('users').doc(user.uid);
+    final doc = await userRef.get();
+
+    if (!doc.exists) {
+      final newUser = UserModel(
+        uid: user.uid,
+        email: user.email ?? '',
+        displayName: displayName ?? user.displayName ?? '',
+        stats: UserStats(),
+        testIDsattempted: [],
+        createdAt: Timestamp.now(), // FIX: Add timestamp on creation
+      );
+      await userRef.set(newUser.toFirestore());
+    }
+  }
+
+  Future<UserCredential?> signInWithGoogle() async {
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) return null; 
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final OAuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      return await _auth.signInWithCredential(credential);
+    } catch (e) {
+      print("Error during Google Sign-In: $e");
+      return null;
+    }
+  }
+
+  Future<UserCredential?> signInWithEmailAndPassword(String email, String password) async {
+    try {
+      return await _auth.signInWithEmailAndPassword(email: email, password: password);
+    } on FirebaseAuthException catch (e) {
+      print("Error during Email Sign-In: ${e.message}");
+      return null;
+    }
+  }
+
+  Future<UserCredential?> signUpWithEmailAndPassword(String email, String password, String displayName) async {
+    try {
+      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      
+      User? user = userCredential.user;
+      if (user != null) {
+        await user.updateDisplayName(displayName);
+        await _createUserDocumentIfNotExist(user, displayName: displayName);
+      }
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      print("Error during Email Sign-Up: ${e.message}");
+      return null;
+    }
+  }
+
+  Future<void> signOut() async {
+    await _googleSignIn.signOut();
+    await _auth.signOut();
+  }
+}
+
+
+================================================================================
+FILE: lib/widgets/question_palette.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/nta_test_models.dart';
+
+class QuestionPalette extends StatelessWidget {
+  final int questionCount;
+  final Map<int, AnswerState> answerStates;
+  final int currentQuestionIndex;
+  final Function(int) onQuestionTapped;
+
+  const QuestionPalette({
+    super.key,
+    required this.questionCount,
+    required this.answerStates,
+    required this.currentQuestionIndex,
+    required this.onQuestionTapped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      itemCount: questionCount,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 5,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemBuilder: (context, index) {
+        final state = answerStates[index] ?? AnswerState();
+        final isCurrent = index == currentQuestionIndex;
+
+        return GestureDetector(
+          onTap: () => onQuestionTapped(index),
+          child: Container(
+            decoration: BoxDecoration(
+              color: state.status.color,
+              borderRadius: BorderRadius.circular(4),
+              border: isCurrent ? Border.all(color: Colors.black, width: 2) : null,
+            ),
+            child: Center(
+              child: Text(
+                '${index + 1}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/widgets/solution_detail_sheet.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/nta_test_models.dart';
+import 'package:study_smart_qc/question_model.dart';
+import 'package:study_smart_qc/test_result.dart'; // Added missing import
+
+class SolutionDetailSheet extends StatefulWidget {
+  final TestResult result;
+  final int initialIndex;
+
+  const SolutionDetailSheet({
+    super.key,
+    required this.result,
+    required this.initialIndex,
+  });
+
+  @override
+  State<SolutionDetailSheet> createState() => _SolutionDetailSheetState();
+}
+
+class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
+  late final PageController _pageController;
+  int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: _currentIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  String _formatTime(int totalSeconds) {
+    if (totalSeconds < 60) {
+      return '$totalSeconds s';
+    }
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '$minutes m ${seconds}s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios),
+                onPressed: _currentIndex > 0 ? () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn) : null,
+              ),
+              Text('Solution ${_currentIndex + 1} / ${widget.result.questions.length}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              IconButton(
+                icon: const Icon(Icons.arrow_forward_ios),
+                onPressed: _currentIndex < widget.result.questions.length - 1 ? () => _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn) : null,
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: widget.result.questions.length,
+            onPageChanged: (index) => setState(() => _currentIndex = index),
+            itemBuilder: (context, index) {
+              final question = widget.result.questions[index];
+              final answerState = widget.result.answerStates[index]!;
+              final isCorrect = answerState.userAnswer == question.correctAnswer;
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Question ${index + 1}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Image.network(question.imageUrl),
+                    const SizedBox(height: 20),
+                    _buildAnswerStatus('Your Answer: ${answerState.userAnswer ?? "Not Answered"}', isCorrect, answerState.status),
+                    const SizedBox(height: 8),
+                    _buildAnswerStatus('Correct Answer: ${question.correctAnswer}', true, AnswerStatus.answered),
+                    const Divider(height: 30),
+                    if (question.solutionUrl != null && question.solutionUrl!.isNotEmpty)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Solution', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 10),
+                          Image.network(question.solutionUrl!),
+                        ],
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAnswerStatus(String text, bool isCorrect, AnswerStatus status) {
+    Color color = Colors.grey;
+    if (status == AnswerStatus.answered || status == AnswerStatus.answeredAndMarked) {
+      color = isCorrect ? Colors.green : Colors.red;
+    }
+    return Row(children: [Icon(isCorrect ? Icons.check_circle : Icons.cancel, color: color, size: 20), const SizedBox(width: 8), Expanded(child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold)))]);
+  }
+}
+
+
+================================================================================
+FILE: lib/widgets/test_configuration_bottom_sheet.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/question_model.dart';
+import 'package:study_smart_qc/test_preview_screen.dart';
+import 'package:study_smart_qc/test_service.dart';
+
+class TestConfigurationBottomSheet extends StatefulWidget {
+  final Set<String> chapterIds;
+  final Map<String, String> chapterIdToNameMap;
+  final Set<String> topicIds;
+  final Map<String, String> topicIdToNameMap; // This was the missing parameter
+  final Map<String, Map<String, String>> chapterIdToTopicsMap;
+
+  const TestConfigurationBottomSheet({
+    super.key,
+    required this.chapterIds,
+    required this.topicIds,
+    required this.chapterIdToNameMap,
+    required this.topicIdToNameMap, // FIX: Added to constructor
+    required this.chapterIdToTopicsMap,
+  });
+
+  @override
+  State<TestConfigurationBottomSheet> createState() =>
+      _TestConfigurationBottomSheetState();
+}
+
+class _TestConfigurationBottomSheetState
+    extends State<TestConfigurationBottomSheet> {
+  int _selectedQuestionCount = 15;
+  late int _timeInMinutes;
+  final List<int> _questionCountOptions = [10, 15, 20, 30];
+  bool _isCustom = false;
+  final TextEditingController _customCountController = TextEditingController();
+  late final TextEditingController _testNameController;
+  bool _isGeneratingTest = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timeInMinutes = _selectedQuestionCount * 2;
+    _customCountController.text = '45';
+    final defaultChapterName = widget.chapterIds.isNotEmpty ? widget.chapterIdToNameMap[widget.chapterIds.first] : 'Custom';
+    _testNameController = TextEditingController(text: 'P - $defaultChapterName Test');
+  }
+
+  @override
+  void dispose() {
+    _customCountController.dispose();
+    _testNameController.dispose();
+    super.dispose();
+  }
+
+  void _updateQuestionCount(int? count) {
+    setState(() {
+      _isCustom = count == null;
+      if (!_isCustom) {
+        _selectedQuestionCount = count!;
+      } else {
+        _selectedQuestionCount = int.tryParse(_customCountController.text) ?? 45;
+      }
+      _timeInMinutes = _selectedQuestionCount * 2;
+    });
+  }
+
+  void _onCustomCountChanged(String value) {
+    setState(() {
+      _selectedQuestionCount = int.tryParse(value) ?? _selectedQuestionCount;
+      _timeInMinutes = _selectedQuestionCount * 2;
+    });
+  }
+
+  void _adjustTime(int delta) {
+    setState(() {
+      _timeInMinutes = (_timeInMinutes + delta).clamp(5, 180);
+    });
+  }
+
+  Future<void> _generateAndPreviewTest() async {
+    setState(() => _isGeneratingTest = true);
+
+    final service = TestService();
+    final questions = await service.generateTest(
+      chapterIds: widget.chapterIds,
+      topicIds: widget.topicIds,
+      questionCount: _selectedQuestionCount,
+    );
+
+    if (!mounted) return;
+    setState(() => _isGeneratingTest = false);
+
+    if (questions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No questions found for the selected topics.'), backgroundColor: Colors.red),
+      );
+      Navigator.pop(context);
+      return;
+    }
+
+    final Map<String, List<String>> selectedSyllabus = {};
+    for (String chapId in widget.chapterIds) {
+      final chapterName = widget.chapterIdToNameMap[chapId]!;
+      final List<String> selectedTopicsInChapter = [];
+      
+      final questionTopicIdsForThisChapter = questions
+          .where((q) => q.chapterId == chapId)
+          .map((q) => q.topicId)
+          .toSet();
+
+      for (var topicId in questionTopicIdsForThisChapter) {
+        final topicName = widget.topicIdToNameMap[topicId];
+        if (topicName != null && !selectedTopicsInChapter.contains(topicName)) {
+          selectedTopicsInChapter.add(topicName);
+        }
+      }
+
+      if (selectedTopicsInChapter.isNotEmpty) {
+        selectedSyllabus[chapterName] = selectedTopicsInChapter;
+      }
+    }
+
+    Navigator.pop(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TestPreviewScreen(
+          questions: questions,
+          timeLimitInMinutes: _timeInMinutes,
+          selectedSyllabus: selectedSyllabus,
+          testName: _testNameController.text,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Configure Your Test', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _testNameController,
+              decoration: const InputDecoration(labelText: 'Test Name', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 20),
+            const Text('Number of Questions:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              children: [
+                ..._questionCountOptions.map((count) {
+                  return ChoiceChip(
+                    label: Text('$count'),
+                    selected: !_isCustom && _selectedQuestionCount == count,
+                    onSelected: (_) => _updateQuestionCount(count),
+                  );
+                }).toList(),
+                ChoiceChip(
+                  label: const Text('Custom'),
+                  selected: _isCustom,
+                  onSelected: (_) => _updateQuestionCount(null),
+                )
+              ],
+            ),
+            if (_isCustom)
+              Padding(
+                padding: const EdgeInsets.only(top: 10.0),
+                child: TextField(
+                  controller: _customCountController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Enter number of questions', border: OutlineInputBorder()),
+                  onChanged: _onCustomCountChanged,
+                ),
+              ),
+            const SizedBox(height: 20),
+            const Text('Time Limit:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => _adjustTime(-5)),
+                Text('$_timeInMinutes mins', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () => _adjustTime(5)),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: _isGeneratingTest
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
+                      onPressed: _generateAndPreviewTest,
+                      child: const Text('Generate Test', style: TextStyle(fontSize: 18)),
+                    ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+

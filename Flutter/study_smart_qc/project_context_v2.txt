@@ -1,0 +1,5402 @@
+--- PROJECT STRUCTURE SUMMARY ---
+📂 lib/
+    📄 main.dart
+            📂 screens/
+                📄 results_screen.dart
+            📂 screens/
+                📄 auth_page.dart
+                📄 auth_wrapper.dart
+                📄 login_screen.dart
+                📄 onboarding_screen.dart
+                📄 register_screen.dart
+            📂 widgets/
+                📄 question_preview_card.dart
+            📂 screens/
+                📄 home_screen.dart
+            📂 widgets/
+                📄 student_assignments_list.dart
+            📂 screens/
+                📄 teacher_curation_screen.dart
+                📄 teacher_filter_screen.dart
+            📂 screens/
+                📄 custom_test_history_screen.dart
+                📄 syllabus_screen.dart
+            📂 screens/
+                📄 enter_code_screen.dart
+                📄 test_preview_screen.dart
+                📄 test_screen.dart
+    📂 models/
+        📄 attempt_item_model.dart
+        📄 attempt_model.dart
+        📄 custom_test_model.dart
+        📄 nta_test_models.dart
+        📄 question_model.dart
+        📄 test_enums.dart
+        📄 test_model.dart
+        📄 test_result.dart
+        📄 user_model.dart
+    📂 services/
+        📄 auth_service.dart
+        📄 custom_test_service.dart
+        📄 onboarding_service.dart
+        📄 teacher_service.dart
+        📄 test_orchestration_service.dart
+        📄 test_service.dart
+    📂 widgets/
+        📄 question_palette.dart
+        📄 solution_detail_sheet.dart
+        📄 test_configuration_bottom_sheet.dart
+
+Total Source Files: 35
+--------------------------------------------------
+--- FILE CONTENTS ---
+
+================================================================================
+FILE: pubspec.yaml
+================================================================================
+name: study_smart_qc
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  firebase_core: ^4.3.0
+  cloud_firestore: ^6.1.1
+  firebase_auth: ^6.1.3
+  google_sign_in: 6.2.1
+  fl_chart: ^0.68.0
+  intl: ^0.19.0 # Added for date formatting
+  provider: ^6.1.5+1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/google_logo.png
+
+
+================================================================================
+FILE: ios/Runner/Info.plist
+================================================================================
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Study Smart Qc</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>study_smart_qc</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+</dict>
+</plist>
+
+
+================================================================================
+FILE: lib/main.dart
+================================================================================
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/features/auth/screens/auth_page.dart';
+import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart'; // NEW IMPORT
+import 'package:study_smart_qc/services/auth_service.dart';
+import 'firebase_options.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'StudySmart',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+      ),
+      home: StreamBuilder<User?>(
+        stream: AuthService().userStream, // Listens to auth state changes
+        builder: (context, snapshot) {
+          // 1. Loading State
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          // 2. Logged In -> Hand off to AuthWrapper
+          // The wrapper will check the database to decide between Home vs Onboarding
+          if (snapshot.hasData && snapshot.data != null) {
+            return AuthWrapper(firebaseUser: snapshot.data!);
+          }
+
+          // 3. Not Logged In -> Show Login/Register Page
+          return const AuthPage();
+        },
+      ),
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/analytics/screens/results_screen.dart
+================================================================================
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/models/test_result.dart';
+import 'package:study_smart_qc/widgets/solution_detail_sheet.dart';
+
+class ResultsScreen extends StatefulWidget {
+  final TestResult result;
+
+  const ResultsScreen({super.key, required this.result});
+
+  @override
+  State<ResultsScreen> createState() => _ResultsScreenState();
+}
+
+class _ResultsScreenState extends State<ResultsScreen> {
+  int correctCount = 0;
+  int incorrectCount = 0;
+  int unattemptedCount = 0;
+  int attemptedCount = 0;
+  int marksObtained = 0;
+  double accuracy = 0.0;
+  double attemptPercentage = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateResults();
+  }
+
+  void _calculateResults() {
+    int tempCorrect = 0;
+    int tempIncorrect = 0;
+
+    widget.result.answerStates.forEach((index, state) {
+      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
+        final question = widget.result.questions[index];
+        final userAnswer = state.userAnswer;
+
+        if (userAnswer != null && userAnswer.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase()) {
+          tempCorrect++;
+        } else {
+          tempIncorrect++;
+        }
+      }
+    });
+
+    setState(() {
+      correctCount = tempCorrect;
+      incorrectCount = tempIncorrect;
+      attemptedCount = correctCount + incorrectCount;
+      unattemptedCount = widget.result.questions.length - attemptedCount;
+      marksObtained = (correctCount * 4) - (incorrectCount * 1);
+      accuracy = (attemptedCount > 0) ? (correctCount / attemptedCount) * 100 : 0.0;
+      attemptPercentage = (widget.result.questions.isNotEmpty) ? (attemptedCount / widget.result.questions.length) * 100 : 0.0;
+    });
+  }
+
+  void _showSolutionSheet(int initialIndex) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.9,
+          child: SolutionDetailSheet(
+            result: widget.result,
+            initialIndex: initialIndex,
+          ),
+        );
+      },
+    );
+  }
+
+  String get _formattedTimeTaken {
+    final minutes = widget.result.timeTaken.inMinutes.toString().padLeft(2, '0');
+    final seconds = (widget.result.timeTaken.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Test Analysis'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildScoreCard(),
+            const SizedBox(height: 20),
+            _buildStatsRow(),
+            const SizedBox(height: 20),
+            _buildVisualAnalysis(),
+            const SizedBox(height: 20),
+            _buildReviewSolutionsGrid(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScoreCard() {
+    double percentage = (marksObtained / widget.result.totalMarks) * 100;
+    String motivation = percentage >= 75 ? 'Excellent Work!' : percentage >= 50 ? 'Good Effort!' : 'Keep Improving!';
+
+    return Card(
+      color: Colors.deepPurple.shade700,
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          children: [
+            Text('Marks Obtained', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 16)),
+            const SizedBox(height: 8),
+            Text('$marksObtained / ${widget.result.totalMarks}', style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(motivation, style: const TextStyle(color: Colors.yellowAccent, fontSize: 14)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsRow() {
+     return Row(
+      children: [
+        _buildStatCard('Accuracy', '${accuracy.toStringAsFixed(0)}%', Icons.track_changes),
+        _buildStatCard('Attempt %', '${attemptPercentage.toStringAsFixed(0)}%', Icons.rule),
+        _buildStatCard('Time Taken', _formattedTimeTaken, Icons.timer_outlined),
+      ],
+    );
+  }
+
+  Widget _buildStatCard(String title, String value, IconData icon) {
+    return Expanded(
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            children: [Icon(icon, color: Colors.deepPurple, size: 28), const SizedBox(height: 8), Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600])), const SizedBox(height: 4), Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVisualAnalysis() {
+     return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            const Text('Analysis', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 150,
+              child: PieChart(
+                PieChartData(
+                  sectionsSpace: 4,
+                  centerSpaceRadius: 40,
+                  pieTouchData: PieTouchData(touchCallback: (event, pieTouchResponse) {}),
+                  sections: [
+                    PieChartSectionData(value: correctCount.toDouble(), showTitle: false, color: Colors.green, radius: 25),
+                    PieChartSectionData(value: incorrectCount.toDouble(), showTitle: false, color: Colors.red, radius: 25),
+                    PieChartSectionData(value: unattemptedCount.toDouble(), showTitle: false, color: Colors.grey, radius: 25),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildLegend(),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildLegend() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _buildLegendItem(Colors.green, 'Correct ($correctCount)'),
+        _buildLegendItem(Colors.red, 'Incorrect ($incorrectCount)'),
+        _buildLegendItem(Colors.grey, 'Skipped ($unattemptedCount)'),
+      ],
+    );
+  }
+  
+  Widget _buildLegendItem(Color color, String text) {
+    return Row(
+      children: [
+        Container(width: 16, height: 16, color: color),
+        const SizedBox(width: 8),
+        Text(text),
+      ],
+    );
+  }
+
+  Widget _buildReviewSolutionsGrid() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Review Solutions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 15),
+            GridView.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 6, crossAxisSpacing: 8, mainAxisSpacing: 8),
+              itemCount: widget.result.questions.length,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemBuilder: (context, index) {
+                final state = widget.result.answerStates[index]!;
+                final question = widget.result.questions[index];
+                Color color = Colors.grey;
+                if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
+                  color = state.userAnswer == question.correctAnswer ? Colors.green : Colors.red;
+                }
+
+                return GestureDetector(
+                  onTap: () => _showSolutionSheet(index),
+                  child: CircleAvatar(
+                    backgroundColor: color,
+                    child: Text('${index + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/features/auth/screens/auth_page.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/features/auth/screens/login_screen.dart';
+import 'package:study_smart_qc/features/auth/screens/register_screen.dart';
+
+class AuthPage extends StatefulWidget {
+  const AuthPage({super.key});
+
+  @override
+  State<AuthPage> createState() => _AuthPageState();
+}
+
+class _AuthPageState extends State<AuthPage> {
+  bool _showLoginScreen = true;
+
+  void toggleScreens() {
+    setState(() {
+      _showLoginScreen = !_showLoginScreen;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showLoginScreen) {
+      return LoginScreen(showRegisterScreen: toggleScreens);
+    } else {
+      return RegisterScreen(showLoginScreen: toggleScreens);
+    }
+  }
+}
+
+
+================================================================================
+FILE: lib/features/auth/screens/auth_wrapper.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/features/auth/screens/onboarding_screen.dart';
+import 'package:study_smart_qc/features/home/screens/home_screen.dart';
+import 'package:study_smart_qc/models/user_model.dart';
+
+class AuthWrapper extends StatelessWidget {
+  final User firebaseUser;
+
+  const AuthWrapper({super.key, required this.firebaseUser});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(firebaseUser.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        // 1. Loading State
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        // 2. Error State or No Data
+        if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
+          return const Scaffold(
+            body: Center(child: Text("Error loading user profile.")),
+          );
+        }
+
+        // 3. Parse User Data
+        try {
+          // We use our model to parse the data safely
+          UserModel user = UserModel.fromFirestore(snapshot.data!);
+
+          // 4. routing Logic
+          if (user.onboardingCompleted) {
+            return const HomeScreen();
+          } else {
+            return const OnboardingScreen();
+          }
+        } catch (e) {
+          return Scaffold(
+            body: Center(child: Text("Error parsing user data: $e")),
+          );
+        }
+      },
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/auth/screens/login_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/services/auth_service.dart';
+
+class LoginScreen extends StatefulWidget {
+  final VoidCallback showRegisterScreen;
+  const LoginScreen({super.key, required this.showRegisterScreen});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+
+  Future<void> _signIn() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+      await AuthService().signInWithEmailAndPassword(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+      );
+      // The auth stream will handle navigation
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.deepPurple[50],
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('StudySmart', style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                const SizedBox(height: 50),
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  validator: (value) => value!.isEmpty ? 'Please enter an email' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(labelText: 'Password'),
+                  obscureText: true,
+                  validator: (value) => value!.isEmpty ? 'Please enter a password' : null,
+                ),
+                const SizedBox(height: 20),
+                if (_isLoading)
+                  const CircularProgressIndicator()
+                else
+                  ElevatedButton(
+                    onPressed: _signIn,
+                    style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                    child: const Text('Sign In'),
+                  ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  icon: Image.asset('assets/google_logo.png', height: 24.0),
+                  label: const Text('Sign in with Google', style: TextStyle(fontSize: 16)),
+                  style: ElevatedButton.styleFrom(
+                      foregroundColor: Colors.black, backgroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)),
+                  onPressed: () => AuthService().signInWithGoogle(),
+                ),
+                TextButton(
+                  onPressed: widget.showRegisterScreen,
+                  child: const Text('Not a member? Register now'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/features/auth/screens/onboarding_screen.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/services/onboarding_service.dart';
+
+class OnboardingScreen extends StatefulWidget {
+  const OnboardingScreen({super.key});
+
+  @override
+  State<OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+class _OnboardingScreenState extends State<OnboardingScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final OnboardingService _onboardingService = OnboardingService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  // Loading States
+  bool _isFetchingOptions = true;
+  bool _isSubmitting = false;
+
+  // Data Options (Fetched from Firestore)
+  List<String> _examsList = [];
+  List<String> _classesList = [];
+  List<String> _subjectsList = [];
+  List<int> _targetYears = [];
+
+  // Form State - Student
+  String? _selectedExam;
+  String? _selectedClass;
+  int? _selectedYear;
+
+  // Form State - Teacher
+  final List<String> _teacherSelectedExams = [];
+  final List<String> _teacherSelectedSubjects = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _fetchOptions();
+  }
+
+  Future<void> _fetchOptions() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('static_data')
+          .doc('option_sets')
+          .get();
+
+      if (doc.exists) {
+        final data = doc.data()!;
+        setState(() {
+          _examsList = List<String>.from(data['exams_list'] ?? []);
+          _classesList = List<String>.from(data['classes_list'] ?? []);
+          _subjectsList = List<String>.from(data['subjects_list'] ?? []);
+          _targetYears = List<int>.from(data['target_years'] ?? []);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading options: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isFetchingOptions = false);
+      }
+    }
+  }
+
+  Future<void> _handleSubmit() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      final isStudent = _tabController.index == 0;
+      final role = isStudent ? 'student' : 'teacher';
+      Map<String, dynamic> profileData = {};
+
+      if (isStudent) {
+        // Validate Student Form
+        if (_selectedExam == null ||
+            _selectedClass == null ||
+            _selectedYear == null) {
+          throw Exception("Please fill all fields.");
+        }
+        profileData = {
+          'targetExam': _selectedExam,
+          'currentClass': _selectedClass,
+          'targetYear': _selectedYear,
+        };
+      } else {
+        // Validate Teacher Form
+        if (_teacherSelectedExams.isEmpty ||
+            _teacherSelectedSubjects.isEmpty) {
+          throw Exception("Please select at least one exam and one subject.");
+        }
+        profileData = {
+          'teachingExams': _teacherSelectedExams,
+          'teachingSubjects': _teacherSelectedSubjects,
+        };
+      }
+
+      // Call Service
+      await _onboardingService.completeOnboarding(
+        uid: user.uid,
+        role: role,
+        profileData: profileData,
+      );
+
+      // No manual navigation needed here; AuthWrapper will react to the data change.
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isFetchingOptions) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Welcome to StudySmart"),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: "I'm a Student", icon: Icon(Icons.school)),
+            Tab(text: "I'm a Teacher", icon: Icon(Icons.person_outline)),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildStudentForm(),
+          _buildTeacherForm(),
+        ],
+      ),
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            backgroundColor: Colors.deepPurple,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: _isSubmitting ? null : _handleSubmit,
+          child: _isSubmitting
+              ? const SizedBox(
+            height: 20,
+            width: 20,
+            child: CircularProgressIndicator(
+                color: Colors.white, strokeWidth: 2),
+          )
+              : const Text("Complete Profile", style: TextStyle(fontSize: 18)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStudentForm() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Help us personalize your learning path.",
+              style: TextStyle(fontSize: 16, color: Colors.grey)),
+          const SizedBox(height: 30),
+          _buildDropdown(
+            label: "Target Exam",
+            value: _selectedExam,
+            items: _examsList,
+            onChanged: (val) => setState(() => _selectedExam = val),
+          ),
+          const SizedBox(height: 20),
+          _buildDropdown(
+            label: "Current Class",
+            value: _selectedClass,
+            items: _classesList,
+            onChanged: (val) => setState(() => _selectedClass = val),
+          ),
+          const SizedBox(height: 20),
+          DropdownButtonFormField<int>(
+            // FIX: Using initialValue instead of value
+            initialValue: _selectedYear,
+            decoration: const InputDecoration(
+              labelText: "Target Exam Year",
+              border: OutlineInputBorder(),
+            ),
+            items: _targetYears
+                .map((year) => DropdownMenuItem(
+              value: year,
+              child: Text(year.toString()),
+            ))
+                .toList(),
+            onChanged: (val) => setState(() => _selectedYear = val),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTeacherForm() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Tell us about your teaching expertise.",
+              style: TextStyle(fontSize: 16, color: Colors.grey)),
+          const SizedBox(height: 30),
+          const Text("Exams you teach:",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8.0,
+            children: _examsList.map((exam) {
+              final isSelected = _teacherSelectedExams.contains(exam);
+              return FilterChip(
+                label: Text(exam),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    selected
+                        ? _teacherSelectedExams.add(exam)
+                        : _teacherSelectedExams.remove(exam);
+                  });
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 30),
+          const Text("Subjects:",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8.0,
+            children: _subjectsList.map((subject) {
+              final isSelected = _teacherSelectedSubjects.contains(subject);
+              return FilterChip(
+                label: Text(subject),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    selected
+                        ? _teacherSelectedSubjects.add(subject)
+                        : _teacherSelectedSubjects.remove(subject);
+                  });
+                },
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDropdown({
+    required String label,
+    required String? value,
+    required List<String> items,
+    required Function(String?) onChanged,
+  }) {
+    return DropdownButtonFormField<String>(
+      // FIX: Using initialValue instead of value
+      initialValue: value,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+      items: items
+          .map((item) => DropdownMenuItem(
+        value: item,
+        child: Text(item),
+      ))
+          .toList(),
+      onChanged: onChanged,
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/auth/screens/register_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/services/auth_service.dart';
+
+class RegisterScreen extends StatefulWidget {
+  final VoidCallback showLoginScreen;
+  const RegisterScreen({super.key, required this.showLoginScreen});
+
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _displayNameController = TextEditingController();
+  bool _isLoading = false;
+
+  Future<void> _signUp() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+      await AuthService().signUpWithEmailAndPassword(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+        _displayNameController.text.trim(),
+      );
+      // The auth stream will handle navigation
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _displayNameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Register')),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextFormField(
+                  controller: _displayNameController,
+                  decoration: const InputDecoration(labelText: 'Full Name'),
+                  validator: (value) => value!.isEmpty ? 'Please enter your name' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  validator: (value) => value!.isEmpty ? 'Please enter an email' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(labelText: 'Password'),
+                  obscureText: true,
+                  validator: (value) => value!.length < 6 ? 'Password must be at least 6 characters' : null,
+                ),
+                const SizedBox(height: 20),
+                if (_isLoading)
+                  const CircularProgressIndicator()
+                else
+                  ElevatedButton(
+                    onPressed: _signUp,
+                    child: const Text('Sign Up'),
+                  ),
+                TextButton(
+                  onPressed: widget.showLoginScreen,
+                  child: const Text('Already have an account? Login'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/features/common/widgets/question_preview_card.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+
+class QuestionPreviewCard extends StatefulWidget {
+  final Question question;
+  final bool isExpanded; // If true, shows full details initially
+
+  const QuestionPreviewCard({
+    super.key,
+    required this.question,
+    this.isExpanded = false,
+  });
+
+  @override
+  State<QuestionPreviewCard> createState() => _QuestionPreviewCardState();
+}
+
+class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
+  bool _showAnswer = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = widget.question;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // HEADER: ID + Tags
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.shade50,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    "QID: ${q.id}",
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        // UPDATED TAGS: Source -> Chapter -> Topic -> Difficulty
+                        if (q.source.isNotEmpty) ...[
+                          _buildTag(q.source, Colors.blue.shade50, Colors.blue.shade700),
+                          const SizedBox(width: 5),
+                        ],
+                        if (q.chapterId.isNotEmpty) ...[
+                          _buildTag(_formatTag(q.chapterId), Colors.orange.shade50, Colors.orange.shade800),
+                          const SizedBox(width: 5),
+                        ],
+                        _buildTag(_formatTag(q.topicId), Colors.grey.shade100, Colors.grey.shade700),
+                        const SizedBox(width: 5),
+                        _buildTag(q.difficulty, _getDifficultyColor(q.difficulty), Colors.black87),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // BODY: Question Image
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Question:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 250),
+                    child: Image.network(
+                      q.imageUrl,
+                      loadingBuilder: (ctx, child, p) => p == null ? child : const CircularProgressIndicator(),
+                      errorBuilder: (ctx, err, stack) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // FOOTER: Show Answer Toggle
+          const Divider(height: 1),
+          if (!_showAnswer)
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                icon: const Icon(Icons.visibility),
+                label: const Text("Show Answer & Solution"),
+                onPressed: () => setState(() => _showAnswer = true),
+              ),
+            ),
+
+          // ANSWER SECTION (Conditional)
+          if (_showAnswer)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Solution:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 16),
+                        onPressed: () => setState(() => _showAnswer = false),
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // CORRECT ANSWER TEXT
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: Colors.green.shade200),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text("Correct Option: ", style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text(q.correctAnswer, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // SOLUTION IMAGE
+                  if (q.solutionUrl != null && q.solutionUrl!.isNotEmpty)
+                    Center(
+                      child: Image.network(
+                        q.solutionUrl!,
+                        errorBuilder: (ctx, err, stack) => const Text("Solution image not available"),
+                      ),
+                    )
+                  else
+                    const Text("No detailed solution image available.", style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // Helper to clean up ID strings (e.g., "ray_optics" -> "Ray Optics")
+  String _formatTag(String text) {
+    if (text.isEmpty) return "";
+    return text.split('_').map((str) => str.isNotEmpty ? str[0].toUpperCase() + str.substring(1) : '').join(' ');
+  }
+
+  Color _getDifficultyColor(String diff) {
+    switch (diff.toLowerCase()) {
+      case 'easy': return Colors.green.shade100;
+      case 'medium': return Colors.yellow.shade100;
+      case 'hard': return Colors.red.shade100;
+      default: return Colors.grey.shade200;
+    }
+  }
+
+  Widget _buildTag(String text, Color bg, Color fg) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: bg.withOpacity(0.5)),
+      ),
+      child: Text(text, style: TextStyle(fontSize: 10, color: fg, fontWeight: FontWeight.w500)),
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/home/screens/home_screen.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+
+// --- CRITICAL IMPORTS (Check these lines) ---
+import 'package:study_smart_qc/features/teacher/screens/teacher_curation_screen.dart';
+import 'package:study_smart_qc/features/test_creation/screens/custom_test_history_screen.dart'; // Fixes your error
+import 'package:study_smart_qc/features/test_taking/screens/enter_code_screen.dart';
+import 'package:study_smart_qc/features/student/widgets/student_assignments_list.dart';
+import 'package:study_smart_qc/services/auth_service.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  String? _userRole;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserRole();
+  }
+
+  Future<void> _fetchUserRole() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        if (mounted) {
+          setState(() {
+            _userRole = doc.data()?['role'] ?? 'student';
+            _isLoading = false;
+          });
+        }
+      } catch (e) {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('StudySmart'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+      ),
+      drawer: _buildDrawer(context),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Center(
+        child: SingleChildScrollView( // Added scroll view for safety
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // --- TEACHER ONLY BUTTON ---
+                if (_userRole == 'teacher') ...[
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.school),
+                    label: const Text('Create questions curation'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple.shade100,
+                      foregroundColor: Colors.deepPurple.shade900,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 30,
+                        vertical: 15,
+                      ),
+                      textStyle: const TextStyle(fontSize: 18),
+                    ),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const TeacherCurationScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
+                // --- STUDENT ASSIGNMENTS SECTION ---
+                if (_userRole != 'teacher') ...[
+                  const StudentAssignmentsList(),
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 20),
+                ],
+
+                // --- STANDARD BUTTONS ---
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.edit_note),
+                  label: const Text('Create your own test'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 15,
+                    ),
+                    textStyle: const TextStyle(fontSize: 18),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const CustomTestHistoryScreen(),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('Attempt pre-made tests'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 15,
+                    ),
+                    textStyle: const TextStyle(fontSize: 18),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const EnterCodeScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawer(BuildContext context) {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          const DrawerHeader(
+            decoration: BoxDecoration(color: Colors.deepPurple),
+            child: Text(
+              'StudySmart',
+              style: TextStyle(color: Colors.white, fontSize: 24),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.logout),
+            title: const Text('Logout'),
+            onTap: () {
+              Navigator.of(context).pop();
+              AuthService().signOut();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/student/widgets/student_assignments_list.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+// --- CRITICAL IMPORTS ---
+import 'package:study_smart_qc/models/test_enums.dart';
+import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
+
+class StudentAssignmentsList extends StatelessWidget {
+  const StudentAssignmentsList({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('questions_curation')
+          .where('studentUid', isEqualTo: user.uid)
+          .where('status', isEqualTo: 'assigned') // Only show pending work
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        // --- ERROR HANDLING FOR MISSING INDEX ---
+        if (snapshot.hasError) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.red.shade50,
+            child: Column(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red),
+                const SizedBox(height: 10),
+                const Text(
+                  "Database Index Missing",
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                ),
+                const SizedBox(height: 5),
+                SelectableText(
+                  "Please create the index using the link below (check console logs if truncated):\n\n${snapshot.error}",
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return _buildEmptyState();
+        }
+
+        final docs = snapshot.data!.docs;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
+              child: Text(
+                "My Assignments",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: docs.length,
+              itemBuilder: (context, index) {
+                final data = docs[index].data() as Map<String, dynamic>;
+                final docId = docs[index].id;
+                return _buildAssignmentCard(context, data, docId);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: const Center(
+        child: Column(
+          children: [
+            Icon(Icons.assignment_turned_in_outlined, size: 40, color: Colors.grey),
+            SizedBox(height: 10),
+            Text("No pending assignments!", style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAssignmentCard(BuildContext context, Map<String, dynamic> data, String docId) {
+    final Timestamp? ts = data['createdAt'];
+    final dateStr = ts != null
+        ? DateFormat('MMM d, yyyy').format(ts.toDate())
+        : 'Unknown Date';
+
+    final List<dynamic> subjects = data['subjects'] ?? [];
+    final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
+    final String code = data['assignmentCode'] ?? '----';
+
+    return Card(
+      elevation: 3,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          _showModeSelectionDialog(context, docId, data);
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple.shade100,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      "CODE: $code",
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.deepPurple.shade900),
+                    ),
+                  ),
+                  Text(dateStr, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // Title
+              Text(
+                data['title'] ?? "Untitled Assignment",
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 5),
+
+              // Details
+              Row(
+                children: [
+                  Icon(Icons.menu_book, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 4),
+                  Text(
+                    subjects.join(", "),
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(width: 15),
+                  Icon(Icons.quiz, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 4),
+                  Text(
+                    "$questionCount Questions",
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showModeSelectionDialog(BuildContext context, String docId, Map<String, dynamic> data) {
+    final questionIds = List<String>.from(data['questionIds'] ?? []);
+
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("Start Assignment"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Title: ${data['title']}"),
+              const SizedBox(height: 10),
+              Text("Questions: ${questionIds.length}"),
+              const SizedBox(height: 20),
+              const Text("Select Mode:", style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          actions: [
+            // PRACTICE BUTTON
+            OutlinedButton.icon(
+              icon: const Icon(Icons.school_outlined),
+              label: const Text("Practice Mode"),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _launchTest(context, docId, questionIds, TestMode.practice);
+              },
+            ),
+
+            // TEST BUTTON
+            ElevatedButton.icon(
+              icon: const Icon(Icons.timer),
+              label: const Text("Test Mode"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _launchTest(context, docId, questionIds, TestMode.test);
+              },
+            ),
+          ],
+        )
+    );
+  }
+
+  Future<void> _launchTest(BuildContext context, String assignmentId, List<String> questionIds, TestMode mode) async {
+    // Show loading
+    showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => const Center(child: CircularProgressIndicator())
+    );
+
+    try {
+      // 1. Fetch Questions
+      final questions = await TestOrchestrationService().getQuestionsByIds(questionIds);
+
+      if (!context.mounted) return;
+      Navigator.pop(context); // Hide loading
+
+      if (questions.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Questions not found.")));
+        return;
+      }
+
+      // 2. Navigate to Player
+      Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => TestScreen(
+                sourceId: assignmentId, // Linking for analytics
+                questions: questions,
+                timeLimitInMinutes: questions.length * 3, // Default 3 mins per question
+                testMode: mode, // Pass the selected mode
+              )
+          )
+      );
+
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // Hide loading
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error loading test: $e")));
+      }
+    }
+  }
+}
+
+================================================================================
+FILE: lib/features/teacher/screens/teacher_curation_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/services/teacher_service.dart';
+import 'package:study_smart_qc/features/teacher/screens/teacher_filter_screen.dart';
+
+class TeacherCurationScreen extends StatefulWidget {
+  const TeacherCurationScreen({super.key});
+
+  @override
+  State<TeacherCurationScreen> createState() => _TeacherCurationScreenState();
+}
+
+class _TeacherCurationScreenState extends State<TeacherCurationScreen> {
+  final TeacherService _teacherService = TeacherService();
+  final TextEditingController _studentIdController = TextEditingController();
+
+  // State
+  String _targetAudience = 'Particular Student'; // 'General', 'Particular Student', 'Batch'
+  bool _isLoadingStats = false;
+  Map<String, int>? _studentStats;
+
+  void _fetchStats() async {
+    final idStr = _studentIdController.text.trim();
+    if (idStr.isEmpty) return;
+
+    setState(() => _isLoadingStats = true);
+    try {
+      final stats = await _teacherService.getStudentStats(int.parse(idStr));
+      setState(() => _studentStats = stats);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingStats = false);
+    }
+  }
+
+  void _onNextPressed() {
+    if (_targetAudience == 'Particular Student' && _studentIdController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a Student ID")));
+      return;
+    }
+
+    // Navigate to Step 2 (Filters)
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => TeacherFilterScreen(
+          audienceType: _targetAudience,
+          studentId: _studentIdController.text.isNotEmpty ? int.parse(_studentIdController.text) : null,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Create Questions Curation'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 1. Audience
+            _buildSectionHeader('1. Target Audience'),
+            Wrap(
+              spacing: 10,
+              children: ['General', 'Particular Student', 'Batch'].map((type) {
+                return ChoiceChip(
+                  label: Text(type),
+                  selected: _targetAudience == type,
+                  onSelected: (selected) {
+                    if (selected) setState(() {
+                      _targetAudience = type;
+                      _studentStats = null; // Reset stats on change
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+
+            const SizedBox(height: 30),
+
+            // 2. Student Input (Conditional)
+            if (_targetAudience == 'Particular Student') ...[
+              _buildSectionHeader('2. Student Details'),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _studentIdController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Enter Student ID',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                      onChanged: (_) => setState(() => _studentStats = null), // Clear stats on edit
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    onPressed: _fetchStats,
+                    child: const Text("Load Stats"),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              if (_isLoadingStats)
+                const Center(child: CircularProgressIndicator())
+              else if (_studentStats != null)
+                _buildStatsGrid(),
+            ],
+
+            const SizedBox(height: 40),
+
+            // 3. Next Action
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                onPressed: _onNextPressed,
+                child: const Text('Next', style: TextStyle(fontSize: 18)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10.0),
+      child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
+    );
+  }
+
+  Widget _buildStatsGrid() {
+    if (_studentStats!.isEmpty) return const Text("No data found for this student.");
+
+    return GridView.count(
+      shrinkWrap: true,
+      crossAxisCount: 3,
+      childAspectRatio: 1.5,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      children: _studentStats!.entries.map((e) {
+        return Card(
+          color: Colors.deepPurple.shade50,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(e.value.toString(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+              Text(e.key, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/teacher/screens/teacher_filter_screen.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/services/teacher_service.dart';
+
+class TeacherFilterScreen extends StatefulWidget {
+  final String audienceType;
+  final int? studentId;
+
+  const TeacherFilterScreen({
+    super.key,
+    required this.audienceType,
+    this.studentId,
+  });
+
+  @override
+  State<TeacherFilterScreen> createState() => _TeacherFilterScreenState();
+}
+
+class _TeacherFilterScreenState extends State<TeacherFilterScreen> {
+  final TeacherService _teacherService = TeacherService();
+
+  // Data
+  bool _isLoadingSyllabus = true;
+  Map<String, dynamic>? _syllabusData;
+  List<String> _subjects = [];
+
+  // Selection
+  String? _selectedSubject;
+  final Set<String> _selectedChapters = {};
+  final Set<String> _selectedTopics = {};
+  String? _smartFilter;
+
+  // Search
+  bool _isSearching = false;
+  List<Question>? _results;
+  final Set<String> _selectedQuestionIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchSyllabus();
+    if (widget.audienceType == 'Particular Student') {
+      _smartFilter = 'New Questions';
+    }
+  }
+
+  Future<void> _fetchSyllabus() async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('static_data').doc('syllabus').get();
+      if (doc.exists) {
+        final data = doc.data()!;
+        setState(() {
+          _syllabusData = data['subjects'];
+          _subjects = _syllabusData?.keys.toList() ?? [];
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading syllabus: $e");
+    } finally {
+      if (mounted) setState(() => _isLoadingSyllabus = false);
+    }
+  }
+
+  // --- HELPERS ---
+  List<String> get _availableChapters {
+    if (_selectedSubject == null || _syllabusData == null) return [];
+    final chaptersMap = _syllabusData![_selectedSubject]['chapters'] as Map<String, dynamic>?;
+    return chaptersMap?.keys.toList() ?? [];
+  }
+
+  List<String> get _availableTopics {
+    if (_selectedSubject == null || _selectedChapters.isEmpty || _syllabusData == null) return [];
+    List<String> topics = [];
+    final chaptersMap = _syllabusData![_selectedSubject]['chapters'];
+
+    for (var chapId in _selectedChapters) {
+      final chapData = chaptersMap[chapId];
+      if (chapData != null && chapData['topics'] != null) {
+        final topicMap = chapData['topics'] as Map<String, dynamic>;
+        topics.addAll(topicMap.keys);
+      }
+    }
+    return topics;
+  }
+
+  String _formatName(String id) {
+    return id.split('_').map((str) => str.isNotEmpty ? str[0].toUpperCase() + str.substring(1) : '').join(' ');
+  }
+
+  String _getSelectionSummary(Set<String> selected) {
+    if (selected.isEmpty) return "Select Options";
+    if (selected.length == 1) return _formatName(selected.first);
+    if (selected.length == 2) return "${_formatName(selected.first)}, ${_formatName(selected.last)}";
+    return "${_formatName(selected.first)} (+${selected.length - 1} more)";
+  }
+
+  // --- ACTIONS ---
+
+  Future<void> _onSearch() async {
+    setState(() {
+      _isSearching = true;
+      _results = null;
+      _selectedQuestionIds.clear();
+    });
+
+    try {
+      final questions = await _teacherService.fetchQuestions(
+        audienceType: widget.audienceType,
+        studentId: widget.studentId,
+        smartFilter: _smartFilter,
+        subject: _selectedSubject,
+        chapterIds: _selectedChapters.isNotEmpty ? _selectedChapters.toList() : null,
+        topicIds: _selectedTopics.isNotEmpty ? _selectedTopics.toList() : null,
+      );
+      setState(() => _results = questions);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      setState(() => _isSearching = false);
+    }
+  }
+
+  Future<void> _onAssign() async {
+    if (_selectedQuestionIds.isEmpty) return;
+    final teacher = FirebaseAuth.instance.currentUser;
+    if (teacher == null) return;
+
+    final titleCtrl = TextEditingController(text: "Homework - ${DateTime.now().toString().split(' ')[0]}");
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Confirm Assignment"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Assigning ${_selectedQuestionIds.length} questions."),
+            const SizedBox(height: 10),
+            TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: "Assignment Title")),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Assign")),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      if (widget.audienceType != 'Particular Student') {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Batch assignment coming soon!")));
+        return;
+      }
+
+      // 1. FILTER OBJECTS: We need to pass the full Question objects now
+      final selectedQuestions = _results!.where((q) => _selectedQuestionIds.contains(q.id)).toList();
+
+      await _teacherService.assignQuestionsToStudent(
+        studentId: widget.studentId!,
+        questions: selectedQuestions, // PASSING OBJECTS
+        teacherUid: teacher.uid,
+        targetAudience: widget.audienceType, // PASSING AUDIENCE
+        assignmentTitle: titleCtrl.text,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Assigned Successfully!")));
+        Navigator.pop(context);
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  // --- CUSTOM MULTI-SELECT DIALOG ---
+  void _showMultiSelectDialog({
+    required String title,
+    required List<String> items,
+    required Set<String> selectedItems,
+    required Function(Set<String>) onConfirm,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        Set<String> localSelected = Set.from(selectedItems);
+        String searchQuery = "";
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final filteredItems = items.where((item) =>
+                item.toLowerCase().contains(searchQuery.toLowerCase())
+            ).toList();
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Container(
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.6),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                    const SizedBox(height: 10),
+
+                    TextField(
+                      decoration: const InputDecoration(
+                        hintText: "Search...",
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      onChanged: (val) => setDialogState(() => searchQuery = val),
+                    ),
+                    const SizedBox(height: 10),
+
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: filteredItems.length,
+                        itemBuilder: (context, index) {
+                          final item = filteredItems[index];
+                          final isSelected = localSelected.contains(item);
+                          return CheckboxListTile(
+                            title: Text(_formatName(item)),
+                            value: isSelected,
+                            activeColor: Colors.deepPurple,
+                            onChanged: (val) {
+                              setDialogState(() {
+                                val == true ? localSelected.add(item) : localSelected.remove(item);
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text("${localSelected.length} Selected", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                        ElevatedButton(
+                          onPressed: () {
+                            onConfirm(localSelected);
+                            Navigator.pop(context);
+                          },
+                          child: const Text("Done"),
+                        )
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final inputDecoration = InputDecoration(
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15),
+    );
+
+    return Scaffold(
+      appBar: AppBar(title: const Text("Filter & Search"), backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Syllabus Filters", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 15),
+
+                if (_isLoadingSyllabus)
+                  const Center(child: LinearProgressIndicator())
+                else ...[
+                  // 1. SUBJECT
+                  DropdownButtonFormField<String>(
+                    value: _selectedSubject,
+                    hint: const Text("Select Subject"),
+                    items: _subjects.map((s) => DropdownMenuItem(value: s, child: Text(_formatName(s)))).toList(),
+                    onChanged: (val) => setState(() {
+                      _selectedSubject = val;
+                      _selectedChapters.clear();
+                      _selectedTopics.clear();
+                    }),
+                    decoration: inputDecoration.copyWith(labelText: "Subject"),
+                  ),
+                  const SizedBox(height: 15),
+
+                  // 2. CHAPTERS
+                  InkWell(
+                    onTap: _selectedSubject == null ? null : () {
+                      _showMultiSelectDialog(
+                        title: "Select Chapters",
+                        items: _availableChapters,
+                        selectedItems: _selectedChapters,
+                        onConfirm: (newSet) => setState(() {
+                          _selectedChapters.clear();
+                          _selectedChapters.addAll(newSet);
+                          _selectedTopics.clear();
+                        }),
+                      );
+                    },
+                    child: InputDecorator(
+                      decoration: inputDecoration.copyWith(
+                        labelText: "Chapters",
+                        enabled: _selectedSubject != null,
+                        suffixIcon: const Icon(Icons.arrow_drop_down),
+                      ),
+                      child: Text(
+                        _getSelectionSummary(_selectedChapters),
+                        style: TextStyle(color: _selectedSubject == null ? Colors.grey : Colors.black),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+
+                  // 3. TOPICS
+                  InkWell(
+                    onTap: _selectedChapters.isEmpty ? null : () {
+                      _showMultiSelectDialog(
+                        title: "Select Topics",
+                        items: _availableTopics,
+                        selectedItems: _selectedTopics,
+                        onConfirm: (newSet) => setState(() {
+                          _selectedTopics.clear();
+                          _selectedTopics.addAll(newSet);
+                        }),
+                      );
+                    },
+                    child: InputDecorator(
+                      decoration: inputDecoration.copyWith(
+                        labelText: "Topics",
+                        enabled: _selectedChapters.isNotEmpty,
+                        suffixIcon: const Icon(Icons.arrow_drop_down),
+                      ),
+                      child: Text(
+                        _getSelectionSummary(_selectedTopics),
+                        style: TextStyle(color: _selectedChapters.isEmpty ? Colors.grey : Colors.black),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 20),
+
+                // 4. SMART FILTERS
+                if (widget.audienceType == 'Particular Student') ...[
+                  const Text("Smart Filters", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: _smartFilter,
+                    items: ['New Questions', 'Incorrect', 'Unattempted', 'Skipped', 'Correct']
+                        .map((f) => DropdownMenuItem(value: f, child: Text(f))).toList(),
+                    onChanged: (val) => setState(() => _smartFilter = val),
+                    decoration: inputDecoration.copyWith(labelText: "Status"),
+                  ),
+                ],
+
+                const SizedBox(height: 30),
+
+                // 5. SEARCH BUTTON
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.search),
+                    label: const Text("Search Questions"),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16)
+                    ),
+                    onPressed: _onSearch,
+                  ),
+                ),
+
+                const Divider(height: 40),
+
+                // 6. RESULTS
+                if (_isSearching)
+                  const Center(child: CircularProgressIndicator())
+                else if (_results != null)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Found ${_results!.length} Questions", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                      const SizedBox(height: 10),
+                      if (_results!.isEmpty) const Text("No questions found."),
+
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _results!.length,
+                        itemBuilder: (context, index) {
+                          final q = _results![index];
+                          final isSelected = _selectedQuestionIds.contains(q.id);
+
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: Checkbox(
+                                  value: isSelected,
+                                  onChanged: (val) => setState(() {
+                                    val == true ? _selectedQuestionIds.add(q.id) : _selectedQuestionIds.remove(q.id);
+                                  }),
+                                ),
+                              ),
+                              Expanded(
+                                child: QuestionPreviewCard(question: q),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+
+          if (_selectedQuestionIds.isNotEmpty)
+            Positioned(
+              bottom: 20, left: 20, right: 20,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  elevation: 5,
+                ),
+                onPressed: _onAssign,
+                child: Text("Assign ${_selectedQuestionIds.length} Questions", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/test_creation/screens/custom_test_history_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_model.dart';
+import 'package:study_smart_qc/models/test_result.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
+import 'package:study_smart_qc/features/test_creation/screens/syllabus_screen.dart';
+import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
+// CRITICAL IMPORT: Needed for TestMode
+import 'package:study_smart_qc/models/test_enums.dart';
+
+class CustomTestHistoryScreen extends StatefulWidget {
+  const CustomTestHistoryScreen({super.key});
+  @override
+  State<CustomTestHistoryScreen> createState() =>
+      _CustomTestHistoryScreenState();
+}
+
+class _CustomTestHistoryScreenState extends State<CustomTestHistoryScreen> {
+  final TestOrchestrationService _testService = TestOrchestrationService();
+  String _filter = 'All';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Create Your Own Test')),
+      body: Column(
+        children: [
+          _buildFilterChips(),
+          Expanded(
+            child: StreamBuilder<List<TestModel>>(
+              stream: _testService.getSavedTestsStream(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  return const Center(child: Text('No tests created yet.'));
+                }
+
+                final allTests = snapshot.data!;
+                final filteredTests = allTests.where((test) {
+                  if (_filter == 'All') return true;
+                  return test.status == _filter;
+                }).toList();
+
+                if (filteredTests.isEmpty) {
+                  return Center(
+                    child: Text('No tests match the \'$_filter\' filter.'),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 100),
+                  itemCount: filteredTests.length,
+                  itemBuilder: (context, index) {
+                    final test = filteredTests[index];
+                    return _buildTestListItem(test);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (context) => const SyllabusScreen()),
+          );
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Create new custom test'),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+    );
+  }
+
+  Widget _buildFilterChips() {
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: ['All', 'Attempted', 'Not Attempted'].map((filter) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: ChoiceChip(
+              label: Text(filter),
+              selected: _filter == filter,
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() => _filter = filter);
+                }
+              },
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildTestListItem(TestModel test) {
+    final formattedDate = DateFormat(
+      'd MMM yyyy',
+    ).format(test.createdAt.toDate());
+    bool isAttempted = test.status == 'Attempted';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              test.testName,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'JEE Main • $formattedDate',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () async {
+                    if (isAttempted) {
+                      final attempt = await _testService.getAttemptForTest(
+                        test.id,
+                      );
+                      final questions = await _testService.getQuestionsByIds(
+                        test.questionIds,
+                      );
+                      if (mounted && attempt != null) {
+                        final answerStates = <int, AnswerState>{};
+                        for (int i = 0; i < questions.length; i++) {
+                          final questionId = questions[i].id;
+                          final response = attempt.responses[questionId];
+                          answerStates[i] = AnswerState(
+                            userAnswer: response?.selectedOption,
+                            status: response?.status == 'CORRECT' ||
+                                response?.status == 'INCORRECT'
+                                ? AnswerStatus.answered
+                                : AnswerStatus.notAnswered,
+                          );
+                        }
+
+                        final result = TestResult(
+                          questions: questions,
+                          answerStates: answerStates,
+                          timeTaken: Duration(
+                            seconds: attempt.timeTakenSeconds,
+                          ),
+                          totalMarks: questions.length * 4,
+                          responses: attempt.responses,
+                        );
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => ResultsScreen(result: result),
+                          ),
+                        );
+                      }
+                    } else {
+                      final List<Question> questions = await _testService
+                          .getQuestionsByIds(test.questionIds);
+                      if (mounted) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => TestScreen(
+                              questions: questions,
+                              timeLimitInMinutes:
+                              test.config.durationSeconds ~/ 60,
+                              // FIXED: Using sourceId instead of testId
+                              sourceId: test.id,
+                              // FIXED: Added TestMode enum
+                              testMode: TestMode.test,
+                            ),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(isAttempted ? 'View Analysis' : 'Attempt now'),
+                      const Icon(Icons.arrow_forward_ios, size: 14),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/test_creation/screens/syllabus_screen.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/services/auth_service.dart';
+import 'package:study_smart_qc/widgets/test_configuration_bottom_sheet.dart';
+
+class SyllabusScreen extends StatefulWidget {
+  const SyllabusScreen({super.key});
+
+  @override
+  State<SyllabusScreen> createState() => _SyllabusScreenState();
+}
+
+class _SyllabusScreenState extends State<SyllabusScreen> {
+  // State for user selections
+  final Set<String> _selectedTopicIds = {};
+  final Set<String> _selectedChapterIds = {};
+  final Map<String, bool> _expansionState = {};
+
+  // State to hold parsed syllabus data, preventing re-parsing on every UI rebuild
+  Map<String, String> _chapterIdToNameMap = {};
+  Map<String, String> _topicIdToNameMap = {};
+  Map<String, Map<String, String>> _chapterIdToTopicsMap = {};
+  List<String> _chapterKeys = [];
+
+  void _onTopicSelected(bool isSelected, String chapterId, String topicId) {
+    setState(() {
+      if (isSelected) {
+        _selectedTopicIds.add(topicId);
+        _selectedChapterIds.add(chapterId);
+      } else {
+        _selectedTopicIds.remove(topicId);
+        final chapterTopics = _chapterIdToTopicsMap[chapterId]?.keys ?? [];
+        if (chapterTopics.every((topic) => !_selectedTopicIds.contains(topic))) {
+          _selectedChapterIds.remove(chapterId);
+        }
+      }
+    });
+  }
+
+  void _toggleSelectAll(String chapterId, Set<String> topicKeys) {
+    setState(() {
+      final areAllSelected = topicKeys.isNotEmpty && topicKeys.every((key) => _selectedTopicIds.contains(key));
+      if (areAllSelected) {
+        _selectedTopicIds.removeAll(topicKeys);
+        _selectedChapterIds.remove(chapterId);
+      } else {
+        _selectedTopicIds.addAll(topicKeys);
+        _selectedChapterIds.add(chapterId);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Select Topics"),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(icon: const Icon(Icons.logout), onPressed: () => AuthService().signOut()),
+        ],
+      ),
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance.collection('static_data').doc('syllabus').snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return const Center(child: Text("No Syllabus Found"));
+          }
+
+          if (snapshot.hasData) {
+            Map<String, dynamic> data = snapshot.data!.data() as Map<String, dynamic>;
+            final chapters = data['subjects']?['physics']?['chapters'] as Map<String, dynamic>? ?? {};
+            _chapterKeys = chapters.keys.toList();
+
+            _chapterIdToNameMap = {};
+            _topicIdToNameMap = {};
+            _chapterIdToTopicsMap = {};
+
+            for (var chapterKey in _chapterKeys) {
+              final chapterData = chapters[chapterKey] as Map<String, dynamic>;
+              _chapterIdToNameMap[chapterKey] = chapterData['name'] ?? 'Unnamed Chapter';
+              final topics = Map<String, String>.from(chapterData['topics'] ?? {});
+              _chapterIdToTopicsMap[chapterKey] = topics;
+              for (var topicEntry in topics.entries) {
+                _topicIdToNameMap[topicEntry.key] = topicEntry.value as String;
+              }
+            }
+          }
+
+          return ListView.builder(
+            key: const PageStorageKey<String>('syllabus_list'),
+            padding: const EdgeInsets.only(bottom: 120),
+            itemCount: _chapterKeys.length,
+            itemBuilder: (context, index) {
+              final chapterKey = _chapterKeys[index];
+              final chapterName = _chapterIdToNameMap[chapterKey]!;
+              final topics = _chapterIdToTopicsMap[chapterKey]!;
+              final topicKeys = topics.keys.toSet();
+
+              final areAllSelected = topicKeys.isNotEmpty && topicKeys.every((key) => _selectedTopicIds.contains(key));
+              final isExpanded = _expansionState[chapterKey] ?? false;
+
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: areAllSelected ? Colors.green : Colors.transparent, width: 2),
+                ),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.book, color: Colors.deepPurple),
+                      title: Text(chapterName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      onTap: () => _toggleSelectAll(chapterKey, topicKeys),
+                      trailing: IconButton(
+                        icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
+                        onPressed: () => setState(() => _expansionState[chapterKey] = !isExpanded),
+                      ),
+                    ),
+                    if (isExpanded)
+                      Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: GridView.builder(
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            childAspectRatio: 2.5,
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                          ),
+                          itemCount: topicKeys.length,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemBuilder: (context, gridIndex) {
+                            final topicKey = topicKeys.elementAt(gridIndex);
+                            final topicName = topics[topicKey]!;
+                            final isSelected = _selectedTopicIds.contains(topicKey);
+
+                            return GestureDetector(
+                              onTap: () => _onTopicSelected(!isSelected, chapterKey, topicKey),
+                              child: Card(
+                                color: isSelected ? Colors.green.withOpacity(0.15) : null,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade300)),
+                                child: Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: Text(topicName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+      bottomSheet: _selectedTopicIds.isNotEmpty ? _buildStickyBottomBar() : null,
+    );
+  }
+
+  Widget _buildStickyBottomBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15).copyWith(bottom: MediaQuery.of(context).padding.bottom + 10),
+      decoration: BoxDecoration(color: Colors.deepPurple.shade700, boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, -2))]),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${_selectedTopicIds.length} Topic(s) Selected', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              Text('${_selectedChapterIds.length} Chapter(s)', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            ],
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(foregroundColor: Colors.deepPurple, backgroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
+            onPressed: () {
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (ctx) => TestConfigurationBottomSheet(
+                  chapterIds: _selectedChapterIds,
+                  topicIds: _selectedTopicIds,
+                  chapterIdToNameMap: _chapterIdToNameMap,
+                  topicIdToNameMap: _topicIdToNameMap,
+                  chapterIdToTopicsMap: _chapterIdToTopicsMap, // FIX: This is now correctly passed
+                ),
+              );
+            },
+            child: const Row(children: [Text('Configure Test'), SizedBox(width: 5), Icon(Icons.arrow_forward_ios, size: 14)]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/features/test_taking/screens/enter_code_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_model.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/features/test_taking/screens/test_preview_screen.dart';
+
+class EnterCodeScreen extends StatefulWidget {
+  const EnterCodeScreen({super.key});
+
+  @override
+  State<EnterCodeScreen> createState() => _EnterCodeScreenState();
+}
+
+class _EnterCodeScreenState extends State<EnterCodeScreen> {
+  final _codeController = TextEditingController();
+  final _testService = TestOrchestrationService();
+  bool _isLoading = false;
+  String? _errorText;
+
+  Future<void> _findTest() async {
+    if (_codeController.text.isEmpty) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorText = null;
+    });
+
+    final test = await _testService.getTestByShareCode(
+      _codeController.text.trim(),
+    );
+
+    if (test == null) {
+      setState(() {
+        _isLoading = false;
+        _errorText = 'Invalid or expired test code.';
+      });
+      return;
+    }
+
+    final questions = await _testService.getQuestionsByIds(test.questionIds);
+
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+
+    // Navigate to Test Preview Screen
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => TestPreviewScreen(
+          questions: questions,
+          timeLimitInMinutes: test.config.durationSeconds ~/ 60,
+          selectedSyllabus: {
+            for (var v in test.chapters) v: [],
+          }, // Reconstruct a simplified map
+          testName: test.testName,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Enter Test Code')),
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextField(
+              controller: _codeController,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 8,
+              ),
+              decoration: InputDecoration(
+                hintText: '_ _ _ _',
+                errorText: _errorText,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 20),
+            if (_isLoading)
+              const CircularProgressIndicator()
+            else
+              ElevatedButton(
+                onPressed: _findTest,
+                child: const Text('Find Test'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/features/test_taking/screens/test_preview_screen.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/test_model.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
+// NEW IMPORT
+import 'package:study_smart_qc/models/test_enums.dart';
+
+class TestPreviewScreen extends StatelessWidget {
+  final List<Question> questions;
+  final int timeLimitInMinutes;
+  final Map<String, List<String>> selectedSyllabus;
+  final String testName;
+  final TestModel? existingTest;
+
+  const TestPreviewScreen({
+    super.key,
+    required this.questions,
+    required this.timeLimitInMinutes,
+    required this.selectedSyllabus,
+    required this.testName,
+    this.existingTest,
+  });
+
+  Future<void> _handleAttemptLater(BuildContext context) async {
+    final service = TestOrchestrationService();
+    if (existingTest == null) {
+      await service.createAndSaveTestBlueprint(
+        questions: questions,
+        durationSeconds: timeLimitInMinutes * 60,
+        chapterNames: selectedSyllabus.keys.toList(),
+        testName: testName,
+      );
+    }
+
+    if (context.mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  }
+
+  Future<void> _handleAttemptNow(BuildContext context) async {
+    final service = TestOrchestrationService();
+    TestModel? testToAttempt = existingTest;
+
+    if (testToAttempt == null) {
+      testToAttempt = await service.createAndSaveTestBlueprint(
+        questions: questions,
+        durationSeconds: timeLimitInMinutes * 60,
+        chapterNames: selectedSyllabus.keys.toList(),
+        testName: testName,
+      );
+    }
+
+    if (testToAttempt == null) return;
+
+    await service.recordTestAttempt(testToAttempt.id);
+
+    if (context.mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => TestScreen(
+            questions: questions,
+            timeLimitInMinutes: timeLimitInMinutes,
+            // FIXED: Updated arguments here
+            sourceId: testToAttempt!.id,
+            testMode: TestMode.test,
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Test Preview'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              testName,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            const Wrap(
+              spacing: 8.0,
+              children: [
+                Chip(
+                  label: Text('JEE Main'),
+                  avatar: Icon(Icons.check_circle, color: Colors.green),
+                ),
+                Chip(label: Text('Physics')),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        children: [
+                          const Icon(
+                            Icons.help_outline,
+                            color: Colors.deepPurple,
+                          ),
+                          const SizedBox(height: 8),
+                          Text('${questions.length} Qs'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        children: [
+                          const Icon(
+                            Icons.timer_outlined,
+                            color: Colors.deepPurple,
+                          ),
+                          const SizedBox(height: 8),
+                          Text('$timeLimitInMinutes Mins'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 10),
+            Text(
+              'Syllabus - ${selectedSyllabus.length} chapters',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: ListView.builder(
+                itemCount: selectedSyllabus.length,
+                itemBuilder: (context, index) {
+                  final chapterName = selectedSyllabus.keys.elementAt(index);
+                  final topicNames = selectedSyllabus[chapterName]!;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '• $chapterName',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (topicNames.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 20, top: 4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: topicNames
+                                  .map(
+                                    (topic) => Text(
+                                  '    - $topic',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                              )
+                                  .toList(),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                onPressed: () => _handleAttemptNow(context),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('Attempt test now'),
+                    Icon(Icons.arrow_forward),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => _handleAttemptLater(context),
+                child: const Text('Attempt later'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/test_taking/screens/test_screen.dart
+================================================================================
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_result.dart';
+import 'package:study_smart_qc/models/attempt_model.dart';
+import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
+
+class TestScreen extends StatefulWidget {
+  final String sourceId;
+  final List<Question> questions;
+  final int timeLimitInMinutes;
+  final TestMode testMode;
+
+  const TestScreen({
+    super.key,
+    required this.questions,
+    required this.timeLimitInMinutes,
+    this.sourceId = 'practice_session',
+    this.testMode = TestMode.test,
+  });
+
+  @override
+  State<TestScreen> createState() => _TestScreenState();
+}
+
+class _TestScreenState extends State<TestScreen> {
+  late final PageController _pageController;
+  late final Timer _timer;
+
+  late Duration _timeCounter;
+  bool _isPaused = false;
+
+  final Map<int, AnswerState> _answerStates = {};
+  final Map<String, TextEditingController> _numericalControllers = {};
+  int _currentPage = 0;
+  final Map<int, int> _visitCounts = {};
+  final Map<int, Stopwatch> _timeTrackers = {};
+
+  bool _isAnswerChecked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+
+    if (widget.testMode == TestMode.test) {
+      _timeCounter = Duration(minutes: widget.timeLimitInMinutes);
+    } else {
+      _timeCounter = Duration.zero;
+    }
+
+    for (int i = 0; i < widget.questions.length; i++) {
+      _answerStates[i] = AnswerState();
+      final q = widget.questions[i];
+      if (q.type.trim() == 'Numerical type') {
+        _numericalControllers[q.id] = TextEditingController();
+      }
+      _visitCounts[i] = 0;
+      _timeTrackers[i] = Stopwatch();
+    }
+
+    _onPageChanged(_currentPage, fromInit: true);
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_isPaused) return;
+
+      if (mounted) {
+        setState(() {
+          if (widget.testMode == TestMode.test) {
+            if (_timeCounter.inSeconds > 0) {
+              _timeCounter -= const Duration(seconds: 1);
+            } else {
+              _timer.cancel();
+              _handleSubmit();
+            }
+          } else {
+            _timeCounter += const Duration(seconds: 1);
+          }
+        });
+      }
+    });
+  }
+
+  void _togglePause() {
+    setState(() {
+      _isPaused = !_isPaused;
+    });
+    if (_isPaused) {
+      _timeTrackers[_currentPage]?.stop();
+    } else {
+      _timeTrackers[_currentPage]?.start();
+    }
+  }
+
+  void _onPageChanged(int page, {bool fromInit = false}) {
+    if (!fromInit && _timeTrackers.containsKey(_currentPage)) {
+      _timeTrackers[_currentPage]!.stop();
+    }
+    setState(() {
+      _currentPage = page;
+      _isAnswerChecked = false;
+      _visitCounts[page] = (_visitCounts[page] ?? 0) + 1;
+      if (_answerStates[page]?.status == AnswerStatus.notVisited) {
+        _answerStates[page]?.status = AnswerStatus.notAnswered;
+      }
+    });
+    if (_timeTrackers.containsKey(page)) {
+      _timeTrackers[page]!.start();
+    }
+  }
+
+  void _checkAnswer() {
+    final q = widget.questions[_currentPage];
+    final state = _answerStates[_currentPage]!;
+
+    String? answer = (q.type.trim() == 'Single Correct')
+        ? state.userAnswer
+        : _numericalControllers[q.id]?.text;
+
+    if (answer == null || answer.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select an answer first!")));
+      return;
+    }
+
+    setState(() {
+      _isAnswerChecked = true;
+      // Safety fix: Ensure it is marked as answered
+      _answerStates[_currentPage]?.status = AnswerStatus.answered;
+    });
+  }
+
+
+  void _showSolution() {
+    final q = widget.questions[_currentPage];
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(16),
+        height: MediaQuery.of(ctx).size.height * 0.6,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Solution", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Divider(),
+            const SizedBox(height: 10),
+            Text("Correct Answer: ${q.correctAnswer}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+            const SizedBox(height: 10),
+            if (q.solutionUrl != null)
+              Expanded(child: Image.network(q.solutionUrl!))
+            else
+              const Text("No image solution available."),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleSaveAndNext() {
+    if (_currentPage < widget.questions.length - 1) {
+      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
+    } else {
+      _showSubmitConfirmationDialog();
+    }
+  }
+
+  Future<void> _showSubmitConfirmationDialog() async {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Submit Session?'),
+          content: Text(widget.testMode == TestMode.practice
+              ? 'Finish practice session and save progress?'
+              : 'Are you sure you want to end the test?'),
+          actions: <Widget>[
+            TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
+            TextButton(child: const Text('Submit'), onPressed: () {
+              Navigator.of(context).pop();
+              _handleSubmit();
+            }),
+          ],
+        );
+      },
+    );
+  }
+
+  void _handleSubmit() async {
+    _timer.cancel();
+    _timeTrackers.values.forEach((sw) => sw.stop());
+
+    Map<String, ResponseObject> responses = {};
+
+    for (int i = 0; i < widget.questions.length; i++) {
+      final question = widget.questions[i];
+      final state = _answerStates[i]!;
+      String finalStatus = 'SKIPPED';
+      String? finalAnswer = state.userAnswer;
+
+      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
+        final isCorrect = finalAnswer?.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase();
+        finalStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
+      } else if (state.status == AnswerStatus.markedForReview) {
+        finalStatus = 'REVIEW';
+      }
+
+      responses[question.id] = ResponseObject(
+        status: finalStatus,
+        selectedOption: finalAnswer,
+        correctOption: question.correctAnswer,
+        timeSpent: _timeTrackers[i]!.elapsed.inSeconds,
+        visitCount: _visitCounts[i] ?? 0,
+        q_no: i + 1,
+      );
+    }
+
+    final score = (responses.values.where((r) => r.status == 'CORRECT').length * 4) -
+        (responses.values.where((r) => r.status == 'INCORRECT').length * 1);
+
+    await TestOrchestrationService().submitAttempt(
+      curationId: widget.sourceId,
+      questions: widget.questions,
+      score: score,
+      timeTakenSeconds: widget.testMode == TestMode.test
+          ? (Duration(minutes: widget.timeLimitInMinutes) - _timeCounter).inSeconds
+          : _timeCounter.inSeconds,
+      responses: responses,
+    );
+
+    if (mounted) {
+      final result = TestResult(
+        questions: widget.questions,
+        answerStates: _answerStates,
+        timeTaken: widget.testMode == TestMode.test
+            ? Duration(minutes: widget.timeLimitInMinutes) - _timeCounter
+            : _timeCounter,
+        totalMarks: widget.questions.length * 4,
+        responses: responses,
+      );
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: _buildTimerWidget(),
+        centerTitle: true,
+        backgroundColor: widget.testMode == TestMode.practice ? Colors.deepPurple.shade50 : Colors.deepPurple,
+        foregroundColor: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white,
+        actions: [
+          if (widget.testMode == TestMode.practice)
+            IconButton(
+              icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
+              onPressed: _togglePause,
+            ),
+          TextButton(
+            onPressed: _showSubmitConfirmationDialog,
+            child: Text('Submit', style: TextStyle(color: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white)),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              _buildCompactQuestionPalette(),
+              const Divider(height: 1),
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  physics: _isPaused ? const NeverScrollableScrollPhysics() : const AlwaysScrollableScrollPhysics(),
+                  onPageChanged: _onPageChanged,
+                  itemCount: widget.questions.length,
+                  itemBuilder: (context, index) {
+                    final q = widget.questions[index];
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Q.${index + 1}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 10),
+                          if (q.imageUrl.isNotEmpty)
+                            InteractiveViewer(maxScale: 4.0, child: Image.network(q.imageUrl)),
+                          const SizedBox(height: 20),
+                          if (q.type.trim() == 'Single Correct')
+                            _buildScqOptions(q)
+                          else
+                            _buildNumericalInput(q),
+
+                          if (widget.testMode == TestMode.practice && _isAnswerChecked)
+                            _buildFeedbackUI(q),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+
+          if (_isPaused)
+            Container(
+              color: Colors.black.withOpacity(0.8),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.pause_circle_filled, size: 80, color: Colors.white),
+                    const SizedBox(height: 20),
+                    const Text("Session Paused", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 20),
+                    ElevatedButton(
+                      onPressed: _togglePause,
+                      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15)),
+                      child: const Text("Resume"),
+                    )
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+      bottomNavigationBar: _buildBottomNavBar(),
+    );
+  }
+
+  Widget _buildTimerWidget() {
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    final minutes = twoDigits(_timeCounter.inMinutes.remainder(60));
+    final seconds = twoDigits(_timeCounter.inSeconds.remainder(60));
+    final hours = twoDigits(_timeCounter.inHours);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        border: Border.all(color: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.timer_outlined, size: 18, color: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white),
+          const SizedBox(width: 4),
+          Text("$hours:$minutes:$seconds", style: const TextStyle(fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactQuestionPalette() {
+    return SizedBox(
+      height: 60,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: widget.questions.length,
+        itemBuilder: (context, index) {
+          final state = _answerStates[index]!;
+          final isCurrent = index == _currentPage;
+          return Container(
+            width: 40, margin: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+                color: state.status.color,
+                borderRadius: BorderRadius.circular(4),
+                border: isCurrent ? Border.all(width: 2) : null
+            ),
+            child: Center(child: Text("${index + 1}", style: const TextStyle(color: Colors.white))),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildScqOptions(Question q) {
+    return Column(children: ['A','B','C','D'].map((opt) => RadioListTile<String>(
+      title: Text(opt),
+      value: opt,
+      groupValue: _answerStates[_currentPage]?.userAnswer,
+      onChanged: _isPaused ? null : (String? v) {
+        setState(() {
+          _answerStates[_currentPage]?.userAnswer = v;
+          // CRITICAL FIX: Mark as answered so it counts in scoring
+          _answerStates[_currentPage]?.status = AnswerStatus.answered;
+        });
+      },
+    )).toList());
+  }
+
+
+  Widget _buildNumericalInput(Question q) {
+    return TextField(
+      controller: _numericalControllers[q.id],
+      enabled: !_isPaused,
+      onChanged: (v) {
+        // We only mark answered if text is not empty
+        setState(() {
+          _answerStates[_currentPage]?.userAnswer = v;
+          _answerStates[_currentPage]?.status = v.isNotEmpty
+              ? AnswerStatus.answered
+              : AnswerStatus.notAnswered;
+        });
+      },
+      decoration: const InputDecoration(border: OutlineInputBorder(), labelText: "Answer"),
+    );
+  }
+
+
+  Widget _buildFeedbackUI(Question q) {
+    final userAnswer = _answerStates[_currentPage]?.userAnswer;
+    final isCorrect = userAnswer?.trim().toLowerCase() == q.correctAnswer.trim().toLowerCase();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isCorrect ? Colors.green.shade50 : Colors.red.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: isCorrect ? Colors.green : Colors.red),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(isCorrect ? Icons.check_circle : Icons.cancel, color: isCorrect ? Colors.green : Colors.red),
+            const SizedBox(width: 10),
+            Text(isCorrect ? "Correct!" : "Incorrect", style: TextStyle(fontWeight: FontWeight.bold, color: isCorrect ? Colors.green : Colors.red)),
+          ]),
+          const SizedBox(height: 10),
+          ElevatedButton(onPressed: _showSolution, child: const Text("View Full Solution")),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      color: Colors.white,
+      child: Row(
+        children: [
+          if (widget.testMode == TestMode.practice)
+            Expanded(
+              child: ElevatedButton(
+                onPressed: _checkAnswer,
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                child: const Text("Check Answer"),
+              ),
+            ),
+
+          if (widget.testMode == TestMode.practice) const SizedBox(width: 10),
+
+          Expanded(
+            child: ElevatedButton(
+              onPressed: _handleSaveAndNext,
+              child: Text(_currentPage == widget.questions.length - 1 ? 'Finish' : 'Next'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+================================================================================
+FILE: lib/models/attempt_item_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// Represents a single item in the 'attempt_items' collection for detailed analytics.
+class AttemptItemModel {
+  final String userId;
+  final String questionId;
+  final String chapterId;
+  final String topicId;
+  final String status; // e.g., 'CORRECT', 'INCORRECT', 'SKIPPED'
+  final int timeSpent; // in seconds
+  final Timestamp attemptedAt;
+
+  AttemptItemModel({
+    required this.userId,
+    required this.questionId,
+    required this.chapterId,
+    required this.topicId,
+    required this.status,
+    required this.timeSpent,
+    required this.attemptedAt,
+  });
+
+  // Method to convert an AttemptItemModel instance to a map for Firestore.
+  Map<String, dynamic> toFirestore() {
+    return {
+      'userId': userId,
+      'questionId': questionId,
+      'chapterId': chapterId,
+      'topicId': topicId,
+      'status': status,
+      'timeSpent': timeSpent,
+      'attemptedAt': attemptedAt,
+    };
+  }
+
+  // Note: A fromFirestore factory is not strictly necessary for this model
+  // as we are primarily using it for writing, not reading, in this flow.
+}
+
+
+================================================================================
+FILE: lib/models/attempt_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// Represents the response for a single question within an attempt.
+class ResponseObject {
+  final String status; // e.g., 'CORRECT', 'INCORRECT', 'SKIPPED'
+  final String? selectedOption;
+  final String correctOption;
+  final int timeSpent; // in seconds
+  final int visitCount;
+  final int q_no; // Added question number
+
+  ResponseObject({
+    required this.status,
+    this.selectedOption,
+    required this.correctOption,
+    required this.timeSpent,
+    required this.visitCount,
+    required this.q_no,
+  });
+
+  factory ResponseObject.fromMap(Map<String, dynamic> map) {
+    return ResponseObject(
+      status: map['status'] ?? 'SKIPPED',
+      selectedOption: map['selectedOption'],
+      correctOption: map['correctOption'] ?? '',
+      timeSpent: map['timeSpent'] ?? 0,
+      visitCount: map['visitCount'] ?? 0,
+      q_no: map['q_no'] ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'status': status,
+      'selectedOption': selectedOption,
+      'correctOption': correctOption,
+      'timeSpent': timeSpent,
+      'visitCount': visitCount,
+      'q_no': q_no,
+    };
+  }
+}
+
+// Represents an attempt document in the 'attempts' collection.
+class AttemptModel {
+  final String id;
+  final String testId;
+  final String userId;
+  final Timestamp startedAt;
+  final Timestamp completedAt;
+  final int score;
+  final int timeTakenSeconds;
+  final Map<String, ResponseObject> responses;
+
+  AttemptModel({
+    required this.id,
+    required this.testId,
+    required this.userId,
+    required this.startedAt,
+    required this.completedAt,
+    required this.score,
+    required this.timeTakenSeconds,
+    required this.responses,
+  });
+
+  factory AttemptModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    dynamic rawStartedAt = data['startedAt'];
+    Timestamp startedAtTimestamp = (rawStartedAt is String) ? Timestamp.fromDate(DateTime.parse(rawStartedAt)) : rawStartedAt ?? Timestamp.now();
+
+    dynamic rawCompletedAt = data['completedAt'];
+    Timestamp completedAtTimestamp = (rawCompletedAt is String) ? Timestamp.fromDate(DateTime.parse(rawCompletedAt)) : rawCompletedAt ?? Timestamp.now();
+
+    Map<String, ResponseObject> parsedResponses = {};
+    if (data['responses'] is Map) {
+      (data['responses'] as Map).forEach((key, value) {
+        if (value is Map) {
+          parsedResponses[key] = ResponseObject.fromMap(value as Map<String, dynamic>);
+        }
+      });
+    }
+
+    return AttemptModel(
+      id: doc.id,
+      testId: data['testId'] ?? '',
+      userId: data['userId'] ?? '',
+      startedAt: startedAtTimestamp,
+      completedAt: completedAtTimestamp,
+      score: data['score'] ?? 0,
+      timeTakenSeconds: data['timeTakenSeconds'] ?? 0,
+      responses: parsedResponses,
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'testId': testId,
+      'userId': userId,
+      'startedAt': startedAt,
+      'completedAt': completedAt,
+      'score': score,
+      'timeTakenSeconds': timeTakenSeconds,
+      'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
+    };
+  }
+}
+
+
+================================================================================
+FILE: lib/models/custom_test_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// Represents a test that has been generated and potentially saved.
+class CustomTest {
+  final String id;
+  final String userId;
+  final String testName;
+  final String status; // e.g., 'Not Attempted', 'Attempted'
+  final List<String> questionIds;
+  final int totalQuestions;
+  final int timeLimitInMinutes;
+  final Timestamp createdAt;
+  final List<String> chapterNames;
+
+  CustomTest({
+    required this.id,
+    required this.userId,
+    required this.testName,
+    required this.status,
+    required this.questionIds,
+    required this.totalQuestions,
+    required this.timeLimitInMinutes,
+    required this.createdAt,
+    required this.chapterNames,
+  });
+
+  // Factory to create a CustomTest from a Firestore document.
+  factory CustomTest.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return CustomTest(
+      id: doc.id,
+      userId: data['userId'] ?? '',
+      testName: data['testName'] ?? 'Custom Test',
+      status: data['status'] ?? 'Not Attempted',
+      questionIds: List<String>.from(data['questionIds'] ?? []),
+      totalQuestions: data['totalQuestions'] ?? 0,
+      timeLimitInMinutes: data['timeLimitInMinutes'] ?? 0,
+      createdAt: data['createdAt'] ?? Timestamp.now(),
+      chapterNames: List<String>.from(data['chapterNames'] ?? []),
+    );
+  }
+
+  // Method to convert a CustomTest instance to a map for Firestore.
+  Map<String, dynamic> toFirestore() {
+    return {
+      'userId': userId,
+      'testName': testName,
+      'status': status,
+      'questionIds': questionIds,
+      'totalQuestions': totalQuestions,
+      'timeLimitInMinutes': timeLimitInMinutes,
+      'createdAt': createdAt,
+      'chapterNames': chapterNames,
+    };
+  }
+}
+
+
+================================================================================
+FILE: lib/models/nta_test_models.dart
+================================================================================
+import 'package:flutter/material.dart';
+
+enum AnswerStatus {
+  notVisited,
+  notAnswered, // Visited but skipped
+  answered,
+  markedForReview, // Not answered, but marked
+  answeredAndMarked, // Answered and marked for review
+}
+
+extension AnswerStatusExtension on AnswerStatus {
+  Color get color {
+    switch (this) {
+      case AnswerStatus.answered:
+        return Colors.green;
+      case AnswerStatus.notAnswered:
+        return Colors.red;
+      case AnswerStatus.markedForReview:
+        return Colors.purple;
+      case AnswerStatus.answeredAndMarked:
+        return Colors.blue;
+      case AnswerStatus.notVisited:
+      default:
+        return Colors.grey.shade400;
+    }
+  }
+}
+
+class AnswerState {
+  String? userAnswer;
+  AnswerStatus status;
+
+  AnswerState({this.userAnswer, this.status = AnswerStatus.notVisited});
+}
+
+
+================================================================================
+FILE: lib/models/question_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class Question {
+  final String id;
+  final String chapterId;
+  final String topicId;
+  final String type;
+  final String imageUrl;
+  final String? solutionUrl;
+  final String correctAnswer;
+  final String difficulty;
+  final String source;
+
+  Question({
+    required this.id,
+    required this.chapterId,
+    required this.topicId,
+    required this.type,
+    required this.imageUrl,
+    this.solutionUrl,
+    required this.correctAnswer,
+    required this.difficulty,
+    required this.source,
+  });
+
+  factory Question.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return Question(
+      id: doc.id,
+      chapterId: data['chapterId'] ?? '',
+      topicId: data['topicId'] ?? '',
+      type: data['Question type'] ?? 'SCQ',
+      imageUrl: data['image_url'] ?? '',
+      solutionUrl: data['solution_url'],
+      // FIX: Using the correct field name as you specified
+      correctAnswer: data['Correct Answer'] ?? '',
+      difficulty: data['Difficulty_tag'] ?? 'Medium',
+      source: data['Exam'] ?? '',
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/models/test_enums.dart
+================================================================================
+// lib/models/test_enums.dart
+enum TestMode {
+  test,      // Timer counts down, no feedback, auto-submit
+  practice,  // Timer counts up (or hidden), instant feedback, solution access, pause allowed
+}
+
+================================================================================
+FILE: lib/models/test_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class TestConfig {
+  final int durationSeconds;
+  final int totalQuestions;
+
+  TestConfig({
+    required this.durationSeconds,
+    required this.totalQuestions,
+  });
+
+  factory TestConfig.fromMap(Map<String, dynamic> map) {
+    return TestConfig(
+      durationSeconds: map['durationSeconds'] ?? 0,
+      totalQuestions: map['totalQuestions'] ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'durationSeconds': durationSeconds,
+      'totalQuestions': totalQuestions,
+    };
+  }
+}
+
+class TestModel {
+  final String id;
+  final String createdBy;
+  final Timestamp createdAt;
+  final String status;
+  final String testName;
+  final TestConfig config;
+  final List<String> questionIds;
+  final List<String> chapters;
+  final String? shareCode; // New field
+  final List<String> uidsAttemptedTests; // New field
+
+  TestModel({
+    required this.id,
+    required this.createdBy,
+    required this.createdAt,
+    required this.status,
+    required this.testName,
+    required this.config,
+    required this.questionIds,
+    required this.chapters,
+    this.shareCode,
+    required this.uidsAttemptedTests,
+  });
+
+  factory TestModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    dynamic rawTimestamp = data['createdAt'];
+    Timestamp createdAtTimestamp;
+    if (rawTimestamp is String) {
+      createdAtTimestamp = Timestamp.fromDate(DateTime.parse(rawTimestamp));
+    } else if (rawTimestamp is Timestamp) {
+      createdAtTimestamp = rawTimestamp;
+    } else {
+      createdAtTimestamp = Timestamp.now();
+    }
+
+    return TestModel(
+      id: doc.id,
+      createdBy: data['createdBy'] ?? '',
+      createdAt: createdAtTimestamp,
+      status: data['status'] ?? 'GENERATED',
+      testName: data['testName'] ?? 'Unnamed Test',
+      config: TestConfig.fromMap(data['config'] ?? {}),
+      questionIds: List<String>.from(data['questionIds'] ?? []),
+      chapters: List<String>.from(data['chapters'] ?? []),
+      shareCode: data['shareCode'],
+      uidsAttemptedTests: List<String>.from(data['uidsAttemptedTests'] ?? []),
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'createdBy': createdBy,
+      'createdAt': createdAt,
+      'status': status,
+      'testName': testName,
+      'config': config.toMap(),
+      'questionIds': questionIds,
+      'chapters': chapters,
+      'shareCode': shareCode,
+      'uidsAttemptedTests': uidsAttemptedTests,
+    };
+  }
+}
+
+
+================================================================================
+FILE: lib/models/test_result.dart
+================================================================================
+import 'package:study_smart_qc/models/attempt_model.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+
+class TestResult {
+  final List<Question> questions;
+  final Map<int, AnswerState> answerStates;
+  final Duration timeTaken;
+  final int totalMarks;
+  final Map<String, ResponseObject>
+  responses; // Added to carry full response data
+
+  TestResult({
+    required this.questions,
+    required this.answerStates,
+    required this.timeTaken,
+    required this.totalMarks,
+    required this.responses, // Added
+  });
+}
+
+
+================================================================================
+FILE: lib/models/user_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class UserStats {
+  final int testsTaken;
+  final int questionsSolved;
+  final double averageAccuracy;
+
+  UserStats({
+    this.testsTaken = 0,
+    this.questionsSolved = 0,
+    this.averageAccuracy = 0.0,
+  });
+
+  factory UserStats.fromMap(Map<String, dynamic> map) {
+    return UserStats(
+      testsTaken: map['testsTaken'] ?? 0,
+      questionsSolved: map['questionsSolved'] ?? 0,
+      averageAccuracy: (map['averageAccuracy'] ?? 0.0).toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'testsTaken': testsTaken,
+      'questionsSolved': questionsSolved,
+      'averageAccuracy': averageAccuracy,
+    };
+  }
+}
+
+class UserModel {
+  final String uid;
+  final String email;
+  final String displayName;
+  final UserStats stats;
+  final List<String> testIDsattempted;
+  final Timestamp createdAt;
+
+  // --- NEW ONBOARDING FIELDS ---
+  final String role; // 'student' or 'teacher'
+  final bool onboardingCompleted;
+
+  // Student Specific
+  final int? studentId;
+  final String? targetExam;
+  final String? currentClass;
+  final int? targetYear;
+
+  // Teacher Specific
+  final List<String>? teachingExams;
+  final List<String>? teachingSubjects;
+
+  UserModel({
+    required this.uid,
+    required this.email,
+    required this.displayName,
+    required this.stats,
+    required this.testIDsattempted,
+    required this.createdAt,
+    this.role = 'student', // Default to student
+    this.onboardingCompleted = false, // Default to false
+    this.studentId,
+    this.targetExam,
+    this.currentClass,
+    this.targetYear,
+    this.teachingExams,
+    this.teachingSubjects,
+  });
+
+  factory UserModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    return UserModel(
+      uid: doc.id,
+      email: data['email'] ?? '',
+      displayName: data['displayName'] ?? '',
+      stats: UserStats.fromMap(data['stats'] ?? {}),
+      testIDsattempted: List<String>.from(data['testIDsattempted'] ?? []),
+      createdAt: data['createdAt'] ?? Timestamp.now(),
+
+      // Map New Fields
+      role: data['role'] ?? 'student',
+      onboardingCompleted: data['onboardingCompleted'] ?? false,
+      studentId: data['studentId'],
+      targetExam: data['targetExam'],
+      currentClass: data['currentClass'],
+      targetYear: data['targetYear'],
+      teachingExams: data['teachingExams'] != null
+          ? List<String>.from(data['teachingExams'])
+          : null,
+      teachingSubjects: data['teachingSubjects'] != null
+          ? List<String>.from(data['teachingSubjects'])
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'email': email,
+      'displayName': displayName,
+      'stats': stats.toMap(),
+      'testIDsattempted': testIDsattempted,
+      'createdAt': createdAt,
+
+      // Save New Fields
+      'role': role,
+      'onboardingCompleted': onboardingCompleted,
+      'studentId': studentId,
+      'targetExam': targetExam,
+      'currentClass': currentClass,
+      'targetYear': targetYear,
+      'teachingExams': teachingExams,
+      'teachingSubjects': teachingSubjects,
+    };
+  }
+}
+
+================================================================================
+FILE: lib/services/auth_service.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:study_smart_qc/models/user_model.dart';
+
+class AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  Stream<User?> get userStream {
+    return _auth.authStateChanges().asyncMap((user) async {
+      if (user != null) {
+        await _createUserDocumentIfNotExist(user);
+      }
+      return user;
+    });
+  }
+
+  Future<void> _createUserDocumentIfNotExist(
+      User user, {
+        String? displayName,
+      }) async {
+    final userRef = _firestore.collection('users').doc(user.uid);
+    final doc = await userRef.get();
+
+    if (!doc.exists) {
+      final newUser = UserModel(
+        uid: user.uid,
+        email: user.email ?? '',
+        displayName: displayName ?? user.displayName ?? '',
+        stats: UserStats(),
+        testIDsattempted: [],
+        createdAt: Timestamp.now(),
+
+        // --- NEW DEFAULTS FOR ONBOARDING ---
+        role: 'student',
+        onboardingCompleted: false,
+      );
+      await userRef.set(newUser.toFirestore());
+    }
+  }
+
+  Future<UserCredential?> signInWithGoogle() async {
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) return null;
+
+      final GoogleSignInAuthentication googleAuth =
+      await googleUser.authentication;
+      final OAuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      return await _auth.signInWithCredential(credential);
+    } catch (e) {
+      print("Error during Google Sign-In: $e");
+      return null;
+    }
+  }
+
+  Future<UserCredential?> signInWithEmailAndPassword(
+      String email,
+      String password,
+      ) async {
+    try {
+      return await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } on FirebaseAuthException catch (e) {
+      print("Error during Email Sign-In: ${e.message}");
+      return null;
+    }
+  }
+
+  Future<UserCredential?> signUpWithEmailAndPassword(
+      String email,
+      String password,
+      String displayName,
+      ) async {
+    try {
+      UserCredential userCredential = await _auth
+          .createUserWithEmailAndPassword(email: email, password: password);
+
+      User? user = userCredential.user;
+      if (user != null) {
+        await user.updateDisplayName(displayName);
+        await _createUserDocumentIfNotExist(user, displayName: displayName);
+      }
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      print("Error during Email Sign-Up: ${e.message}");
+      return null;
+    }
+  }
+
+  Future<void> signOut() async {
+    await _googleSignIn.signOut();
+    await _auth.signOut();
+  }
+}
+
+================================================================================
+FILE: lib/services/custom_test_service.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:study_smart_qc/models/custom_test_model.dart';
+
+class CustomTestService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  // Get the current user's ID
+  String? get _userId => _auth.currentUser?.uid;
+
+  // Save a generated test to Firestore
+  Future<void> saveTest(CustomTest test) async {
+    if (_userId == null) return;
+
+    final docRef = _firestore
+        .collection('users')
+        .doc(_userId)
+        .collection('custom_tests')
+        .doc(); // Auto-generate ID
+
+    await docRef.set(test.toFirestore());
+  }
+
+  // Retrieve all tests for the current user
+  Stream<List<CustomTest>> getCustomTests() {
+    if (_userId == null) return Stream.value([]);
+
+    return _firestore
+        .collection('users')
+        .doc(_userId)
+        .collection('custom_tests')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) => CustomTest.fromFirestore(doc))
+              .toList();
+        });
+  }
+
+  // Fetch the full Question objects for a saved test
+  Future<List<Map<String, dynamic>>> getQuestionsForTest(
+    List<String> questionIds,
+  ) async {
+    if (questionIds.isEmpty) return [];
+
+    final querySnapshot = await _firestore
+        .collection('questions')
+        .where(FieldPath.documentId, whereIn: questionIds)
+        .get();
+
+    return querySnapshot.docs.map((doc) => doc.data()).toList();
+  }
+}
+
+
+================================================================================
+FILE: lib/services/onboarding_service.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class OnboardingService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  /// Completes the onboarding process.
+  /// If the user is a STUDENT, this runs a Transaction to safely generate a unique Student ID.
+  /// If the user is a TEACHER, this performs a simple update.
+  Future<void> completeOnboarding({
+    required String uid,
+    required String role, // 'student' or 'teacher'
+    required Map<String, dynamic> profileData,
+  }) async {
+    final userRef = _firestore.collection('users').doc(uid);
+
+    if (role == 'student') {
+      await _handleStudentOnboarding(userRef, uid, profileData);
+    } else {
+      await _handleTeacherOnboarding(userRef, profileData);
+    }
+  }
+
+  /// Transactional logic for Students
+  Future<void> _handleStudentOnboarding(
+      DocumentReference userRef,
+      String uid,
+      Map<String, dynamic> profileData,
+      ) async {
+    final optionSetsRef =
+    _firestore.collection('static_data').doc('option_sets');
+    final trackerRef =
+    _firestore.collection('student_question_tracker').doc(uid);
+
+    return _firestore.runTransaction((transaction) async {
+      // 1. READ: Get the current ID counter
+      // This read locks the document until the transaction completes
+      DocumentSnapshot optionSetsSnapshot = await transaction.get(optionSetsRef);
+
+      if (!optionSetsSnapshot.exists) {
+        throw Exception("System Error: 'static_data/option_sets' not found.");
+      }
+
+      int currentId = optionSetsSnapshot.get('last_assigned_student_id') ?? 0;
+      int newId = currentId + 1;
+
+      // 2. WRITE: Update the counter
+      transaction.update(optionSetsRef, {
+        'last_assigned_student_id': newId,
+      });
+
+      // 3. WRITE: Update the User Profile
+      transaction.update(userRef, {
+        'role': 'student',
+        'onboardingCompleted': true,
+        'studentId': newId,
+        'targetExam': profileData['targetExam'],
+        'currentClass': profileData['currentClass'],
+        'targetYear': profileData['targetYear'],
+        // Clear teacher fields if they existed by mistake
+        'teachingExams': FieldValue.delete(),
+        'teachingSubjects': FieldValue.delete(),
+      });
+
+      // 4. WRITE: Create the Question Tracker
+      transaction.set(trackerRef, {
+        'student_id': newId,
+        'assigned_history': [],
+        'buckets': {
+          'unattempted': [],
+          'skipped': [],
+          'incorrect': [],
+          'correct': [],
+        }
+      });
+    });
+  }
+
+  /// Simple update logic for Teachers
+  Future<void> _handleTeacherOnboarding(
+      DocumentReference userRef,
+      Map<String, dynamic> profileData,
+      ) async {
+    await userRef.update({
+      'role': 'teacher',
+      'onboardingCompleted': true,
+      'teachingExams': profileData['teachingExams'],
+      'teachingSubjects': profileData['teachingSubjects'],
+      // Clear student fields
+      'studentId': FieldValue.delete(),
+      'targetExam': FieldValue.delete(),
+      'currentClass': FieldValue.delete(),
+      'targetYear': FieldValue.delete(),
+    });
+  }
+}
+
+================================================================================
+FILE: lib/services/teacher_service.dart
+================================================================================
+import 'dart:math'; // For random code generation
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+
+class TeacherService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  // --- 1. STATS DASHBOARD (For Step 1) ---
+
+  Future<Map<String, int>> getStudentStats(int studentId) async {
+    final uid = await _findUidByStudentId(studentId);
+    if (uid == null) return {};
+
+    final doc = await _firestore.collection('student_question_tracker').doc(uid).get();
+    if (!doc.exists) return {};
+
+    final data = doc.data()!;
+    final buckets = data['buckets'] as Map<String, dynamic>;
+    final assigned = (data['assigned_history'] as List?)?.length ?? 0;
+
+    return {
+      'Assigned': assigned,
+      'Unattempted': (buckets['unattempted'] as List?)?.length ?? 0,
+      'Incorrect': (buckets['incorrect'] as List?)?.length ?? 0,
+      'Correct': (buckets['correct'] as List?)?.length ?? 0,
+      'Skipped': (buckets['skipped'] as List?)?.length ?? 0,
+    };
+  }
+
+  // --- 2. ADVANCED SEARCH (For Step 2) ---
+
+  Future<List<Question>> fetchQuestions({
+    required String audienceType, // 'General', 'Particular Student'
+    int? studentId,
+    String? smartFilter, // 'New Questions', 'Incorrect', etc.
+    String? subject,
+    List<String>? chapterIds,
+    List<String>? topicIds,
+    int limit = 50,
+  }) async {
+    List<Question> candidates = [];
+
+    // STRATEGY:
+    // If Smart Filter is active (e.g., 'Incorrect'), source is the Tracker (Question IDs).
+    // If General/New, source is the Questions Collection (filtered by Syllabus).
+
+    if (audienceType == 'Particular Student' && smartFilter != null && smartFilter != 'New Questions') {
+      // CASE A: Fetch from Tracker History (Incorrect, Unattempted, etc.)
+      candidates = await _fetchFromTracker(studentId!, smartFilter);
+    } else {
+      // CASE B: Fetch from General Pool (and optionally filter out 'seen' questions)
+      candidates = await _fetchFromGeneralPool(subject, chapterIds, limit);
+
+      // If 'New Questions' for a student, exclude their history
+      if (audienceType == 'Particular Student' && studentId != null) {
+        final historyIds = await _getStudentHistory(studentId);
+        candidates = candidates.where((q) => !historyIds.contains(q.id)).toList();
+      }
+    }
+
+    // --- APPLY CLIENT-SIDE FILTERS ---
+    // Firestore is limited, so we refine results here (Topic, Subject check)
+    return candidates.where((q) {
+      if (chapterIds != null && chapterIds.isNotEmpty && !chapterIds.contains(q.chapterId)) return false;
+      if (topicIds != null && topicIds.isNotEmpty && !topicIds.contains(q.topicId)) return false;
+      return true;
+    }).take(limit).toList();
+  }
+
+  // --- INTERNAL HELPERS ---
+
+  Future<List<Question>> _fetchFromTracker(int studentId, String bucketKey) async {
+    final uid = await _findUidByStudentId(studentId);
+    if (uid == null) return [];
+
+    final doc = await _firestore.collection('student_question_tracker').doc(uid).get();
+    if (!doc.exists) return [];
+
+    final buckets = doc.data()!['buckets'] as Map<String, dynamic>;
+
+    // Map UI string to DB key
+    String dbKey = bucketKey.toLowerCase();
+    if (bucketKey.contains('Incorrect')) dbKey = 'incorrect';
+    if (bucketKey.contains('Unattempted')) dbKey = 'unattempted';
+    if (bucketKey.contains('Correct')) dbKey = 'correct';
+    if (bucketKey.contains('Skipped')) dbKey = 'skipped';
+
+    final ids = List<String>.from(buckets[dbKey] ?? []);
+    if (ids.isEmpty) return [];
+
+    // Fetch actual docs (batched if > 10, but taking top 10 for MVP safety)
+    final safeIds = ids.take(10).toList();
+    final query = await _firestore.collection('questions').where(FieldPath.documentId, whereIn: safeIds).get();
+    return query.docs.map((d) => Question.fromFirestore(d)).toList();
+  }
+
+  Future<List<Question>> _fetchFromGeneralPool(String? subject, List<String>? chapterIds, int limit) async {
+    Query query = _firestore.collection('questions');
+
+    // Optimization: If specific chapters selected, use them (max 10 for 'whereIn')
+    if (chapterIds != null && chapterIds.isNotEmpty && chapterIds.length <= 10) {
+      query = query.where('chapterId', whereIn: chapterIds);
+    } else {
+      // Fallback to purely limit-based if no chapters or too many chapters
+      // In a real app, you'd filter by Subject string if it exists on the doc
+    }
+
+    final snap = await query.limit(limit * 2).get(); // Fetch extra to allow for local filtering
+    return snap.docs.map((d) => Question.fromFirestore(d)).toList();
+  }
+
+  Future<Set<String>> _getStudentHistory(int studentId) async {
+    final uid = await _findUidByStudentId(studentId);
+    if (uid == null) return {};
+    final doc = await _firestore.collection('student_question_tracker').doc(uid).get();
+    if (!doc.exists) return {};
+    return Set<String>.from(doc.data()!['assigned_history'] ?? []);
+  }
+
+  Future<String?> _findUidByStudentId(int studentId) async {
+    final query = await _firestore.collection('users').where('studentId', isEqualTo: studentId).limit(1).get();
+    if (query.docs.isEmpty) return null;
+    return query.docs.first.id;
+  }
+
+  /// UPDATED ASSIGNMENT LOGIC
+  Future<void> assignQuestionsToStudent({
+    required int studentId,
+    required List<Question> questions, // Pass full objects for metadata
+    required String teacherUid,
+    required String targetAudience,
+    String assignmentTitle = "Teacher Assignment",
+  }) async {
+    final studentUid = await _findUidByStudentId(studentId);
+    if (studentUid == null) throw Exception("Student not found");
+
+    final newAssignmentRef = _firestore.collection('questions_curation').doc();
+    final trackerRef = _firestore.collection('student_question_tracker').doc(studentUid);
+    final batch = _firestore.batch();
+
+    // 1. Generate Metadata
+    final assignmentCode = _generateAssignmentCode();
+    final questionIds = questions.map((q) => q.id).toList();
+
+    // Note: Assuming Question model implicitly has a subject via source or chapter,
+    // otherwise we rely on what's available. We will aggregate subjects here.
+    // Ideally add 'subjectId' to Question model if needed explicitly.
+    // For now we will try to infer or group based on existing data.
+    final subjects = questions.map((q) => q.chapterId.split('_').first).toSet().toList(); // Basic inference if subjectId missing
+
+    final hierarchy = _buildHierarchy(questions);
+
+    // 2. Create Assignment Document
+    batch.set(newAssignmentRef, {
+      'assignmentId': newAssignmentRef.id,
+      'assignmentCode': assignmentCode, // Unique 4-digit code
+      'targetAudience': targetAudience,
+      'studentUid': studentUid,
+      'teacherUid': teacherUid,
+      'title': assignmentTitle,
+      'questionIds': questionIds,
+      'createdAt': FieldValue.serverTimestamp(),
+      'status': 'assigned',
+      'subjects': subjects, // List of subjects involved
+      'meta_hierarchy': hierarchy, // Detailed breakdown
+    });
+
+    // 3. Update Student Tracker
+    batch.update(trackerRef, {
+      'assigned_history': FieldValue.arrayUnion(questionIds),
+      'buckets.unattempted': FieldValue.arrayUnion(questionIds),
+    });
+
+    await batch.commit();
+  }
+
+  // --- NEW HELPERS ---
+
+  String _generateAssignmentCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rnd = Random();
+    return String.fromCharCodes(Iterable.generate(
+        4, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
+  }
+
+  Map<String, dynamic> _buildHierarchy(List<Question> questions) {
+    // Structure: Exam -> Subject -> Chapter -> Topic -> Count
+    Map<String, dynamic> hierarchy = {};
+
+    for (var q in questions) {
+      final exam = q.source.isEmpty ? 'Unknown Exam' : q.source;
+      // If subjectId is missing in Question model, use placeholder or extract from chapter
+      final subject = 'Physics'; // Hardcoded based on context, or q.subjectId if added
+      final chapter = q.chapterId.isEmpty ? 'Unknown Chapter' : q.chapterId;
+      final topic = q.topicId.isEmpty ? 'Unknown Topic' : q.topicId;
+
+      hierarchy.putIfAbsent(exam, () => <String, dynamic>{});
+      hierarchy[exam].putIfAbsent(subject, () => <String, dynamic>{});
+      hierarchy[exam][subject].putIfAbsent(chapter, () => <String, dynamic>{});
+
+      final currentCount = hierarchy[exam][subject][chapter][topic] ?? 0;
+      hierarchy[exam][subject][chapter][topic] = currentCount + 1;
+    }
+    return hierarchy;
+  }
+}
+
+================================================================================
+FILE: lib/services/test_orchestration_service.dart
+================================================================================
+import 'dart:math';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:study_smart_qc/models/attempt_item_model.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_model.dart';
+import 'package:study_smart_qc/models/attempt_model.dart';
+
+class TestOrchestrationService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  String? get _userId => _auth.currentUser?.uid;
+
+  // --- NEW: UNIVERSAL SUBMISSION HANDLER ---
+  // This is the method your TestScreen is looking for.
+  Future<void> submitAttempt({
+    required String curationId,
+    required List<Question> questions,
+    required int score,
+    required int timeTakenSeconds,
+    required Map<String, ResponseObject> responses,
+  }) async {
+    if (_userId == null) return;
+
+    final batch = _firestore.batch();
+
+    // 1. Create Attempt Record
+    final attemptRef = _firestore.collection('attempts').doc();
+    final newAttempt = AttemptModel(
+      id: attemptRef.id,
+      testId: curationId,
+      userId: _userId!,
+      startedAt: Timestamp.now(),
+      completedAt: Timestamp.now(),
+      score: score,
+      timeTakenSeconds: timeTakenSeconds,
+      responses: responses,
+    );
+    batch.set(attemptRef, newAttempt.toFirestore());
+
+    // 2. Prepare Buckets for Tracker
+    List<String> correctIds = [];
+    List<String> incorrectIds = [];
+    List<String> skippedIds = [];
+    List<String> allAttemptedIds = [];
+
+    responses.forEach((qid, response) {
+      allAttemptedIds.add(qid);
+      if (response.status == 'CORRECT') correctIds.add(qid);
+      else if (response.status == 'INCORRECT') incorrectIds.add(qid);
+      else skippedIds.add(qid);
+    });
+
+    // 3. Update Student Tracker
+    final trackerRef = _firestore.collection('student_question_tracker').doc(_userId);
+
+    batch.update(trackerRef, {
+      'buckets.unattempted': FieldValue.arrayRemove(allAttemptedIds),
+      'buckets.correct': FieldValue.arrayUnion(correctIds),
+      'buckets.incorrect': FieldValue.arrayUnion(incorrectIds),
+      'buckets.skipped': FieldValue.arrayUnion(skippedIds),
+      'attempted_history': FieldValue.arrayUnion(allAttemptedIds),
+    });
+
+    await batch.commit();
+  }
+
+  // --- EXISTING METHODS (Kept for compatibility) ---
+
+  String _generateShareCode() {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    final rnd = Random();
+    return String.fromCharCodes(
+      Iterable.generate(4, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))),
+    );
+  }
+
+  Future<TestModel?> createAndSaveTestBlueprint({
+    required List<Question> questions,
+    required int durationSeconds,
+    required List<String> chapterNames,
+    required String testName,
+  }) async {
+    if (_userId == null) return null;
+    String shareCode;
+    bool isUnique = false;
+    do {
+      shareCode = _generateShareCode();
+      final existing = await _firestore
+          .collection('tests')
+          .where('shareCode', isEqualTo: shareCode)
+          .limit(1)
+          .get();
+      if (existing.docs.isEmpty) {
+        isUnique = true;
+      }
+    } while (!isUnique);
+    final testRef = _firestore.collection('tests').doc();
+
+    final newTest = TestModel(
+      id: testRef.id,
+      createdBy: _userId!,
+      createdAt: Timestamp.now(),
+      status: 'Not Attempted',
+      testName: testName,
+      config: TestConfig(
+        durationSeconds: durationSeconds,
+        totalQuestions: questions.length,
+      ),
+      questionIds: questions.map((q) => q.id).toList(),
+      chapters: chapterNames,
+      shareCode: shareCode,
+      uidsAttemptedTests: [],
+    );
+
+    await testRef.set(newTest.toFirestore());
+    return newTest;
+  }
+
+  // Legacy method for custom tests (can eventually be replaced by submitAttempt)
+  Future<void> saveTestAttempt({
+    required String testId,
+    required List<Question> questions,
+    required int score,
+    required int timeTakenSeconds,
+    required Map<String, ResponseObject> responses,
+  }) async {
+    if (_userId == null) return;
+    final batch = _firestore.batch();
+    final attemptRef = _firestore.collection('attempts').doc();
+    final newAttempt = AttemptModel(
+      id: attemptRef.id,
+      testId: testId,
+      userId: _userId!,
+      startedAt: Timestamp.now(),
+      completedAt: Timestamp.now(),
+      score: score,
+      timeTakenSeconds: timeTakenSeconds,
+      responses: responses,
+    );
+    batch.set(attemptRef, newAttempt.toFirestore());
+
+    for (final question in questions) {
+      final response = responses[question.id];
+      if (response != null) {
+        final attemptItemRef = _firestore
+            .collection('attempt_items')
+            .doc('${_userId}_${question.id}');
+        final attemptItem = AttemptItemModel(
+          userId: _userId!,
+          questionId: question.id,
+          chapterId: question.chapterId,
+          topicId: question.topicId,
+          status: response.status,
+          timeSpent: response.timeSpent,
+          attemptedAt: Timestamp.now(),
+        );
+        batch.set(attemptItemRef, attemptItem.toFirestore());
+      }
+    }
+
+    final testRef = _firestore.collection('tests').doc(testId);
+    batch.update(testRef, {'status': 'Attempted'});
+
+    await batch.commit();
+  }
+
+  Stream<List<TestModel>> getSavedTestsStream() {
+    if (_userId == null) return Stream.value([]);
+    return _firestore
+        .collection('tests')
+        .where('createdBy', isEqualTo: _userId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) =>
+          snapshot.docs.map((doc) => TestModel.fromFirestore(doc)).toList(),
+    );
+  }
+
+  Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
+    if (questionIds.isEmpty) return [];
+    final List<Question> questions = [];
+    final chunks = [];
+    for (var i = 0; i < questionIds.length; i += 10) {
+      chunks.add(
+        questionIds.sublist(
+          i,
+          i + 10 > questionIds.length ? questionIds.length : i + 10,
+        ),
+      );
+    }
+    for (final chunk in chunks) {
+      final querySnapshot = await _firestore
+          .collection('questions')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      questions.addAll(
+        querySnapshot.docs.map((doc) => Question.fromFirestore(doc)),
+      );
+    }
+    return questions;
+  }
+
+  Future<TestModel?> getTestByShareCode(String shareCode) async {
+    final querySnapshot = await _firestore
+        .collection('tests')
+        .where('shareCode', isEqualTo: shareCode)
+        .limit(1)
+        .get();
+    if (querySnapshot.docs.isNotEmpty) {
+      return TestModel.fromFirestore(querySnapshot.docs.first);
+    }
+    return null;
+  }
+
+  Future<void> recordTestAttempt(String testId) async {
+    if (_userId == null) return;
+    final batch = _firestore.batch();
+    final testRef = _firestore.collection('tests').doc(testId);
+    batch.update(testRef, {
+      'uidsAttemptedTests': FieldValue.arrayUnion([_userId]),
+    });
+    final userRef = _firestore.collection('users').doc(_userId);
+    batch.update(userRef, {
+      'testIDsattempted': FieldValue.arrayUnion([testId]),
+    });
+
+    await batch.commit();
+  }
+
+  Future<AttemptModel?> getAttemptForTest(String testId) async {
+    if (_userId == null) return null;
+    final querySnapshot = await _firestore
+        .collection('attempts')
+        .where('testId', isEqualTo: testId)
+        .where('userId', isEqualTo: _userId)
+        .limit(1)
+        .get();
+    if (querySnapshot.docs.isNotEmpty) {
+      return AttemptModel.fromFirestore(querySnapshot.docs.first);
+    }
+    return null;
+  }
+}
+
+================================================================================
+FILE: lib/services/test_service.dart
+================================================================================
+import 'dart:math';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+
+class TestService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  Future<List<Question>> generateTest({
+    required Set<String> chapterIds,
+    required Set<String> topicIds,
+    required int questionCount,
+  }) async {
+    if (chapterIds.isEmpty || topicIds.isEmpty) {
+      return [];
+    }
+
+    // **CORRECTED LOGIC: Fetch Broad, Filter Local for correctness**
+    // Step 1: Fetch all questions from the selected CHAPTERS.
+    QuerySnapshot querySnapshot = await _firestore
+        .collection('questions')
+        .where('chapterId', whereIn: chapterIds.toList())
+        .get();
+
+    List<Question> fetchedQuestions = querySnapshot.docs
+        .map((doc) => Question.fromFirestore(doc))
+        .toList();
+
+    // Step 2: Locally filter those questions by the selected TOPICS.
+    List<Question> filteredByTopic = fetchedQuestions
+        .where((q) => topicIds.contains(q.topicId))
+        .toList();
+
+    // Step 3: Ensure questions have a valid image URL.
+    List<Question> validQuestions = filteredByTopic.where((q) {
+      final url = q.imageUrl;
+      return url.isNotEmpty &&
+          (url.startsWith('http') || url.startsWith('https'));
+    }).toList();
+
+    // Step 4: Apply 80/20 split for question types
+    final scqQuestions = validQuestions
+        .where((q) => q.type.trim() == 'Single Correct')
+        .toList();
+    final numericalQuestions = validQuestions
+        .where((q) => q.type.trim() == 'Numerical type')
+        .toList();
+
+    scqQuestions.shuffle();
+    numericalQuestions.shuffle();
+
+    final numNumerical = (questionCount * 0.2).round();
+    final numScq = questionCount - numNumerical;
+
+    final finalScq = scqQuestions
+        .take(min(numScq, scqQuestions.length))
+        .toList();
+    final finalNumerical = numericalQuestions
+        .take(min(numNumerical, numericalQuestions.length))
+        .toList();
+
+    final finalTestQuestions = [...finalScq, ...finalNumerical];
+    finalTestQuestions.shuffle();
+
+    return finalTestQuestions;
+  }
+}
+
+
+================================================================================
+FILE: lib/widgets/question_palette.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+
+class QuestionPalette extends StatelessWidget {
+  final int questionCount;
+  final Map<int, AnswerState> answerStates;
+  final int currentQuestionIndex;
+  final Function(int) onQuestionTapped;
+
+  const QuestionPalette({
+    super.key,
+    required this.questionCount,
+    required this.answerStates,
+    required this.currentQuestionIndex,
+    required this.onQuestionTapped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      itemCount: questionCount,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 5,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemBuilder: (context, index) {
+        final state = answerStates[index] ?? AnswerState();
+        final isCurrent = index == currentQuestionIndex;
+
+        return GestureDetector(
+          onTap: () => onQuestionTapped(index),
+          child: Container(
+            decoration: BoxDecoration(
+              color: state.status.color,
+              borderRadius: BorderRadius.circular(4),
+              border: isCurrent ? Border.all(color: Colors.black, width: 2) : null,
+            ),
+            child: Center(
+              child: Text(
+                '${index + 1}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/widgets/solution_detail_sheet.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_result.dart'; // Added missing import
+
+class SolutionDetailSheet extends StatefulWidget {
+  final TestResult result;
+  final int initialIndex;
+
+  const SolutionDetailSheet({
+    super.key,
+    required this.result,
+    required this.initialIndex,
+  });
+
+  @override
+  State<SolutionDetailSheet> createState() => _SolutionDetailSheetState();
+}
+
+class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
+  late final PageController _pageController;
+  int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: _currentIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  String _formatTime(int totalSeconds) {
+    if (totalSeconds < 60) {
+      return '$totalSeconds s';
+    }
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '$minutes m ${seconds}s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios),
+                onPressed: _currentIndex > 0
+                    ? () => _pageController.previousPage(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeIn,
+                      )
+                    : null,
+              ),
+              Text(
+                'Solution ${_currentIndex + 1} / ${widget.result.questions.length}',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.arrow_forward_ios),
+                onPressed: _currentIndex < widget.result.questions.length - 1
+                    ? () => _pageController.nextPage(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeIn,
+                      )
+                    : null,
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: widget.result.questions.length,
+            onPageChanged: (index) => setState(() => _currentIndex = index),
+            itemBuilder: (context, index) {
+              final question = widget.result.questions[index];
+              final answerState = widget.result.answerStates[index]!;
+              final isCorrect =
+                  answerState.userAnswer == question.correctAnswer;
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Question ${index + 1}',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Image.network(question.imageUrl),
+                    const SizedBox(height: 20),
+                    _buildAnswerStatus(
+                      'Your Answer: ${answerState.userAnswer ?? "Not Answered"}',
+                      isCorrect,
+                      answerState.status,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildAnswerStatus(
+                      'Correct Answer: ${question.correctAnswer}',
+                      true,
+                      AnswerStatus.answered,
+                    ),
+                    const Divider(height: 30),
+                    if (question.solutionUrl != null &&
+                        question.solutionUrl!.isNotEmpty)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Solution',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Image.network(question.solutionUrl!),
+                        ],
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAnswerStatus(String text, bool isCorrect, AnswerStatus status) {
+    Color color = Colors.grey;
+    if (status == AnswerStatus.answered ||
+        status == AnswerStatus.answeredAndMarked) {
+      color = isCorrect ? Colors.green : Colors.red;
+    }
+    return Row(
+      children: [
+        Icon(
+          isCorrect ? Icons.check_circle : Icons.cancel,
+          color: color,
+          size: 20,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(color: color, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
+================================================================================
+FILE: lib/widgets/test_configuration_bottom_sheet.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/features/test_taking/screens/test_preview_screen.dart';
+import 'package:study_smart_qc/services/test_service.dart';
+
+class TestConfigurationBottomSheet extends StatefulWidget {
+  final Set<String> chapterIds;
+  final Map<String, String> chapterIdToNameMap;
+  final Set<String> topicIds;
+  final Map<String, String> topicIdToNameMap;
+  final Map<String, Map<String, String>> chapterIdToTopicsMap;
+
+  const TestConfigurationBottomSheet({
+    super.key,
+    required this.chapterIds,
+    required this.topicIds,
+    required this.chapterIdToNameMap,
+    required this.topicIdToNameMap,
+    required this.chapterIdToTopicsMap, // FIX: Added required parameter
+  });
+
+  @override
+  State<TestConfigurationBottomSheet> createState() =>
+      _TestConfigurationBottomSheetState();
+}
+
+class _TestConfigurationBottomSheetState
+    extends State<TestConfigurationBottomSheet> {
+  int _selectedQuestionCount = 15;
+  late int _timeInMinutes;
+  final List<int> _questionCountOptions = [10, 15, 20, 30];
+  bool _isCustom = false;
+  final TextEditingController _customCountController = TextEditingController();
+  late final TextEditingController _testNameController;
+  bool _isGeneratingTest = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timeInMinutes = _selectedQuestionCount * 2;
+    _customCountController.text = '45';
+    final defaultChapterName = widget.chapterIds.isNotEmpty
+        ? widget.chapterIdToNameMap[widget.chapterIds.first]
+        : 'Custom';
+    _testNameController = TextEditingController(
+      text: 'P - $defaultChapterName Test',
+    );
+  }
+
+  @override
+  void dispose() {
+    _customCountController.dispose();
+    _testNameController.dispose();
+    super.dispose();
+  }
+
+  void _updateQuestionCount(int? count) {
+    setState(() {
+      _isCustom = count == null;
+      if (!_isCustom) {
+        _selectedQuestionCount = count!;
+      } else {
+        _selectedQuestionCount =
+            int.tryParse(_customCountController.text) ?? 45;
+      }
+      _timeInMinutes = _selectedQuestionCount * 2;
+    });
+  }
+
+  void _onCustomCountChanged(String value) {
+    setState(() {
+      _selectedQuestionCount = int.tryParse(value) ?? _selectedQuestionCount;
+      _timeInMinutes = _selectedQuestionCount * 2;
+    });
+  }
+
+  void _adjustTime(int delta) {
+    setState(() {
+      _timeInMinutes = (_timeInMinutes + delta).clamp(5, 180);
+    });
+  }
+
+  Future<void> _generateAndPreviewTest() async {
+    setState(() => _isGeneratingTest = true);
+
+    final service = TestService();
+    final questions = await service.generateTest(
+      chapterIds: widget.chapterIds,
+      topicIds: widget.topicIds,
+      questionCount: _selectedQuestionCount,
+    );
+
+    if (!mounted) return;
+    setState(() => _isGeneratingTest = false);
+
+    if (questions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No questions found for the selected topics.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      Navigator.pop(context);
+      return;
+    }
+
+    final Map<String, List<String>> selectedSyllabus = {};
+    for (String chapId in widget.chapterIds) {
+      final chapterName = widget.chapterIdToNameMap[chapId]!;
+      final List<String> selectedTopicsInChapter = [];
+
+      final questionTopicIdsForThisChapter = questions
+          .where((q) => q.chapterId == chapId)
+          .map((q) => q.topicId)
+          .toSet();
+
+      for (var topicId in questionTopicIdsForThisChapter) {
+        final topicName = widget.topicIdToNameMap[topicId];
+        if (topicName != null && !selectedTopicsInChapter.contains(topicName)) {
+          selectedTopicsInChapter.add(topicName);
+        }
+      }
+
+      if (selectedTopicsInChapter.isNotEmpty) {
+        selectedSyllabus[chapterName] = selectedTopicsInChapter;
+      }
+    }
+
+    Navigator.pop(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TestPreviewScreen(
+          questions: questions,
+          timeLimitInMinutes: _timeInMinutes,
+          selectedSyllabus: selectedSyllabus,
+          testName: _testNameController.text,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Configure Your Test',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _testNameController,
+              decoration: const InputDecoration(
+                labelText: 'Test Name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Number of Questions:',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              children: [
+                ..._questionCountOptions.map((count) {
+                  return ChoiceChip(
+                    label: Text('$count'),
+                    selected: !_isCustom && _selectedQuestionCount == count,
+                    onSelected: (_) => _updateQuestionCount(count),
+                  );
+                }).toList(),
+                ChoiceChip(
+                  label: const Text('Custom'),
+                  selected: _isCustom,
+                  onSelected: (_) => _updateQuestionCount(null),
+                ),
+              ],
+            ),
+            if (_isCustom)
+              Padding(
+                padding: const EdgeInsets.only(top: 10.0),
+                child: TextField(
+                  controller: _customCountController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Enter number of questions',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: _onCustomCountChanged,
+                ),
+              ),
+            const SizedBox(height: 20),
+            const Text(
+              'Time Limit:',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline),
+                  onPressed: () => _adjustTime(-5),
+                ),
+                Text(
+                  '$_timeInMinutes mins',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline),
+                  onPressed: () => _adjustTime(5),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: _isGeneratingTest
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: _generateAndPreviewTest,
+                      child: const Text(
+                        'Generate Test',
+                        style: TextStyle(fontSize: 18),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+

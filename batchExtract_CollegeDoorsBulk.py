@@ -386,10 +386,24 @@ for folder in tqdm(target_folders, desc="Processing Batches"):
     # DataFrame Logic
     meta_df['Folder'] = test_name
     
+    # Merge Metadata with Answer Key
     if 'Question No.' in meta_df.columns and 'Question No.' in key_df.columns:
         combined_df = pd.merge(meta_df, key_df, on='Question No.', how='left', suffixes=('', '_key'))
     else:
         combined_df = pd.concat([meta_df.reset_index(drop=True), key_df.reset_index(drop=True)], axis=1)
+
+    # --- FIX: COLUMN CLEANUP (DUPLICATE ANSWERS) ---
+    # Merge 'Correct Answer_key' into 'Correct Answer' if it exists
+    if 'Correct Answer_key' in combined_df.columns:
+        if 'Correct Answer' in combined_df.columns:
+            # Fill blanks in main col with values from key col
+            combined_df['Correct Answer'] = combined_df['Correct Answer'].fillna(combined_df['Correct Answer_key'])
+        else:
+            # Rename key col to main col
+            combined_df['Correct Answer'] = combined_df['Correct Answer_key']
+        
+        # Drop the extra key column
+        combined_df.drop(columns=['Correct Answer_key'], inplace=True)
 
     unique_ids_col = []
     pdf_text_col = []
@@ -409,7 +423,7 @@ for folder in tqdm(target_folders, desc="Processing Batches"):
         unique_ids_col.append(current_global_id)
         
         raw_text = extracted_text_map.get(q_num, "")
-        cleaned_text = re.sub(r'\b\S*_\S*\b', '', raw_text)
+        cleaned_text = re.sub(r'\b\S*_\S*\b', '', raw_text) # Remove ATPH_...
         cleaned_text = " ".join(cleaned_text.split())
         
         if len(cleaned_text) < 30:
@@ -422,7 +436,10 @@ for folder in tqdm(target_folders, desc="Processing Batches"):
     combined_df['unique_id'] = unique_ids_col
     combined_df['pdf_Text'] = pdf_text_col
     combined_df['PDF_Text_Available'] = text_avail_col
-    combined_df['QC_Status'] = "Pass"
+    
+    # --- FIX: QC STATUS DEFAULT ---
+    # Set to 'Pending QC' so we don't assume Pass
+    combined_df['QC_Status'] = "Pending QC"
     
     combined_df.fillna("Unknown", inplace=True)
     combined_df = combined_df[combined_df['unique_id'].notna()]

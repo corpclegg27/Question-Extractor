@@ -6,7 +6,8 @@ import plotly.express as px
 # --- CONFIGURATION ---
 # Get the folder where THIS script (Home.py) is located
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_PATH, 'DB Master.xlsx')
+# UPDATED: Pointing to CSV now
+DB_PATH = os.path.join(BASE_PATH, 'DB Master.csv')
 
 st.set_page_config(
     page_title="Question Bank HQ",
@@ -27,8 +28,10 @@ if not os.path.exists(DB_PATH):
             'manually updated'
         ]
         df_empty = pd.DataFrame(columns=cols)
-        df_empty.to_excel(DB_PATH, index=False)
-        st.toast("🆕 Database not found, so I created a fresh 'DB Master.xlsx' for you!", icon="✨")
+        
+        # UPDATED: Save as CSV instead of Excel
+        df_empty.to_csv(DB_PATH, index=False)
+        st.toast("🆕 Database not found, so I created a fresh 'DB Master.csv' for you!", icon="✨")
     except Exception as e:
         st.error(f"❌ Could not create database. Check permissions.\nError: {e}")
 
@@ -54,7 +57,9 @@ st.divider()
 # --- METRICS DASHBOARD ---
 if os.path.exists(DB_PATH):
     try:
-        df = pd.read_excel(DB_PATH)
+        # UPDATED: Read from CSV
+        # low_memory=False prevents mixed-type warnings on large files
+        df = pd.read_csv(DB_PATH, low_memory=False) 
         
         # --- TOP LEVEL METRICS ---
         total_qs = len(df)
@@ -81,7 +86,8 @@ if os.path.exists(DB_PATH):
             with col_charts1:
                 st.subheader("Subject Distribution")
                 if 'Subject' in df.columns:
-                    sub_counts = df['Subject'].value_counts().reset_index()
+                    # Clean up data for chart
+                    sub_counts = df['Subject'].fillna('Unknown').value_counts().reset_index()
                     sub_counts.columns = ['Subject', 'Count']
                     fig_sub = px.pie(sub_counts, values='Count', names='Subject', hole=0.4)
                     st.plotly_chart(fig_sub, use_container_width=True)
@@ -91,7 +97,7 @@ if os.path.exists(DB_PATH):
             with col_charts2:
                 st.subheader("Exam Source")
                 if 'Exam' in df.columns:
-                    exam_counts = df['Exam'].value_counts().reset_index()
+                    exam_counts = df['Exam'].fillna('Unknown').value_counts().reset_index()
                     exam_counts.columns = ['Exam', 'Count']
                     exam_counts = exam_counts.sort_values(by='Count', ascending=True)
                     fig_exam = px.bar(exam_counts, x='Count', y='Exam', orientation='h')

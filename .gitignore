@@ -12,6 +12,7 @@ Manual_Uploads/
 *.jpg
 *.jpeg
 *.zip
+*.msi
 
 # --- IGNORE EXCEL/DB (Keep local) ---
 *.xlsx

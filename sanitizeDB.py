@@ -1,105 +1,72 @@
 import pandas as pd
-import json
 import os
-import sys
 
-# --- CONFIGURATION ---
-# Auto-detect paths based on current file location
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(CURRENT_DIR, "config.json")
+def run_sanity_update():
+    # --- CONFIG ---
+    BASE_PATH = "D:/Main/3. Work - Teaching/Projects/Question extractor"
+    DB_PATH = os.path.join(BASE_PATH, "DB Master.csv")
 
-def load_config():
-    """Safely load the config file."""
-    if not os.path.exists(CONFIG_PATH):
-        print(f"❌ CRITICAL: config.json not found at {CONFIG_PATH}")
-        return None
+    print(f"📂 Loading {DB_PATH}...")
+    try:
+        df = pd.read_csv(DB_PATH)
+    except FileNotFoundError:
+        print("❌ Error: DB Master.csv not found.")
+        return
+
+    # =================================================================
+    # TASK 1: CONSOLIDATE 'Q' and 'Question No.'
+    # =================================================================
+    print("\nProcessing Column cleanup...")
     
-    try:
-        with open(CONFIG_PATH, 'r') as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        print("❌ CRITICAL: config.json is corrupted or invalid JSON.")
-        return None
+    if 'Question No.' in df.columns:
+        # Standardize empty values to NaN
+        df['Q'] = df['Q'].replace(r'^\s*$', pd.NA, regex=True)
+        
+        # Identify rows where Q is missing AND Question No. exists
+        missing_q_mask = df['Q'].isna() & df['Question No.'].notna()
+        fill_count = missing_q_mask.sum()
+        
+        if fill_count > 0:
+            print(f"   ↳ Found {fill_count} rows with missing 'Q'. Filling from 'Question No.'...")
+            df.loc[missing_q_mask, 'Q'] = df.loc[missing_q_mask, 'Question No.']
+        else:
+            print("   ↳ 'Q' column is fully populated (or 'Question No.' provided no new data).")
 
-def save_config(config_data):
-    """Safely write back to the config file."""
-    try:
-        with open(CONFIG_PATH, 'w') as f:
-            json.dump(config_data, f, indent=4)
-        return True
-    except Exception as e:
-        print(f"❌ Error saving config: {e}")
-        return False
+        # Drop 'Question No.'
+        print("   ↳ Dropping 'Question No.' column...")
+        df.drop(columns=['Question No.'], inplace=True)
+        
+    else:
+        print("   ⚠️ Column 'Question No.' not found. Skipping consolidation.")
 
-def sanitize_and_sync():
-    print("="*50)
-    print("      🏥 DATABASE SANITIZER & SYNC TOOL")
-    print("="*50)
-
-    # 1. LOAD CONFIG
-    config = load_config()
-    if not config: return
-
-    base_path = config.get("BASE_PATH", CURRENT_DIR)
-    db_filename = config.get("DB_FILENAME", "DB Master.xlsx")
-    db_path = os.path.join(base_path, db_filename)
-
-    # 2. LOAD DATABASE
-    if not os.path.exists(db_path):
-        print(f"❌ Database not found at: {db_path}")
-        return
-
-    print(f"📂 Loading Database: {db_filename}...")
-    try:
-        df = pd.read_excel(db_path)
-    except Exception as e:
-        print(f"❌ Failed to read Excel file: {e}")
-        return
-
-    print(f"   -> Loaded {len(df)} records.")
-
-    # 3. SYNC UNIQUE IDs
-    print("\n[TASK 1] Syncing 'last_unique_id'...")
+    # =================================================================
+    # TASK 2: CHECK UNIQUE_ID DUPLICATES (READ ONLY)
+    # =================================================================
+    print("\nChecking 'unique_id' uniqueness...")
     
     if 'unique_id' in df.columns:
-        # Convert to numeric, turning errors (like old string IDs) into NaN
-        numeric_ids = pd.to_numeric(df['unique_id'], errors='coerce')
+        duplicate_ids = df[df.duplicated('unique_id', keep=False)]
+        num_duplicates = len(duplicate_ids)
         
-        # Drop NaNs to find the highest valid integer
-        valid_ids = numeric_ids.dropna()
-        
-        if not valid_ids.empty:
-            max_db_id = int(valid_ids.max())
-            config_id = config.get("last_unique_id", 0)
-            
-            print(f"   ℹ️  Max ID in DB:     {max_db_id}")
-            print(f"   ℹ️  Last ID in Config: {config_id}")
-
-            if max_db_id > config_id:
-                print(f"   ⚠️  MISMATCH DETECTED. Config is lagging behind.")
-                print(f"   🔄  Updating config.json to {max_db_id}...")
-                config["last_unique_id"] = max_db_id
-                
-                if save_config(config):
-                    print("   ✅ Sync Successful.")
-            elif max_db_id < config_id:
-                print("   ⚠️  WARNING: Config ID is HIGHER than DB ID.")
-                print("       (This is usually fine; it means some IDs were generated but maybe not saved yet.)")
-            else:
-                print("   ✅ Config is perfectly in sync.")
+        if num_duplicates > 0:
+            unique_vals = duplicate_ids['unique_id'].nunique()
+            print(f"   ⚠️ WARNING: Found {num_duplicates} rows involved in duplication.")
+            print(f"      ({unique_vals} unique IDs repeated).")
+            print("      NO CHANGES made to 'unique_id' (as requested).")
         else:
-            print("   ⚠️  No valid integer IDs found in DB. (Are they all strings?)")
+            print("   ✅ PASSED: All 'unique_id' entries are unique.")
     else:
-        print("   ❌ 'unique_id' column is missing in DB Master.xlsx!")
+        print("   ❌ Error: 'unique_id' column missing!")
 
-    # 4. FUTURE CHECKS (Placeholder for expansion)
-    # You can add logic here later to check for duplicate IDs, missing files, etc.
-    # check_duplicates(df)
-    # check_missing_files(df, base_path)
-
-    print("\n" + "="*50)
-    print("   🏁 SANITIZATION COMPLETE")
-    print("="*50)
+    # =================================================================
+    # SAVE OVERWRITE
+    # =================================================================
+    print(f"\n💾 Overwriting {DB_PATH}...")
+    try:
+        df.to_csv(DB_PATH, index=False)
+        print("✅ Database updated successfully.")
+    except PermissionError:
+        print("❌ ERROR: Could not save file. Is 'DB Master.csv' open in Excel?")
 
 if __name__ == "__main__":
-    sanitize_and_sync()
+    run_sanity_update()
