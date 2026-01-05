@@ -1,3 +1,5 @@
+// lib/features/student/widgets/student_assignments_list.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -92,12 +94,10 @@ class StudentAssignmentsList extends StatelessWidget {
         ? DateFormat('MMM d, yyyy').format(ts.toDate())
         : 'Unknown Date';
 
-    final List<dynamic> subjects = data['subjects'] ?? [];
     final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
     final String code = data['assignmentCode'] ?? '----';
 
     // --- DISPLAY TIME LIMIT ---
-    // If baked in, use it. If not, estimate.
     final int? storedTime = data['timeLimitMinutes'];
     final String timeDisplay = storedTime != null
         ? "${storedTime}m"
@@ -115,13 +115,14 @@ class StudentAssignmentsList extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row
+              // Header Row: Code & Date
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
+                      // Keep red for strict, purple for normal, but always show code
                       color: isStrict ? Colors.red.shade50 : Colors.deepPurple.shade50,
                       borderRadius: BorderRadius.circular(4),
                       border: Border.all(
@@ -129,7 +130,7 @@ class StudentAssignmentsList extends StatelessWidget {
                       ),
                     ),
                     child: Text(
-                      isStrict ? "TEST MODE" : "CODE: $code",
+                      "CODE: $code", // Always visible now
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
@@ -149,16 +150,9 @@ class StudentAssignmentsList extends StatelessWidget {
               ),
               const SizedBox(height: 5),
 
-              // Details Row
+              // Details Row (Cleaned up: Removed Subject)
               Row(
                 children: [
-                  Icon(Icons.menu_book, size: 14, color: Colors.grey.shade600),
-                  const SizedBox(width: 4),
-                  Text(
-                    subjects.isNotEmpty ? subjects.join(", ") : "General",
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                  ),
-                  const SizedBox(width: 15),
                   Icon(Icons.quiz, size: 14, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
                   Text(
@@ -169,7 +163,7 @@ class StudentAssignmentsList extends StatelessWidget {
                   Icon(Icons.timer, size: 14, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
                   Text(
-                    timeDisplay, // Shows actual time now
+                    timeDisplay,
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                   ),
                 ],
@@ -187,7 +181,6 @@ class StudentAssignmentsList extends StatelessWidget {
     final bool isStrictAssignment = data['onlySingleAttempt'] ?? false;
 
     // --- EXTRACT TIME LIMIT ---
-    // Fallback: 2 minutes per question if not set
     final int timeLimit = data['timeLimitMinutes'] ?? (questionIds.length * 2);
 
     showDialog(
@@ -265,7 +258,7 @@ class StudentAssignmentsList extends StatelessWidget {
       String assignmentCode,
       List<String> questionIds,
       TestMode mode,
-      int timeLimit // <--- PASSED HERE
+      int timeLimit
       ) async {
 
     showDialog(
@@ -292,7 +285,7 @@ class StudentAssignmentsList extends StatelessWidget {
                 sourceId: assignmentId,
                 assignmentCode: assignmentCode,
                 questions: questions,
-                timeLimitInMinutes: timeLimit, // <--- USED HERE
+                timeLimitInMinutes: timeLimit,
                 testMode: mode,
               )
           )

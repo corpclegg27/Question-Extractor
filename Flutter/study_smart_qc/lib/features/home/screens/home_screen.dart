@@ -7,10 +7,7 @@ import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart';
 import 'package:study_smart_qc/features/student/widgets/student_assignments_list.dart';
 import 'package:study_smart_qc/features/analytics/screens/analysis_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_curation_screen.dart';
-// --- IMPORT THE NEW HISTORY SCREEN ---
 import 'package:study_smart_qc/features/teacher/screens/teacher_history_screen.dart';
-import 'package:study_smart_qc/features/test_creation/screens/custom_test_history_screen.dart';
-import 'package:study_smart_qc/features/test_taking/screens/enter_code_screen.dart';
 import 'package:study_smart_qc/models/user_model.dart';
 import 'package:study_smart_qc/services/auth_service.dart';
 import 'package:study_smart_qc/services/onboarding_service.dart';
@@ -80,15 +77,16 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(
         index: _currentTabIndex,
         children: const [
+          // Tab 0: Assignments (General / Practice)
           StudentAssignmentsList(isStrict: false),
+          // Tab 1: Tests (Strict / Timed)
           StudentAssignmentsList(isStrict: true),
+          // Tab 2: Analysis
           AnalysisScreen(),
         ],
       ),
 
-      floatingActionButton: _currentTabIndex == 1
-          ? _buildTestFab(context)
-          : null,
+      // [REMOVED] Floating Action Button (Create Test / Enter Code) removed as requested
 
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentTabIndex,
@@ -123,43 +121,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _buildTestFab(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        FloatingActionButton.small(
-          heroTag: "code",
-          tooltip: "Enter Test Code",
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.deepPurple,
-          child: const Icon(Icons.keyboard),
-          onPressed: () {
-            Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const EnterCodeScreen())
-            );
-          },
-        ),
-        const SizedBox(height: 12),
-        FloatingActionButton.extended(
-          heroTag: "create",
-          label: const Text("Create Custom Test"),
-          icon: const Icon(Icons.add),
-          backgroundColor: Colors.deepPurple,
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const CustomTestHistoryScreen()),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
   Widget _buildDrawer(BuildContext context) {
     final isTeacher = _userModel?.role == 'teacher';
-
     return Drawer(
       child: ListView(
         padding: EdgeInsets.zero,
@@ -194,8 +157,6 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
               child: Text("Teacher Tools", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
             ),
-
-            // 1. My Curations (View History) [Image of Mobile app drawer menu with 'My Curations' highlighted]
             ListTile(
               leading: const Icon(Icons.history_edu),
               title: const Text('My Curations'),
@@ -207,21 +168,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
             ),
-
-            // 2. Curate (Create New)
             ListTile(
               leading: const Icon(Icons.edit_note),
               title: const Text('Curate Questions'),
               onTap: () {
                 Navigator.pop(context);
-                // We are already on the teacher dashboard, but if we were elsewhere this resets it
                 if (ModalRoute.of(context)?.settings.name != '/') {
                   Navigator.popUntil(context, (route) => route.isFirst);
                 }
               },
             ),
-
-            // 3. Check Performance
             ListTile(
               leading: const Icon(Icons.analytics),
               title: const Text("Check Student Performance"),

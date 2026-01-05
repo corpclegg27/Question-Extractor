@@ -25,10 +25,20 @@ def is_ignored(filename):
     return any(filename.endswith(ext) for ext in IGNORE_EXTENSIONS)
 
 def generate_tree_structure(target_dirs):
-    """Generates a string representation of the project structure."""
+    """Generates a string representation of the project structure showing full paths."""
     tree_lines = ["--- PROJECT STRUCTURE SUMMARY ---"]
     total_files = 0
     
+    # 1. Add Extra Files to the summary first
+    if EXTRA_FILES:
+        tree_lines.append("📂 (Root Config Files)")
+        for ef in EXTRA_FILES:
+            if os.path.exists(ef):
+                tree_lines.append(f"   📄 {ef}")
+                total_files += 1
+        tree_lines.append("")
+
+    # 2. Walk through Target Directories
     for target_dir in target_dirs:
         if not os.path.exists(target_dir):
             continue
@@ -37,31 +47,25 @@ def generate_tree_structure(target_dirs):
             # Remove hidden dirs (like .git) from traversal
             dirs[:] = [d for d in dirs if not d.startswith('.')]
             
-            # Calculate depth for indentation
-            # We use os.path.relpath to get consistent depth regardless of slashes
-            rel_path = os.path.relpath(root, target_dir)
-            if rel_path == '.':
-                level = 0
-                folder_name = target_dir
-            else:
-                level = rel_path.count(os.sep) + 1
-                folder_name = os.path.basename(root)
-            
-            indent = '    ' * level
-            subindent = '    ' * (level + 1)
-            
             # Filter files for the count
             valid_files = [f for f in files if not is_ignored(f)]
             
-            # LOGIC FIX: Only print folder if it has valid files OR it is the root
-            # This prevents empty folders (like an empty 'screens' folder) from appearing
-            if valid_files or level == 0:
-                tree_lines.append(f"{indent}📂 {folder_name}/")
+            # Only display the folder if it contains valid files
+            if valid_files:
+                # Normalize path separators to forward slashes for consistency
+                display_path = root.replace(os.sep, '/')
+                
+                # Print the Full Path relative to project root
+                tree_lines.append(f"📂 {display_path}/")
+                
                 for f in valid_files:
-                    tree_lines.append(f"{subindent}📄 {f}")
+                    tree_lines.append(f"   📄 {f}")
                     total_files += 1
+                
+                # Add a spacer line between folders for readability
+                tree_lines.append("") 
     
-    tree_lines.append(f"\nTotal Source Files: {total_files}")
+    tree_lines.append(f"Total Source Files: {total_files}")
     tree_lines.append("-" * 50 + "\n")
     return "\n".join(tree_lines)
 

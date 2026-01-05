@@ -1,10 +1,21 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
+
+// MODELS
 import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/attempt_model.dart';
+import 'package:study_smart_qc/models/test_result.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+
+// SERVICES
 import 'package:study_smart_qc/services/teacher_service.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
+
+// WIDGETS
+import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
+import 'package:study_smart_qc/features/analytics/widgets/attempt_display_card.dart';
+import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
 
 class CurationManagementScreen extends StatefulWidget {
   final String curationId;
@@ -26,12 +37,12 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
   late TabController _tabController;
   final TeacherService _teacherService = TeacherService();
 
-  // --- DATA STATE ---
+  // --- DATA STATE (Content Tab) ---
   StreamSubscription<DocumentSnapshot>? _curationSubscription;
   List<String> _questionIds = [];
   bool _isLoaded = false;
 
-  // --- CACHE ---
+  // --- CACHE (Content Tab) ---
   final Map<String, Question> _questionCache = {};
   final Set<String> _attemptedFetches = {};
   bool _isLoadingQuestions = false;
@@ -50,7 +61,10 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
     super.dispose();
   }
 
-  // 1. STABLE LISTENER
+  // ===========================================================================
+  // LOGIC: CONTENT MANAGEMENT
+  // ===========================================================================
+
   void _setupFirestoreListener() {
     _curationSubscription = FirebaseFirestore.instance
         .collection('questions_curation')
@@ -73,7 +87,6 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
     });
   }
 
-  // 2. BACKGROUND FETCH
   Future<void> _ensureQuestionsLoaded(List<String> questionIds) async {
     final idsToFetch = questionIds.where((id) =>
     !_questionCache.containsKey(id) && !_attemptedFetches.contains(id)
@@ -104,7 +117,6 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
     });
   }
 
-  // 3. REORDER LOGIC
   Future<void> _handleReorder(int oldIndex, String newIndexStr) async {
     int? newIndex = int.tryParse(newIndexStr);
     if (newIndex == null) {
@@ -117,7 +129,6 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
       _showSafeSnackBar("Position must be between 1 and ${_questionIds.length}");
       return;
     }
-
     if (targetIndex == oldIndex) return;
 
     FocusScope.of(context).unfocus();
@@ -127,10 +138,7 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
     newList.removeAt(oldIndex);
     newList.insert(targetIndex, movedId);
 
-    // Optimistic Update
-    setState(() {
-      _questionIds = newList;
-    });
+    setState(() => _questionIds = newList);
 
     try {
       await _teacherService.updateQuestionOrder(widget.curationId, newList);
@@ -140,22 +148,15 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
     }
   }
 
-  // 4. RANDOMIZE LOGIC (New Feature)
   Future<void> _promptAndRandomize() async {
     if (_questionIds.isEmpty) return;
-
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Randomize Order"),
-        content: const Text(
-            "Are you sure you want to shuffle all questions? This cannot be undone."
-        ),
+        content: const Text("Are you sure you want to shuffle all questions? This cannot be undone."),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancel"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
@@ -167,20 +168,83 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
 
     if (confirm != true) return;
 
-    // Shuffle
     final shuffledList = List<String>.from(_questionIds)..shuffle();
+    setState(() => _questionIds = shuffledList);
 
-    // Optimistic Update
-    setState(() {
-      _questionIds = shuffledList;
-    });
-
-    // Save
     try {
       await _teacherService.updateQuestionOrder(widget.curationId, shuffledList);
       _showSafeSnackBar("Questions shuffled successfully!");
     } catch (e) {
       _showSafeSnackBar("Error shuffling: $e");
+    }
+  }
+
+  // ===========================================================================
+  // LOGIC: PERFORMANCE TAB
+  // ===========================================================================
+
+  Future<void> _navigateToResults(AttemptModel attempt) async {
+    // 1. Show Loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final service = TestOrchestrationService();
+
+      // 2. Fetch full question objects
+      // We assume attempt.responses contains all keys, but for safety we use the curation list if available
+      List<String> qIdsToFetch = attempt.responses.keys.toList();
+      if (qIdsToFetch.isEmpty) qIdsToFetch = _questionIds;
+
+      final questions = await service.getQuestionsByIds(qIdsToFetch);
+
+      // 3. Reconstruct Answer States
+      Map<int, AnswerState> answerStates = {};
+      for (int i = 0; i < questions.length; i++) {
+        final q = questions[i];
+        final response = attempt.responses[q.id];
+
+        AnswerStatus status = AnswerStatus.notVisited;
+        if (response != null) {
+          if (response.status == 'CORRECT' || response.status == 'INCORRECT') {
+            status = AnswerStatus.answered;
+          } else if (response.status == 'SKIPPED') {
+            status = AnswerStatus.notAnswered;
+          }
+        }
+
+        answerStates[i] = AnswerState(
+          status: status,
+          userAnswer: response?.selectedOption,
+        );
+      }
+
+      // 4. Build Result Object
+      final result = TestResult(
+        attemptId: attempt.id,
+        questions: questions,
+        answerStates: answerStates,
+        timeTaken: Duration(seconds: attempt.timeTakenSeconds),
+        totalMarks: questions.length * 4,
+        responses: attempt.responses,
+      );
+
+      if (mounted) {
+        Navigator.pop(context); // Close loader
+        // 5. Navigate
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ResultsScreen(result: result)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        _showSafeSnackBar("Error opening results: $e");
+      }
     }
   }
 
@@ -190,6 +254,10 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
       SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
   }
+
+  // ===========================================================================
+  // UI BUILDERS
+  // ===========================================================================
 
   @override
   Widget build(BuildContext context) {
@@ -231,7 +299,7 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
 
     return Column(
       children: [
-        // --- RANDOMIZE BUTTON HEADER ---
+        // Header
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
@@ -260,7 +328,7 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
           ),
         ),
 
-        // --- LIST VIEW ---
+        // List
         Expanded(
           child: ListView.builder(
             padding: EdgeInsets.only(
@@ -289,7 +357,54 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
   }
 
   Widget _buildPerformanceTab() {
-    return const Center(child: Text("Performance metrics coming soon"));
+    return FutureBuilder<AttemptModel?>(
+      future: _teacherService.getAttemptForCuration(widget.curationId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
+
+        final attempt = snapshot.data;
+
+        if (attempt == null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.pending_actions, size: 60, color: Colors.grey.shade300),
+                const SizedBox(height: 16),
+                const Text(
+                  "Student has not attempted this test yet.",
+                  style: TextStyle(color: Colors.grey, fontSize: 16),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // REUSING EXISTING WIDGET
+        return Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            children: [
+              const Text(
+                "Latest Attempt",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.deepPurple),
+              ),
+              const SizedBox(height: 20),
+              AttemptDisplayCard(
+                attempt: attempt,
+                onTap: () => _navigateToResults(attempt),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -349,7 +464,6 @@ class _QuestionReorderTileState extends State<QuestionReorderTile>
             ),
             child: Row(
               children: [
-                // Badge
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: const BoxDecoration(
@@ -366,10 +480,7 @@ class _QuestionReorderTileState extends State<QuestionReorderTile>
                   "Position",
                   style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
                 ),
-
                 const Spacer(),
-
-                // Input Field
                 SizedBox(
                   width: 50,
                   height: 35,
@@ -393,8 +504,6 @@ class _QuestionReorderTileState extends State<QuestionReorderTile>
                   ),
                 ),
                 const SizedBox(width: 8),
-
-                // Move Button
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.deepPurple,
@@ -414,8 +523,6 @@ class _QuestionReorderTileState extends State<QuestionReorderTile>
               ],
             ),
           ),
-
-          // Question Preview
           if (widget.questionData != null)
             QuestionPreviewCard(
               question: widget.questionData!,
