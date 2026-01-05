@@ -129,22 +129,50 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> {
     if (teacher == null) return;
 
     final titleCtrl = TextEditingController(text: "Homework - ${DateTime.now().toString().split(' ')[0]}");
+
+    // 1. VARIABLE TO HOLD STATE
+    bool isSingleAttempt = false;
+
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Confirm Assignment"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text("Assigning ${_selectedQuestionIds.length} questions."),
-            const SizedBox(height: 10),
-            TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: "Assignment Title")),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Assign")),
-        ],
+      builder: (ctx) => StatefulBuilder( // <--- 2. MAGIC WIDGET FOR DIALOG STATE
+        builder: (context, setDialogState) { // setDialogState is a special updater
+          return AlertDialog(
+            title: const Text("Confirm Assignment"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text("Assigning ${_selectedQuestionIds.length} questions."),
+                const SizedBox(height: 10),
+                TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: "Assignment Title")),
+                const SizedBox(height: 20),
+
+                // 3. THE CHECKBOX UI
+                Row(
+                  children: [
+                    SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: Checkbox(
+                        value: isSingleAttempt,
+                        onChanged: (val) {
+                          // 4. UPDATE DIALOG STATE
+                          setDialogState(() => isSingleAttempt = val ?? false);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(child: Text("Strict Mode (Single Attempt Only)")),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Assign")),
+            ],
+          );
+        },
       ),
     );
 
@@ -165,6 +193,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> {
         teacherUid: teacher.uid,
         targetAudience: widget.audienceType, // PASSING AUDIENCE
         assignmentTitle: titleCtrl.text,
+        onlySingleAttempt: isSingleAttempt,
       );
 
       if (mounted) {

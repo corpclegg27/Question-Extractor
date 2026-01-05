@@ -1,0 +1,179 @@
+1. File Summaries
+Configuration & Entry
+
+
+pubspec.yaml: Manages project dependencies (Firebase, charts, icons) and asset definitions. 
+
+
+lib/main.dart: The app entry point that initializes Firebase and handles the root navigation (Auth vs. Home) based on the user's login state. 
+
+Authentication & Onboarding
+
+
+lib/features/auth/screens/auth_page.dart: A toggle wrapper that switches between the Login and Register screens. 
+
+
+lib/features/auth/screens/auth_wrapper.dart: Determines if a logged-in user should go to the Home screen or complete their Onboarding profile first. 
+
+
+lib/features/auth/screens/login_screen.dart: UI for users to sign in via Email/Password or Google. 
+
+
+lib/features/auth/screens/register_screen.dart: UI for new users to create an account with Email and Password. 
+
+
+lib/features/auth/screens/onboarding_screen.dart: Collects role-specific data (Student vs. Teacher) and profile details (e.g., Target Exam, Class) after sign-up. 
+
+
+lib/services/auth_service.dart: Handles Firebase Authentication logic including Sign In, Sign Up, and Google Auth. 
+
+
+lib/services/onboarding_service.dart: Manages creating user profiles in Firestore, including transactional generation of unique Student IDs. 
+
+
+lib/models/user_model.dart: Data model representing the user's profile, role, and statistics. 
+
+Home & Navigation
+
+
+lib/features/home/screens/home_screen.dart: The main dashboard that adapts its UI based on the user's role (Student vs. Teacher) and provides navigation to all features. 
+
+Student: Assignments
+
+
+lib/features/student/widgets/student_assignments_list.dart: A widget that fetches and displays pending homework/assignments assigned by teachers. 
+
+Student: Custom Test Creation
+
+
+lib/features/test_creation/screens/custom_test_history_screen.dart: Lists previously generated custom tests and provides an entry point to create new ones. 
+
+
+lib/features/test_creation/screens/syllabus_screen.dart: Allows users to browse and select specific chapters/topics to include in their custom test. 
+
+
+lib/widgets/test_configuration_bottom_sheet.dart: A configuration modal to set parameters (time, question count) before generating a test. 
+
+
+lib/services/test_service.dart: Logic for generating a random set of questions from the database based on selected chapters and topics. 
+
+
+lib/services/custom_test_service.dart: CRUD operations for saving and retrieving generated custom test blueprints. 
+
+
+lib/models/custom_test_model.dart: Data model for storing the blueprint of a user-generated test. 
+
+
+lib/models/test_model.dart: A legacy/generalized model for test configurations and metadata. 
+
+Student: Test Taking (The Player)
+
+
+lib/features/test_taking/screens/enter_code_screen.dart: Allows students to find and attempt a specific test using a unique share code. 
+
+
+lib/features/test_taking/screens/test_preview_screen.dart: Displays test details (syllabus, duration) and lets the user choose between attempting now or later. 
+
+
+lib/features/test_taking/screens/test_screen.dart: The core exam interface featuring the timer, question navigation, input handling, and submission logic. 
+
+
+lib/widgets/question_input_widget.dart: A dynamic input widget that renders UI for Single Correct, Numerical, Multi-Correct, or Matrix Match questions. 
+
+
+lib/widgets/question_palette.dart: A grid widget in the test player showing the status (Answered, Skipped, Review) of all questions. 
+
+
+lib/widgets/expandable_image.dart: A helper widget that allows images (questions/solutions) to be tapped and zoomed. 
+
+
+lib/models/question_model.dart: Defines the structure of a Question entity (text, image, type, correct answer). 
+
+
+lib/models/nta_test_models.dart: Enums and classes used to track the UI state of a question during an exam (e.g., markedForReview). 
+
+
+lib/models/test_enums.dart: Defines modes like TestMode.test (timer active) vs TestMode.practice (instant feedback). 
+
+
+lib/services/test_orchestration_service.dart: The central service handling test submissions, history fetching, and linking attempts to tests. 
+
+Student: Analytics & History
+
+
+lib/features/analytics/screens/test_history_screen.dart: Displays a list of all past attempts and allows navigation to detailed analysis. 
+
+
+lib/features/analytics/widgets/attempt_display_card.dart: A summary card widget showing score, date, and time for a single attempt in the history list. 
+
+
+lib/features/analytics/screens/results_screen.dart: The detailed post-test analysis screen showing scorecards, charts, and question-wise breakdown. 
+
+
+lib/widgets/solution_detail_sheet.dart: A bottom sheet that shows the solution for a specific question and allows users to tag mistake reasons. 
+
+
+lib/models/attempt_model.dart: Data model representing a complete test attempt session (score, time taken, list of responses). 
+
+
+lib/models/attempt_item_model.dart: Data model for an individual question's attempt record, linked to the parent attempt. 
+
+
+lib/models/test_result.dart: A transient model used to pass processed result data from history/player to the Results screen. 
+
+Teacher: Curation & Assignment
+
+
+lib/features/teacher/screens/teacher_curation_screen.dart: Step 1 of the teacher workflow to select a target audience (Student ID or Batch) and view their stats. 
+
+
+lib/features/teacher/screens/teacher_filter_screen.dart: Step 2 of the teacher workflow to filter questions by syllabus/status and assign them. 
+
+
+lib/features/common/widgets/question_preview_card.dart: Displays a summary of a question (ID, tags, image) used in lists for teachers or analytics. 
+
+
+lib/services/teacher_service.dart: Logic for teachers to fetch student stats, search questions, and create assignment documents. 
+
+2. Main Functionalities & Relevant Files
+A. Authentication & User Profile
+Core Logic: auth_service.dart, onboarding_service.dart
+
+UI: main.dart, auth_page.dart, login_screen.dart, register_screen.dart, onboarding_screen.dart, auth_wrapper.dart
+
+Data: user_model.dart
+
+B. Student Dashboard & Assignments
+UI: home_screen.dart, student_assignments_list.dart
+
+Data: question_model.dart (used in assignments)
+
+C. Custom Test Creation (Student)
+Core Logic: test_service.dart, custom_test_service.dart
+
+UI: custom_test_history_screen.dart, syllabus_screen.dart, test_configuration_bottom_sheet.dart
+
+Data: custom_test_model.dart, test_model.dart
+
+D. Test Taking Engine (The Player)
+Core Logic: test_orchestration_service.dart
+
+UI: test_screen.dart, test_preview_screen.dart, enter_code_screen.dart
+
+Widgets: question_input_widget.dart, question_palette.dart, expandable_image.dart
+
+Data: question_model.dart, nta_test_models.dart, test_enums.dart
+
+E. Analytics & History
+UI: results_screen.dart, test_history_screen.dart, solution_detail_sheet.dart
+
+Widgets: attempt_display_card.dart
+
+Data: attempt_model.dart, attempt_item_model.dart, test_result.dart
+
+F. Teacher Tools
+Core Logic: teacher_service.dart
+
+UI: teacher_curation_screen.dart, teacher_filter_screen.dart
+
+Widgets: question_preview_card.dart

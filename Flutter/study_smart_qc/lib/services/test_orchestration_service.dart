@@ -12,15 +12,42 @@ class TestOrchestrationService {
   String? get _userId => _auth.currentUser?.uid;
 
   // ===========================================================================
-  // 1. NEW UNIVERSAL SUBMISSION LOGIC (For Assignments & Practice)
+  // 1. HISTORY FETCH LOGIC
+  // ===========================================================================
+
+  /// Fetch attempts for a user. If [targetUserId] is provided (Mentor Mode),
+  /// it fetches for that specific student. Otherwise, it defaults to the current user.
+  Future<List<AttemptModel>> getUserAttempts({String? targetUserId}) async {
+    final String? idToQuery = targetUserId ?? _userId;
+    if (idToQuery == null) return [];
+
+    try {
+      // NOTE: Requires a Composite Index for 'userId' (Asc) and 'completedAt' (Desc)
+      final snapshot = await _firestore
+          .collection('attempts')
+          .where('userId', isEqualTo: idToQuery)
+          .orderBy('completedAt', descending: true)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => AttemptModel.fromFirestore(doc))
+          .toList();
+    } catch (e) {
+      print("Error fetching user attempts: $e");
+      return [];
+    }
+  }
+
+  // ===========================================================================
+  // 2. UNIVERSAL SUBMISSION LOGIC (With Aggregates & Behavioral Fields)
   // ===========================================================================
 
   Future<void> submitAttempt({
-    required String sourceId, // Doc ID (assignmentId or testId)
-    required String assignmentCode, // Readable Code (e.g., A7X2)
-    required String mode, // 'Test' or 'Practice'
+    required String sourceId,
+    required String assignmentCode,
+    required String mode,
     required List<Question> questions,
-    required int score,
+    required num score,
     required int timeTakenSeconds,
     required Map<String, ResponseObject> responses,
   }) async {
@@ -28,6 +55,24 @@ class TestOrchestrationService {
 
     final batch = _firestore.batch();
     final timestamp = Timestamp.now();
+
+    // 1. Calculate Aggregates
+    int correctCount = 0;
+    int incorrectCount = 0;
+    int skippedCount = 0;
+
+    responses.forEach((qid, response) {
+      if (response.status == 'CORRECT') {
+        correctCount++;
+      } else if (response.status == 'INCORRECT') {
+        incorrectCount++;
+      } else {
+        skippedCount++;
+      }
+    });
+
+    final int totalQuestionsCount = questions.length;
+    final int maxMarksValue = totalQuestionsCount * 4;
 
     // A. Create Attempt Record (The "Session" summary)
     final attemptRef = _firestore.collection('attempts').doc();
@@ -40,6 +85,11 @@ class TestOrchestrationService {
       startedAt: timestamp,
       completedAt: timestamp,
       score: score,
+      totalQuestions: totalQuestionsCount,
+      maxMarks: maxMarksValue,
+      correctCount: correctCount,     // SAVED: New Aggregate
+      incorrectCount: incorrectCount, // SAVED: New Aggregate
+      skippedCount: skippedCount,     // SAVED: New Aggregate
       timeTakenSeconds: timeTakenSeconds,
       responses: responses,
     );
@@ -49,9 +99,11 @@ class TestOrchestrationService {
     for (final question in questions) {
       final response = responses[question.id];
       if (response != null) {
-        final attemptItemRef = _firestore.collection('attempt_items').doc();
+        final attemptItemRef = _firestore.collection('attempt_items').doc(); //
+
         final attemptItem = AttemptItemModel(
           userId: _userId!,
+          attemptRef: attemptRef, // <--- FIXED: Passing parent reference here
           questionId: question.id,
           chapterId: question.chapterId,
           topicId: question.topicId,
@@ -60,12 +112,16 @@ class TestOrchestrationService {
           attemptedAt: timestamp,
           assignmentCode: assignmentCode,
           mode: mode,
+          // NEW: Support for manual categorization
+          mistakeCategory: response.mistakeCategory,
+          mistakeNote: response.mistakeNote,
         );
-        batch.set(attemptItemRef, attemptItem.toFirestore());
+
+        batch.set(attemptItemRef, attemptItem.toFirestore()); //
       }
     }
 
-    // C. Update Student Tracker (The "Brain" - Latest Status Logic)
+    // C. Update Student Tracker (Latest Status Logic)
     final trackerRef = _firestore.collection('student_question_tracker').doc(_userId);
     final trackerDoc = await trackerRef.get();
 
@@ -73,31 +129,29 @@ class TestOrchestrationService {
       final data = trackerDoc.data()!;
       final buckets = data['buckets'] as Map<String, dynamic>;
 
-      // Load current sets
       List<String> unattempted = List<String>.from(buckets['unattempted'] ?? []);
       List<String> correct = List<String>.from(buckets['correct'] ?? []);
       List<String> incorrect = List<String>.from(buckets['incorrect'] ?? []);
       List<String> skipped = List<String>.from(buckets['skipped'] ?? []);
       List<String> history = List<String>.from(data['attempted_history'] ?? []);
 
-      // Update buckets based on NEW responses
       responses.forEach((qid, response) {
-        // Remove from ALL buckets first (Clean slate)
         unattempted.remove(qid);
         correct.remove(qid);
         incorrect.remove(qid);
         skipped.remove(qid);
 
-        // Add to the NEW bucket
-        if (response.status == 'CORRECT') correct.add(qid);
-        else if (response.status == 'INCORRECT') incorrect.add(qid);
-        else skipped.add(qid);
+        if (response.status == 'CORRECT') {
+          correct.add(qid);
+        } else if (response.status == 'INCORRECT') {
+          incorrect.add(qid);
+        } else {
+          skipped.add(qid);
+        }
 
-        // Add to history
         if (!history.contains(qid)) history.add(qid);
       });
 
-      // Write back
       batch.update(trackerRef, {
         'buckets.unattempted': unattempted,
         'buckets.correct': correct,
@@ -105,24 +159,43 @@ class TestOrchestrationService {
         'buckets.skipped': skipped,
         'attempted_history': history,
       });
-    } else {
-      // Fallback if tracker missing
-      // (Simplified logic for fallback)
     }
 
-    // D. If this was a Custom Test, update its status
+    // D. Update Assignment Status (FIXED)
+    // We check 'questions_curation' instead of the legacy 'tests' collection.
     if (sourceId.isNotEmpty) {
-      final testRef = _firestore.collection('tests').doc(sourceId);
-      // We use a safe update; if it fails (because sourceId is an assignment, not a test), we catch it or ignore.
-      // Since 'tests' and 'questions_curation' are different collections, this update is specific to the old "Custom Test" flow.
-      // We can check if it exists or just try/catch.
       try {
-        final testDoc = await testRef.get();
-        if(testDoc.exists) {
-          batch.update(testRef, {'status': 'Attempted'});
+        final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
+        final assignmentDoc = await assignmentRef.get();
+
+        if (assignmentDoc.exists) {
+          final data = assignmentDoc.data();
+
+          // 1. CHECK THE FLAG
+          // If the field is missing (old data), assume false (allow retries)
+          final bool isStrict = data?['onlySingleAttempt'] ?? false;
+
+          // 2. DECIDE FATE
+          if (isStrict) {
+            // Strict Mode: Mark 'submitted'.
+            // Result: It DISAPPEARS from the student's "Pending" list.
+            batch.update(assignmentRef, {'status': 'submitted'});
+          } else {
+            // Practice Mode: Do NOT update status.
+            // Result: It STAYS 'assigned'. Student can tap it again to retry.
+            // (You might want to show a "Retake" label in the UI later)
+          }
+
+        } else {
+          // Fallback for legacy "Test" collection
+          final testRef = _firestore.collection('tests').doc(sourceId);
+          final testDoc = await testRef.get();
+          if(testDoc.exists) {
+            batch.update(testRef, {'status': 'Attempted'});
+          }
         }
       } catch (e) {
-        // Ignore, likely not a custom test document
+        print("Error updating status: $e");
       }
     }
 
@@ -130,7 +203,7 @@ class TestOrchestrationService {
   }
 
   // ===========================================================================
-  // 2. RESTORED CUSTOM TEST METHODS (Required by other screens)
+  // 3. CUSTOM TEST & HELPER METHODS
   // ===========================================================================
 
   String _generateShareCode() {
@@ -141,7 +214,6 @@ class TestOrchestrationService {
     );
   }
 
-  // Creates a "Blueprint" (Custom Test)
   Future<TestModel?> createAndSaveTestBlueprint({
     required List<Question> questions,
     required int durationSeconds,
@@ -152,7 +224,6 @@ class TestOrchestrationService {
 
     String shareCode;
     bool isUnique = false;
-    // Generate unique code
     do {
       shareCode = _generateShareCode();
       final existing = await _firestore
@@ -185,7 +256,6 @@ class TestOrchestrationService {
     return newTest;
   }
 
-  // Records that a user started/viewed a test
   Future<void> recordTestAttempt(String testId) async {
     if (_userId == null) return;
     final batch = _firestore.batch();
@@ -203,15 +273,8 @@ class TestOrchestrationService {
     await batch.commit();
   }
 
-  // Retrieves the previous attempt for a specific test ID (used for "View Analysis")
   Future<AttemptModel?> getAttemptForTest(String testId) async {
     if (_userId == null) return null;
-
-    // Note: We now use 'sourceId' in the new model, but old data might use 'testId'.
-    // We check both or rely on the query matching the field in Firestore.
-    // Ideally, ensure your AttemptModel writes to a consistent field.
-    // For now, we query 'sourceId' as we updated the write logic to use 'sourceId'.
-    // If you have old data, you might need an OR query or check 'testId' field.
 
     final querySnapshot = await _firestore
         .collection('attempts')
@@ -225,7 +288,6 @@ class TestOrchestrationService {
       return AttemptModel.fromFirestore(querySnapshot.docs.first);
     }
 
-    // Fallback for older data using 'testId'
     final oldQuerySnapshot = await _firestore
         .collection('attempts')
         .where('testId', isEqualTo: testId)
@@ -240,7 +302,6 @@ class TestOrchestrationService {
     return null;
   }
 
-  // Get Saved Tests List
   Stream<List<TestModel>> getSavedTestsStream() {
     if (_userId == null) return Stream.value([]);
     return _firestore
@@ -251,7 +312,6 @@ class TestOrchestrationService {
         .map((snapshot) => snapshot.docs.map((doc) => TestModel.fromFirestore(doc)).toList());
   }
 
-  // Helper to fetch Test by Share Code
   Future<TestModel?> getTestByShareCode(String shareCode) async {
     final querySnapshot = await _firestore
         .collection('tests')
@@ -264,7 +324,6 @@ class TestOrchestrationService {
     return null;
   }
 
-  // Helper: Fetch Questions
   Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
     if (questionIds.isEmpty) return [];
     final List<Question> questions = [];
@@ -287,5 +346,61 @@ class TestOrchestrationService {
       );
     }
     return questions;
+  }
+
+  // ===========================================================================
+  // 4. MISTAKE UPDATE LOGIC (NEW)
+  // ===========================================================================
+
+  /// Updates the mistake category and note for a specific question in an existing attempt.
+  /// This updates BOTH the main 'attempts' document (nested map) AND the individual 'attempt_items' document.
+  Future<void> updateQuestionMistake({
+    required String attemptId,
+    required String questionId,
+    required String mistakeCategory,
+    String? mistakeNote,
+  }) async {
+    if (_userId == null) return;
+
+    try {
+      final attemptRef = _firestore.collection('attempts').doc(attemptId);
+
+      // 1. Fetch the attempt to get context (assignmentCode) needed to find the item
+      final attemptSnapshot = await attemptRef.get();
+      if (!attemptSnapshot.exists) return;
+
+      final data = attemptSnapshot.data();
+      // Ensure we safeguard against nulls, though assignmentCode should exist
+      final String? assignmentCode = data?['assignmentCode'];
+
+      // 2. Update the parent Attempt document (Nested Map Update)
+      // Note: We use dot notation to update just the specific fields inside the responses map
+      await attemptRef.update({
+        'responses.$questionId.mistakeCategory': mistakeCategory,
+        'responses.$questionId.mistakeNote': mistakeNote ?? '',
+      });
+
+      // 3. Update the specific Attempt Item document
+      // We use assignmentCode + questionId + userId to target the specific item
+      if (assignmentCode != null) {
+        final itemQuery = await _firestore
+            .collection('attempt_items')
+            .where('userId', isEqualTo: _userId)
+            .where('questionId', isEqualTo: questionId)
+            .where('assignmentCode', isEqualTo: assignmentCode)
+            .limit(1)
+            .get();
+
+        if (itemQuery.docs.isNotEmpty) {
+          await itemQuery.docs.first.reference.update({
+            'mistakeCategory': mistakeCategory,
+            'mistakeNote': mistakeNote ?? '',
+          });
+        }
+      }
+    } catch (e) {
+      print("Error updating mistake category: $e");
+      rethrow;
+    }
   }
 }

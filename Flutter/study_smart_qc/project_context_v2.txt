@@ -3,6 +3,9 @@
     📄 main.dart
             📂 screens/
                 📄 results_screen.dart
+                📄 test_history_screen.dart
+            📂 widgets/
+                📄 attempt_display_card.dart
             📂 screens/
                 📄 auth_page.dart
                 📄 auth_wrapper.dart
@@ -43,11 +46,13 @@
         📄 test_orchestration_service.dart
         📄 test_service.dart
     📂 widgets/
+        📄 expandable_image.dart
+        📄 question_input_widget.dart
         📄 question_palette.dart
         📄 solution_detail_sheet.dart
         📄 test_configuration_bottom_sheet.dart
 
-Total Source Files: 35
+Total Source Files: 39
 --------------------------------------------------
 --- FILE CONTENTS ---
 
@@ -62,6 +67,8 @@ version: 1.0.0+1
 
 environment:
   sdk: ^3.10.4
+
+
 
 dependencies:
   flutter:
@@ -81,13 +88,28 @@ dev_dependencies:
     sdk: flutter
 
   flutter_lints: ^6.0.0
+  flutter_native_splash: "^2.3.10"
+  flutter_launcher_icons: "^0.13.1"
+
+flutter_native_splash:
+  color: "#FFFFFF" # Background color
+  image: assets/splash_bg.png
+  android_12:
+    image: assets/splash_bg.png
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/app_icon.png"
+  adaptive_icon_background: "#FFFFFF" # Change to your brand color
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/google_logo.png
-
+    - assets/app_icon.png
+    - assets/splash_bg.png
 
 ================================================================================
 FILE: ios/Runner/Info.plist
@@ -95,51 +117,53 @@ FILE: ios/Runner/Info.plist
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<key>CFBundleDisplayName</key>
-	<string>Study Smart Qc</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>study_smart_qc</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(FLUTTER_BUILD_NAME)</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
-	<key>CFBundleVersion</key>
-	<string>$(FLUTTER_BUILD_NUMBER)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
-</dict>
+	<dict>
+		<key>CFBundleDevelopmentRegion</key>
+		<string>$(DEVELOPMENT_LANGUAGE)</string>
+		<key>CFBundleDisplayName</key>
+		<string>Study Smart Qc</string>
+		<key>CFBundleExecutable</key>
+		<string>$(EXECUTABLE_NAME)</string>
+		<key>CFBundleIdentifier</key>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<key>CFBundleInfoDictionaryVersion</key>
+		<string>6.0</string>
+		<key>CFBundleName</key>
+		<string>study_smart_qc</string>
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+		<key>CFBundleShortVersionString</key>
+		<string>$(FLUTTER_BUILD_NAME)</string>
+		<key>CFBundleSignature</key>
+		<string>????</string>
+		<key>CFBundleVersion</key>
+		<string>$(FLUTTER_BUILD_NUMBER)</string>
+		<key>LSRequiresIPhoneOS</key>
+		<true/>
+		<key>UILaunchStoryboardName</key>
+		<string>LaunchScreen</string>
+		<key>UIMainStoryboardFile</key>
+		<string>Main</string>
+		<key>UISupportedInterfaceOrientations</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>UISupportedInterfaceOrientations~ipad</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationPortraitUpsideDown</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>CADisableMinimumFrameDurationOnPhone</key>
+		<true/>
+		<key>UIApplicationSupportsIndirectInputEvents</key>
+		<true/>
+		<key>UIStatusBarHidden</key>
+		<false/>
+	</dict>
 </plist>
 
 
@@ -218,7 +242,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   int correctCount = 0;
   int incorrectCount = 0;
   int unattemptedCount = 0;
-  int attemptedCount = 0;
+
   int marksObtained = 0;
   double accuracy = 0.0;
   double attemptPercentage = 0.0;
@@ -232,28 +256,62 @@ class _ResultsScreenState extends State<ResultsScreen> {
   void _calculateResults() {
     int tempCorrect = 0;
     int tempIncorrect = 0;
+    int tempSkipped = 0;
 
-    widget.result.answerStates.forEach((index, state) {
-      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
-        final question = widget.result.questions[index];
-        final userAnswer = state.userAnswer;
-
-        if (userAnswer != null && userAnswer.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase()) {
-          tempCorrect++;
-        } else {
-          tempIncorrect++;
+    // Prefer using the detailed 'responses' map if available
+    if (widget.result.responses.isNotEmpty) {
+      widget.result.responses.forEach((key, response) {
+        switch (response.status) {
+          case 'CORRECT':
+            tempCorrect++;
+            break;
+          case 'INCORRECT':
+            tempIncorrect++;
+            break;
+          case 'REVIEW':
+          // "Marked for Review" without answer counts as SKIPPED
+            tempSkipped++;
+            break;
+          default: // SKIPPED
+            tempSkipped++;
+            break;
         }
+      });
+      // Adjust for questions missing from responses map (pure skips)
+      int totalTracked = tempCorrect + tempIncorrect + tempSkipped;
+      if (totalTracked < widget.result.questions.length) {
+        tempSkipped += (widget.result.questions.length - totalTracked);
       }
-    });
+    } else {
+      // Fallback Logic (if responses map is empty)
+      widget.result.answerStates.forEach((index, state) {
+        if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
+          final question = widget.result.questions[index];
+          final userAnswer = state.userAnswer;
+          if (userAnswer != null && userAnswer.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase()) {
+            tempCorrect++;
+          } else {
+            tempIncorrect++;
+          }
+        } else {
+          // Not Visited, Not Answered, or Marked For Review (without answer) -> Skipped
+          tempSkipped++;
+        }
+      });
+    }
 
     setState(() {
       correctCount = tempCorrect;
       incorrectCount = tempIncorrect;
-      attemptedCount = correctCount + incorrectCount;
-      unattemptedCount = widget.result.questions.length - attemptedCount;
+      unattemptedCount = tempSkipped;
+
+      final totalAttempted = correctCount + incorrectCount;
+
       marksObtained = (correctCount * 4) - (incorrectCount * 1);
-      accuracy = (attemptedCount > 0) ? (correctCount / attemptedCount) * 100 : 0.0;
-      attemptPercentage = (widget.result.questions.isNotEmpty) ? (attemptedCount / widget.result.questions.length) * 100 : 0.0;
+      accuracy = (totalAttempted > 0) ? (correctCount / totalAttempted) * 100 : 0.0;
+      attemptPercentage = (widget.result.questions.isNotEmpty)
+          ? (totalAttempted / widget.result.questions.length) * 100
+          : 0.0;
     });
   }
 
@@ -315,6 +373,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
     return Card(
       color: Colors.deepPurple.shade700,
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -323,7 +383,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
             const SizedBox(height: 8),
             Text('$marksObtained / ${widget.result.totalMarks}', style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Text(motivation, style: const TextStyle(color: Colors.yellowAccent, fontSize: 14)),
+            Text(motivation, style: const TextStyle(color: Colors.yellowAccent, fontSize: 14, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
@@ -331,23 +391,29 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Widget _buildStatsRow() {
-     return Row(
+    return Row(
       children: [
-        _buildStatCard('Accuracy', '${accuracy.toStringAsFixed(0)}%', Icons.track_changes),
-        _buildStatCard('Attempt %', '${attemptPercentage.toStringAsFixed(0)}%', Icons.rule),
-        _buildStatCard('Time Taken', _formattedTimeTaken, Icons.timer_outlined),
+        _buildStatCard('Accuracy', '${accuracy.toStringAsFixed(0)}%', Icons.track_changes, Colors.blue),
+        _buildStatCard('Attempt %', '${attemptPercentage.toStringAsFixed(0)}%', Icons.rule, Colors.orange),
+        _buildStatCard('Time Taken', _formattedTimeTaken, Icons.timer_outlined, Colors.purple),
       ],
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon) {
+  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Expanded(
       child: Card(
         elevation: 2,
         child: Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
           child: Column(
-            children: [Icon(icon, color: Colors.deepPurple, size: 28), const SizedBox(height: 8), Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600])), const SizedBox(height: 4), Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))],
+            children: [
+              Icon(icon, color: color, size: 28),
+              const SizedBox(height: 8),
+              Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              const SizedBox(height: 4),
+              Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
+            ],
           ),
         ),
       ),
@@ -355,84 +421,116 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Widget _buildVisualAnalysis() {
-     return Card(
+    return Card(
+      elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            const Text('Analysis', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Performance Distribution', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             SizedBox(
-              height: 150,
+              height: 180,
               child: PieChart(
                 PieChartData(
-                  sectionsSpace: 4,
+                  sectionsSpace: 2,
                   centerSpaceRadius: 40,
-                  pieTouchData: PieTouchData(touchCallback: (event, pieTouchResponse) {}),
                   sections: [
-                    PieChartSectionData(value: correctCount.toDouble(), showTitle: false, color: Colors.green, radius: 25),
-                    PieChartSectionData(value: incorrectCount.toDouble(), showTitle: false, color: Colors.red, radius: 25),
-                    PieChartSectionData(value: unattemptedCount.toDouble(), showTitle: false, color: Colors.grey, radius: 25),
+                    PieChartSectionData(value: correctCount.toDouble(), title: '$correctCount', color: Colors.green, radius: 50, titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    PieChartSectionData(value: incorrectCount.toDouble(), title: '$incorrectCount', color: Colors.red, radius: 50, titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    PieChartSectionData(value: unattemptedCount.toDouble(), title: '$unattemptedCount', color: Colors.grey.shade300, radius: 50, titleStyle: const TextStyle(color: Colors.black54, fontWeight: FontWeight.bold)),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            _buildLegend(),
+            const SizedBox(height: 20),
+            // Legend
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                _buildLegendItem(Colors.green, 'Correct'),
+                _buildLegendItem(Colors.red, 'Incorrect'),
+                _buildLegendItem(Colors.grey.shade300, 'Skipped'),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
-  
-  Widget _buildLegend() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _buildLegendItem(Colors.green, 'Correct ($correctCount)'),
-        _buildLegendItem(Colors.red, 'Incorrect ($incorrectCount)'),
-        _buildLegendItem(Colors.grey, 'Skipped ($unattemptedCount)'),
-      ],
-    );
-  }
-  
+
   Widget _buildLegendItem(Color color, String text) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 16, height: 16, color: color),
-        const SizedBox(width: 8),
-        Text(text),
+        Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text(text, style: const TextStyle(fontSize: 12)),
       ],
     );
   }
 
   Widget _buildReviewSolutionsGrid() {
     return Card(
+      elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Review Solutions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Question Analysis', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 5),
+            const Text('Tap on a number to view solution & time spent.', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 15),
             GridView.builder(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 6, crossAxisSpacing: 8, mainAxisSpacing: 8),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 6,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10
+              ),
               itemCount: widget.result.questions.length,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemBuilder: (context, index) {
-                final state = widget.result.answerStates[index]!;
                 final question = widget.result.questions[index];
-                Color color = Colors.grey;
-                if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
-                  color = state.userAnswer == question.correctAnswer ? Colors.green : Colors.red;
+
+                String statusStr = 'SKIPPED';
+                if (widget.result.responses.containsKey(question.id)) {
+                  statusStr = widget.result.responses[question.id]!.status;
+                }
+
+                // Map 'REVIEW' to 'SKIPPED' colors for the final grid as well
+                Color color = Colors.grey.shade300;
+                Color textColor = Colors.black;
+
+                if (statusStr == 'CORRECT') {
+                  color = Colors.green;
+                  textColor = Colors.white;
+                } else if (statusStr == 'INCORRECT') {
+                  color = Colors.red;
+                  textColor = Colors.white;
+                } else {
+                  // SKIPPED or REVIEW (without answer)
+                  color = Colors.grey.shade200;
+                  textColor = Colors.black;
                 }
 
                 return GestureDetector(
                   onTap: () => _showSolutionSheet(index),
-                  child: CircleAvatar(
-                    backgroundColor: color,
-                    child: Text('${index + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: Container(
+                    decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.grey.shade300)
+                    ),
+                    child: Center(
+                      child: Text(
+                          '${index + 1}',
+                          style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
+                      ),
+                    ),
                   ),
                 );
               },
@@ -444,6 +542,286 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 }
 
+================================================================================
+FILE: lib/features/analytics/screens/test_history_screen.dart
+================================================================================
+// lib/features/analytics/screens/test_history_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/attempt_model.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_result.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
+// Import the new reusable widget
+import 'package:study_smart_qc/features/analytics/widgets/attempt_display_card.dart';
+
+class TestHistoryScreen extends StatefulWidget {
+  const TestHistoryScreen({Key? key}) : super(key: key);
+
+  @override
+  State<TestHistoryScreen> createState() => _TestHistoryScreenState();
+}
+
+class _TestHistoryScreenState extends State<TestHistoryScreen> {
+  late Future<List<AttemptModel>> _attemptsFuture;
+  final TestOrchestrationService _service = TestOrchestrationService();
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetch attempts from Firestore via the orchestration service
+    _attemptsFuture = _service.getUserAttempts();
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _attemptsFuture = _service.getUserAttempts();
+    });
+  }
+
+  void _navigateToAnalysis(AttemptModel attempt) async {
+    // 1. Show Loading UI while fetching question details
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // 2. Extract Question IDs from the attempt responses
+      List<String> questionIds = attempt.responses.keys.toList();
+
+      // 3. Fetch Full Question Objects from Firestore to render the UI
+      List<Question> questions = await _service.getQuestionsByIds(questionIds);
+
+      // 4. Reconstruct AnswerStates from the history data for the ResultsScreen
+      Map<int, AnswerState> answerStates = {};
+
+      for (int i = 0; i < questions.length; i++) {
+        final q = questions[i];
+        final response = attempt.responses[q.id];
+
+        AnswerStatus status = AnswerStatus.notVisited;
+        if (response != null) {
+          if (response.status == 'CORRECT' || response.status == 'INCORRECT') {
+            status = AnswerStatus.answered;
+          } else if (response.status == 'SKIPPED') {
+            status = AnswerStatus.notAnswered;
+          }
+        }
+
+        answerStates[i] = AnswerState(
+          status: status,
+          userAnswer: response?.selectedOption, // Supports String, List, or Map
+        );
+      }
+
+      // 5. Create a TestResult object to pass to the ResultsScreen
+      final result = TestResult(
+        attemptId: attempt.id, // FIXED: Added attemptId here
+        questions: questions,
+        answerStates: answerStates,
+        timeTaken: Duration(seconds: attempt.timeTakenSeconds),
+        totalMarks: questions.length * 4,
+        responses: attempt.responses,
+      );
+
+      // 6. Navigate to Analysis
+      if (mounted) {
+        Navigator.pop(context); // Close loader
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context); // Close loader on error
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error loading analysis: $e")),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("History & Analysis"),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 0,
+        actions: [
+          IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh))
+        ],
+      ),
+      body: FutureBuilder<List<AttemptModel>>(
+        future: _attemptsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return _buildEmptyState();
+          }
+
+          final attempts = snapshot.data!;
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: attempts.length,
+            itemBuilder: (context, index) {
+              // Using the reusable AttemptDisplayCard for consistent UI
+              return AttemptDisplayCard(
+                attempt: attempts[index],
+                onTap: () => _navigateToAnalysis(attempts[index]),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.assignment_outlined, size: 64, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          const Text("No tests taken yet!", style: TextStyle(color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+}
+
+================================================================================
+FILE: lib/features/analytics/widgets/attempt_display_card.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/attempt_model.dart';
+
+class AttemptDisplayCard extends StatelessWidget {
+  final AttemptModel attempt;
+  final VoidCallback onTap;
+
+  const AttemptDisplayCard({
+    super.key,
+    required this.attempt,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Formatting the date
+    final date = attempt.completedAt.toDate();
+    final dateStr = "${date.day}/${date.month}/${date.year}";
+
+    // UI logic for mode-based colors
+    final bool isTest = attempt.mode == 'Test';
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9F7FB), // Light lavender tint like assignments
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Top Row: Code and Date
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDED6F5),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    "CODE: ${attempt.assignmentCode}",
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF4A148C),
+                    ),
+                  ),
+                ),
+                Text(
+                  dateStr,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Mode Label (Test/Practice)
+            Text(
+              "${attempt.mode} Attempt",
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Bottom Row: Icons and Score
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.timer_outlined, size: 16, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Text(
+                      "${(attempt.timeTakenSeconds / 60).toStringAsFixed(1)} min",
+                      style: const TextStyle(fontSize: 13, color: Colors.black54),
+                    ),
+                  ],
+                ),
+                // Score Display
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: attempt.score >= 0 ? Colors.green.shade50 : Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: attempt.score >= 0 ? Colors.green.shade200 : Colors.red.shade200,
+                    ),
+                  ),
+                  child: Text(
+                    "Score: ${attempt.score}",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: attempt.score >= 0 ? Colors.green.shade700 : Colors.red.shade700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 ================================================================================
 FILE: lib/features/auth/screens/auth_page.dart
@@ -1246,12 +1624,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-// --- CRITICAL IMPORTS (Check these lines) ---
+// --- CRITICAL IMPORTS ---
 import 'package:study_smart_qc/features/teacher/screens/teacher_curation_screen.dart';
-import 'package:study_smart_qc/features/test_creation/screens/custom_test_history_screen.dart'; // Fixes your error
+import 'package:study_smart_qc/features/test_creation/screens/custom_test_history_screen.dart';
 import 'package:study_smart_qc/features/test_taking/screens/enter_code_screen.dart';
 import 'package:study_smart_qc/features/student/widgets/student_assignments_list.dart';
 import 'package:study_smart_qc/services/auth_service.dart';
+
+// NEW IMPORT FOR HISTORY
+import 'package:study_smart_qc/features/analytics/screens/test_history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -1302,7 +1683,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Center(
-        child: SingleChildScrollView( // Added scroll view for safety
+        child: SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
@@ -1342,6 +1723,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
 
                 // --- STANDARD BUTTONS ---
+
+                // 1. Create Test
                 ElevatedButton.icon(
                   icon: const Icon(Icons.edit_note),
                   label: const Text('Create your own test'),
@@ -1361,6 +1744,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
                 const SizedBox(height: 20),
+
+                // 2. Attempt Tests
                 OutlinedButton.icon(
                   icon: const Icon(Icons.qr_code_scanner),
                   label: const Text('Attempt pre-made tests'),
@@ -1375,6 +1760,29 @@ class _HomeScreenState extends State<HomeScreen> {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (context) => const EnterCodeScreen(),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+
+                // 3. NEW: MY ATTEMPTS & ANALYSIS
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.analytics_outlined),
+                  label: const Text('My Past Attempts & Analysis'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade600,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 15,
+                    ),
+                    textStyle: const TextStyle(fontSize: 18),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const TestHistoryScreen(),
                       ),
                     );
                   },
@@ -1399,6 +1807,19 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(color: Colors.white, fontSize: 24),
             ),
           ),
+          ListTile(
+            leading: const Icon(Icons.history),
+            title: const Text('My History'),
+            onTap: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const TestHistoryScreen(),
+                ),
+              );
+            },
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Logout'),
@@ -1599,6 +2020,8 @@ class StudentAssignmentsList extends StatelessWidget {
 
   void _showModeSelectionDialog(BuildContext context, String docId, Map<String, dynamic> data) {
     final questionIds = List<String>.from(data['questionIds'] ?? []);
+    // Extract the assignment code to pass along
+    final String code = data['assignmentCode'] ?? '----';
 
     showDialog(
         context: context,
@@ -1622,7 +2045,7 @@ class StudentAssignmentsList extends StatelessWidget {
               label: const Text("Practice Mode"),
               onPressed: () {
                 Navigator.pop(ctx);
-                _launchTest(context, docId, questionIds, TestMode.practice);
+                _launchTest(context, docId, code, questionIds, TestMode.practice);
               },
             ),
 
@@ -1636,7 +2059,7 @@ class StudentAssignmentsList extends StatelessWidget {
               ),
               onPressed: () {
                 Navigator.pop(ctx);
-                _launchTest(context, docId, questionIds, TestMode.test);
+                _launchTest(context, docId, code, questionIds, TestMode.test);
               },
             ),
           ],
@@ -1644,7 +2067,8 @@ class StudentAssignmentsList extends StatelessWidget {
     );
   }
 
-  Future<void> _launchTest(BuildContext context, String assignmentId, List<String> questionIds, TestMode mode) async {
+  // UPDATED: Now accepts assignmentCode
+  Future<void> _launchTest(BuildContext context, String assignmentId, String assignmentCode, List<String> questionIds, TestMode mode) async {
     // Show loading
     showDialog(
         context: context,
@@ -1670,6 +2094,7 @@ class StudentAssignmentsList extends StatelessWidget {
           MaterialPageRoute(
               builder: (_) => TestScreen(
                 sourceId: assignmentId, // Linking for analytics
+                assignmentCode: assignmentCode, // NEW: Passed to TestScreen
                 questions: questions,
                 timeLimitInMinutes: questions.length * 3, // Default 3 mins per question
                 testMode: mode, // Pass the selected mode
@@ -2324,6 +2749,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> {
 ================================================================================
 FILE: lib/features/test_creation/screens/custom_test_history_screen.dart
 ================================================================================
+// lib/features/test_creation/screens/custom_test_history_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
@@ -2478,7 +2905,9 @@ class _CustomTestHistoryScreenState extends State<CustomTestHistoryScreen> {
                           );
                         }
 
+                        // FIXED: Added attemptId here
                         final result = TestResult(
+                          attemptId: attempt.id,
                           questions: questions,
                           answerStates: answerStates,
                           timeTaken: Duration(
@@ -2487,6 +2916,7 @@ class _CustomTestHistoryScreenState extends State<CustomTestHistoryScreen> {
                           totalMarks: questions.length * 4,
                           responses: attempt.responses,
                         );
+
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (context) => ResultsScreen(result: result),
@@ -3080,18 +3510,26 @@ class TestPreviewScreen extends StatelessWidget {
 ================================================================================
 FILE: lib/features/test_taking/screens/test_screen.dart
 ================================================================================
+// lib/features/test_taking/screens/test_screen.dart
+
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Added for fetching ID
+import 'package:firebase_auth/firebase_auth.dart'; // Added for fetching ID
+import 'package:flutter/foundation.dart'; // For list/map equality checks
 import 'package:flutter/material.dart';
-import 'package:study_smart_qc/models/nta_test_models.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/models/attempt_model.dart';
 import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/widgets/expandable_image.dart';
+import 'package:study_smart_qc/widgets/question_input_widget.dart';
 
 class TestScreen extends StatefulWidget {
   final String sourceId;
+  final String assignmentCode;
   final List<Question> questions;
   final int timeLimitInMinutes;
   final TestMode testMode;
@@ -3100,7 +3538,8 @@ class TestScreen extends StatefulWidget {
     super.key,
     required this.questions,
     required this.timeLimitInMinutes,
-    this.sourceId = 'practice_session',
+    this.sourceId = '',
+    this.assignmentCode = 'PRAC',
     this.testMode = TestMode.test,
   });
 
@@ -3111,16 +3550,15 @@ class TestScreen extends StatefulWidget {
 class _TestScreenState extends State<TestScreen> {
   late final PageController _pageController;
   late final Timer _timer;
-
-  late Duration _timeCounter;
+  late Duration _overallTimeCounter;
   bool _isPaused = false;
 
+  // State Maps
   final Map<int, AnswerState> _answerStates = {};
-  final Map<String, TextEditingController> _numericalControllers = {};
-  int _currentPage = 0;
   final Map<int, int> _visitCounts = {};
   final Map<int, Stopwatch> _timeTrackers = {};
 
+  int _currentPage = 0;
   bool _isAnswerChecked = false;
 
   @override
@@ -3128,51 +3566,69 @@ class _TestScreenState extends State<TestScreen> {
     super.initState();
     _pageController = PageController();
 
+    // 1. Timer Setup
     if (widget.testMode == TestMode.test) {
-      _timeCounter = Duration(minutes: widget.timeLimitInMinutes);
+      _overallTimeCounter = Duration(minutes: widget.timeLimitInMinutes);
     } else {
-      _timeCounter = Duration.zero;
+      _overallTimeCounter = Duration.zero;
     }
 
+    // 2. Initialize Questions
     for (int i = 0; i < widget.questions.length; i++) {
-      _answerStates[i] = AnswerState();
-      final q = widget.questions[i];
-      if (q.type.trim() == 'Numerical type') {
-        _numericalControllers[q.id] = TextEditingController();
-      }
+      // AnswerState.userAnswer will now hold dynamic data (String, List, or Map)
+      _answerStates[i] = AnswerState(status: AnswerStatus.notVisited);
       _visitCounts[i] = 0;
       _timeTrackers[i] = Stopwatch();
     }
 
-    _onPageChanged(_currentPage, fromInit: true);
+    // Initialize first page
+    _onPageChanged(0, fromInit: true);
     _startTimer();
   }
 
+  // --- TIMER LOGIC ---
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_isPaused) return;
-
       if (mounted) {
         setState(() {
           if (widget.testMode == TestMode.test) {
-            if (_timeCounter.inSeconds > 0) {
-              _timeCounter -= const Duration(seconds: 1);
+            if (_overallTimeCounter.inSeconds > 0) {
+              _overallTimeCounter -= const Duration(seconds: 1);
             } else {
               _timer.cancel();
               _handleSubmit();
             }
           } else {
-            _timeCounter += const Duration(seconds: 1);
+            _overallTimeCounter += const Duration(seconds: 1);
           }
         });
       }
     });
   }
 
-  void _togglePause() {
+  void _onPageChanged(int page, {bool fromInit = false}) {
+    if (!fromInit && _timeTrackers.containsKey(_currentPage)) {
+      _timeTrackers[_currentPage]!.stop();
+    }
+
     setState(() {
-      _isPaused = !_isPaused;
+      _currentPage = page;
+      _isAnswerChecked = false;
+      _visitCounts[page] = (_visitCounts[page] ?? 0) + 1;
+
+      if (_answerStates[page]?.status == AnswerStatus.notVisited) {
+        _answerStates[page]?.status = AnswerStatus.notAnswered;
+      }
     });
+
+    if (_timeTrackers.containsKey(page)) {
+      _timeTrackers[page]!.start();
+    }
+  }
+
+  void _togglePause() {
+    setState(() => _isPaused = !_isPaused);
     if (_isPaused) {
       _timeTrackers[_currentPage]?.stop();
     } else {
@@ -3180,43 +3636,69 @@ class _TestScreenState extends State<TestScreen> {
     }
   }
 
-  void _onPageChanged(int page, {bool fromInit = false}) {
-    if (!fromInit && _timeTrackers.containsKey(_currentPage)) {
-      _timeTrackers[_currentPage]!.stop();
-    }
-    setState(() {
-      _currentPage = page;
-      _isAnswerChecked = false;
-      _visitCounts[page] = (_visitCounts[page] ?? 0) + 1;
-      if (_answerStates[page]?.status == AnswerStatus.notVisited) {
-        _answerStates[page]?.status = AnswerStatus.notAnswered;
-      }
-    });
-    if (_timeTrackers.containsKey(page)) {
-      _timeTrackers[page]!.start();
-    }
+  @override
+  void dispose() {
+    _timer.cancel();
+    _pageController.dispose();
+    super.dispose();
   }
+
+  // --- HELPER: COMPARE ANSWERS (Handles Lists & Maps) ---
+  bool _checkEquality(dynamic userAns, dynamic correctAns) {
+    if (userAns == null || correctAns == null) return false;
+
+    // 1. Simple String/Number comparison
+    if (userAns is String || userAns is num) {
+      return userAns.toString().trim().toLowerCase() ==
+          correctAns.toString().trim().toLowerCase();
+    }
+
+    // 2. List Comparison (Multi-Correct) - Order doesn't matter
+    if (userAns is List && correctAns is List) {
+      if (userAns.length != correctAns.length) return false;
+      final userSet = userAns.map((e) => e.toString()).toSet();
+      final correctSet = correctAns.map((e) => e.toString()).toSet();
+      return userSet.containsAll(correctSet);
+    }
+
+    // 3. Map Comparison (Matrix)
+    if (userAns is Map && correctAns is Map) {
+      if (userAns.length != correctAns.length) return false;
+      for (var key in userAns.keys) {
+        if (!correctAns.containsKey(key)) return false;
+        // Compare values (which are usually lists in Matrix)
+        if (!_checkEquality(userAns[key], correctAns[key])) return false;
+      }
+      return true;
+    }
+
+    return userAns == correctAns;
+  }
+
+  // --- ACTION HANDLERS ---
 
   void _checkAnswer() {
-    final q = widget.questions[_currentPage];
     final state = _answerStates[_currentPage]!;
 
-    String? answer = (q.type.trim() == 'Single Correct')
-        ? state.userAnswer
-        : _numericalControllers[q.id]?.text;
+    // Check if answer is empty/null
+    bool isEmpty = false;
+    if (state.userAnswer == null) isEmpty = true;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
+      isEmpty = true;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
+      isEmpty = true;
+    if (state.userAnswer is Map && (state.userAnswer as Map).isEmpty)
+      isEmpty = true;
 
-    if (answer == null || answer.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select an answer first!")));
+    if (isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please select an answer first!")));
       return;
     }
-
     setState(() {
       _isAnswerChecked = true;
-      // Safety fix: Ensure it is marked as answered
-      _answerStates[_currentPage]?.status = AnswerStatus.answered;
     });
   }
-
 
   void _showSolution() {
     final q = widget.questions[_currentPage];
@@ -3225,17 +3707,23 @@ class _TestScreenState extends State<TestScreen> {
       isScrollControlled: true,
       builder: (ctx) => Container(
         padding: const EdgeInsets.all(16),
-        height: MediaQuery.of(ctx).size.height * 0.6,
+        height: MediaQuery.of(ctx).size.height * 0.7,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Solution", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text("Solution",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Divider(),
             const SizedBox(height: 10),
-            Text("Correct Answer: ${q.correctAnswer}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+            // Correct Answer display might need formatting for Map/List types
+            Text("Correct Answer: ${q.correctAnswer}",
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.green)),
             const SizedBox(height: 10),
             if (q.solutionUrl != null)
-              Expanded(child: Image.network(q.solutionUrl!))
+              Expanded(
+                  child: Center(
+                      child: ExpandableImage(imageUrl: q.solutionUrl!)))
             else
               const Text("No image solution available."),
           ],
@@ -3245,262 +3733,418 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   void _handleSaveAndNext() {
-    if (_currentPage < widget.questions.length - 1) {
-      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
+    final state = _answerStates[_currentPage]!;
+
+    // Check if answered
+    bool hasAnswer = state.userAnswer != null;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
+      hasAnswer = false;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
+      hasAnswer = false;
+
+    if (hasAnswer) {
+      setState(() => state.status = AnswerStatus.answered);
     } else {
-      _showSubmitConfirmationDialog();
+      setState(() => state.status = AnswerStatus.notAnswered);
+    }
+    _moveToNextPage();
+  }
+
+  void _handleSaveAndMarkForReview() {
+    final state = _answerStates[_currentPage]!;
+    bool hasAnswer = state.userAnswer != null;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
+      hasAnswer = false;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
+      hasAnswer = false;
+
+    if (hasAnswer) {
+      setState(() => state.status = AnswerStatus.answeredAndMarked);
+      _moveToNextPage();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text("Please select an answer to Save & Mark for Review")),
+      );
     }
   }
 
-  Future<void> _showSubmitConfirmationDialog() async {
-    return showDialog<void>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Submit Session?'),
-          content: Text(widget.testMode == TestMode.practice
-              ? 'Finish practice session and save progress?'
-              : 'Are you sure you want to end the test?'),
-          actions: <Widget>[
-            TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
-            TextButton(child: const Text('Submit'), onPressed: () {
-              Navigator.of(context).pop();
-              _handleSubmit();
-            }),
-          ],
-        );
-      },
-    );
+  void _handleMarkForReviewAndNext() {
+    setState(() {
+      _answerStates[_currentPage]!.status = AnswerStatus.markedForReview;
+    });
+    _moveToNextPage();
+  }
+
+  void _handleClearResponse() {
+    setState(() {
+      _answerStates[_currentPage]!.userAnswer = null; // Clear dynamic answer
+      _answerStates[_currentPage]!.status = AnswerStatus.notAnswered;
+      _isAnswerChecked = false;
+    });
+  }
+
+  void _moveToNextPage() {
+    if (_currentPage < widget.questions.length - 1) {
+      _pageController.nextPage(
+          duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content:
+            Text("You are on the last question. Click Submit to finish.")),
+      );
+    }
   }
 
   void _handleSubmit() async {
     _timer.cancel();
     _timeTrackers.values.forEach((sw) => sw.stop());
-
     Map<String, ResponseObject> responses = {};
 
     for (int i = 0; i < widget.questions.length; i++) {
       final question = widget.questions[i];
       final state = _answerStates[i]!;
       String finalStatus = 'SKIPPED';
-      String? finalAnswer = state.userAnswer;
 
-      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
-        final isCorrect = finalAnswer?.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase();
+      if (state.status == AnswerStatus.answered ||
+          state.status == AnswerStatus.answeredAndMarked) {
+        // USE NEW EQUALITY CHECK
+        final isCorrect =
+        _checkEquality(state.userAnswer, question.correctAnswer);
         finalStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
       } else if (state.status == AnswerStatus.markedForReview) {
         finalStatus = 'REVIEW';
       }
 
+      // Convert complex answers to String for storage if ResponseObject requires String
+      // If ResponseObject accepts dynamic, you can pass state.userAnswer directly
+      String storedAnswer = state.userAnswer.toString();
+
       responses[question.id] = ResponseObject(
         status: finalStatus,
-        selectedOption: finalAnswer,
-        correctOption: question.correctAnswer,
+        selectedOption: storedAnswer,
+        correctOption: question.correctAnswer.toString(),
         timeSpent: _timeTrackers[i]!.elapsed.inSeconds,
         visitCount: _visitCounts[i] ?? 0,
         q_no: i + 1,
       );
     }
 
-    final score = (responses.values.where((r) => r.status == 'CORRECT').length * 4) -
-        (responses.values.where((r) => r.status == 'INCORRECT').length * 1);
+    final score =
+        (responses.values.where((r) => r.status == 'CORRECT').length * 4) -
+            (responses.values.where((r) => r.status == 'INCORRECT').length * 1);
 
+    // 1. Submit to Firestore
     await TestOrchestrationService().submitAttempt(
-      curationId: widget.sourceId,
+      sourceId: widget.sourceId,
+      assignmentCode: widget.assignmentCode,
+      mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
       questions: widget.questions,
       score: score,
       timeTakenSeconds: widget.testMode == TestMode.test
-          ? (Duration(minutes: widget.timeLimitInMinutes) - _timeCounter).inSeconds
-          : _timeCounter.inSeconds,
+          ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter)
+          .inSeconds
+          : _overallTimeCounter.inSeconds,
       responses: responses,
     );
 
+    // 2. Fetch the ID of the attempt we just created
+    // (This is necessary because submitAttempt returns void, but we need the ID for the next screen)
+    String attemptId = '';
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        final latestSnap = await FirebaseFirestore.instance
+            .collection('attempts')
+            .where('userId', isEqualTo: user.uid)
+            .orderBy('completedAt', descending: true)
+            .limit(1)
+            .get();
+
+        if (latestSnap.docs.isNotEmpty) {
+          attemptId = latestSnap.docs.first.id;
+        }
+      } catch (e) {
+        print("Error fetching latest attempt ID: $e");
+      }
+    }
+
     if (mounted) {
       final result = TestResult(
+        attemptId: attemptId, // FIXED: Now passing the generated/fetched ID
         questions: widget.questions,
         answerStates: _answerStates,
         timeTaken: widget.testMode == TestMode.test
-            ? Duration(minutes: widget.timeLimitInMinutes) - _timeCounter
-            : _timeCounter,
+            ? Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter
+            : _overallTimeCounter,
         totalMarks: widget.questions.length * 4,
         responses: responses,
       );
-
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
       );
     }
   }
 
+  Future<void> _showSubmitConfirmationDialog() async {
+    return showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Submit Test'),
+        content: const Text('Are you sure you want to finish the test?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _handleSubmit();
+            },
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- UI BUILDERS ---
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: _buildTimerWidget(),
+        title: _buildOverallTimerWidget(),
         centerTitle: true,
-        backgroundColor: widget.testMode == TestMode.practice ? Colors.deepPurple.shade50 : Colors.deepPurple,
-        foregroundColor: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white,
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
         actions: [
-          if (widget.testMode == TestMode.practice)
-            IconButton(
-              icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
-              onPressed: _togglePause,
-            ),
           TextButton(
             onPressed: _showSubmitConfirmationDialog,
-            child: Text('Submit', style: TextStyle(color: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white)),
+            child: const Text('Submit',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
-      body: Stack(
+      body: Column(
         children: [
-          Column(
-            children: [
-              _buildCompactQuestionPalette(),
-              const Divider(height: 1),
-              Expanded(
-                child: PageView.builder(
-                  controller: _pageController,
-                  physics: _isPaused ? const NeverScrollableScrollPhysics() : const AlwaysScrollableScrollPhysics(),
-                  onPageChanged: _onPageChanged,
-                  itemCount: widget.questions.length,
-                  itemBuilder: (context, index) {
-                    final q = widget.questions[index];
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Q.${index + 1}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 10),
-                          if (q.imageUrl.isNotEmpty)
-                            InteractiveViewer(maxScale: 4.0, child: Image.network(q.imageUrl)),
-                          const SizedBox(height: 20),
-                          if (q.type.trim() == 'Single Correct')
-                            _buildScqOptions(q)
-                          else
-                            _buildNumericalInput(q),
+          _buildNTAQuestionPalette(),
+          const Divider(height: 1),
 
-                          if (widget.testMode == TestMode.practice && _isAnswerChecked)
-                            _buildFeedbackUI(q),
+          Expanded(
+            child: PageView.builder(
+              controller: _pageController,
+              physics: _isPaused
+                  ? const NeverScrollableScrollPhysics()
+                  : const AlwaysScrollableScrollPhysics(),
+              onPageChanged: (index) => _onPageChanged(index),
+              itemCount: widget.questions.length,
+              itemBuilder: (context, index) {
+                final q = widget.questions[index];
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Q.${index + 1}',
+                              style: const TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold)),
+                          _buildQuestionTimerWidget(index),
                         ],
                       ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
+                      const SizedBox(height: 10),
 
-          if (_isPaused)
-            Container(
-              color: Colors.black.withOpacity(0.8),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.pause_circle_filled, size: 80, color: Colors.white),
-                    const SizedBox(height: 20),
-                    const Text("Session Paused", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: _togglePause,
-                      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15)),
-                      child: const Text("Resume"),
-                    )
-                  ],
-                ),
-              ),
+                      if (q.imageUrl.isNotEmpty)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: ExpandableImage(imageUrl: q.imageUrl),
+                        ),
+                      const SizedBox(height: 20),
+
+                      // =======================================================
+                      // NEW: Unified Input Widget handles all types (SCQ, Num, Matrix)
+                      // =======================================================
+                      QuestionInputWidget(
+                        question: q,
+                        currentAnswer: _answerStates[index]?.userAnswer,
+                        onAnswerChanged: (newAnswer) {
+                          // Update state when widget reports a change
+                          if (!_isPaused) {
+                            setState(() {
+                              _answerStates[index]?.userAnswer = newAnswer;
+                              // Reset local feedback if in practice mode
+                              if (widget.testMode == TestMode.practice) {
+                                _isAnswerChecked = false;
+                              }
+                            });
+                          }
+                        },
+                      ),
+
+                      if (widget.testMode == TestMode.practice &&
+                          _isAnswerChecked)
+                        _buildFeedbackUI(q),
+                    ],
+                  ),
+                );
+              },
             ),
+          ),
         ],
       ),
       bottomNavigationBar: _buildBottomNavBar(),
     );
   }
 
-  Widget _buildTimerWidget() {
+  Widget _buildOverallTimerWidget() {
     String twoDigits(int n) => n.toString().padLeft(2, "0");
-    final minutes = twoDigits(_timeCounter.inMinutes.remainder(60));
-    final seconds = twoDigits(_timeCounter.inSeconds.remainder(60));
-    final hours = twoDigits(_timeCounter.inHours);
+    final minutes = twoDigits(_overallTimeCounter.inMinutes.remainder(60));
+    final seconds = twoDigits(_overallTimeCounter.inSeconds.remainder(60));
+    final hours = twoDigits(_overallTimeCounter.inHours);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
-        border: Border.all(color: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white),
+        color: Colors.deepPurple.shade700,
         borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        "$hours:$minutes:$seconds",
+        style: const TextStyle(
+            fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+      ),
+    );
+  }
+
+  Widget _buildQuestionTimerWidget(int index) {
+    final duration = _timeTrackers[index]?.elapsed ?? Duration.zero;
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.timer_outlined, size: 18, color: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white),
-          const SizedBox(width: 4),
-          Text("$hours:$minutes:$seconds", style: const TextStyle(fontSize: 16)),
+          const Icon(Icons.access_time_filled, size: 16, color: Colors.black54),
+          const SizedBox(width: 5),
+          Text(
+            "$minutes:$seconds",
+            style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildCompactQuestionPalette() {
-    return SizedBox(
-      height: 60,
+  Widget _buildNTAQuestionPalette() {
+    return Container(
+      height: 70,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      color: Colors.grey.shade50,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         itemCount: widget.questions.length,
         itemBuilder: (context, index) {
           final state = _answerStates[index]!;
           final isCurrent = index == _currentPage;
-          return Container(
-            width: 40, margin: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-                color: state.status.color,
-                borderRadius: BorderRadius.circular(4),
-                border: isCurrent ? Border.all(width: 2) : null
+
+          BoxShape shape = BoxShape.rectangle;
+          Color color = Colors.white;
+          Border? border = Border.all(color: Colors.grey.shade300);
+          Widget? badge;
+
+          switch (state.status) {
+            case AnswerStatus.notVisited:
+              color = Colors.white;
+              break;
+            case AnswerStatus.notAnswered:
+              color = Colors.red;
+              border = null;
+              break;
+            case AnswerStatus.answered:
+              color = Colors.green;
+              border = null;
+              break;
+            case AnswerStatus.markedForReview:
+              shape = BoxShape.circle;
+              color = Colors.purple;
+              border = null;
+              break;
+            case AnswerStatus.answeredAndMarked:
+              shape = BoxShape.circle;
+              color = Colors.purple;
+              border = null;
+              badge = const Positioned(
+                bottom: 0,
+                right: 0,
+                child: Icon(Icons.check_circle, size: 14, color: Colors.green),
+              );
+              break;
+          }
+
+          return GestureDetector(
+            onTap: () => _pageController.jumpToPage(index),
+            child: Container(
+              width: 50,
+              margin: const EdgeInsets.symmetric(horizontal: 5),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: shape,
+                      border: isCurrent
+                          ? Border.all(color: Colors.blueAccent, width: 3)
+                          : border,
+                      borderRadius: shape == BoxShape.rectangle
+                          ? BorderRadius.circular(4)
+                          : null,
+                    ),
+                    child: Center(
+                      child: Text(
+                        "${index + 1}",
+                        style: TextStyle(
+                          color: (color == Colors.white)
+                              ? Colors.black
+                              : Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (badge != null) badge,
+                ],
+              ),
             ),
-            child: Center(child: Text("${index + 1}", style: const TextStyle(color: Colors.white))),
           );
         },
       ),
     );
   }
 
-  Widget _buildScqOptions(Question q) {
-    return Column(children: ['A','B','C','D'].map((opt) => RadioListTile<String>(
-      title: Text(opt),
-      value: opt,
-      groupValue: _answerStates[_currentPage]?.userAnswer,
-      onChanged: _isPaused ? null : (String? v) {
-        setState(() {
-          _answerStates[_currentPage]?.userAnswer = v;
-          // CRITICAL FIX: Mark as answered so it counts in scoring
-          _answerStates[_currentPage]?.status = AnswerStatus.answered;
-        });
-      },
-    )).toList());
-  }
-
-
-  Widget _buildNumericalInput(Question q) {
-    return TextField(
-      controller: _numericalControllers[q.id],
-      enabled: !_isPaused,
-      onChanged: (v) {
-        // We only mark answered if text is not empty
-        setState(() {
-          _answerStates[_currentPage]?.userAnswer = v;
-          _answerStates[_currentPage]?.status = v.isNotEmpty
-              ? AnswerStatus.answered
-              : AnswerStatus.notAnswered;
-        });
-      },
-      decoration: const InputDecoration(border: OutlineInputBorder(), labelText: "Answer"),
-    );
-  }
-
-
   Widget _buildFeedbackUI(Question q) {
-    final userAnswer = _answerStates[_currentPage]?.userAnswer;
-    final isCorrect = userAnswer?.trim().toLowerCase() == q.correctAnswer.trim().toLowerCase();
+    // Use the robust equality check for feedback as well
+    final isCorrect =
+    _checkEquality(_answerStates[_currentPage]?.userAnswer, q.correctAnswer);
 
     return Container(
       margin: const EdgeInsets.only(top: 20),
@@ -3514,12 +4158,17 @@ class _TestScreenState extends State<TestScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(isCorrect ? Icons.check_circle : Icons.cancel, color: isCorrect ? Colors.green : Colors.red),
+            Icon(isCorrect ? Icons.check_circle : Icons.cancel,
+                color: isCorrect ? Colors.green : Colors.red),
             const SizedBox(width: 10),
-            Text(isCorrect ? "Correct!" : "Incorrect", style: TextStyle(fontWeight: FontWeight.bold, color: isCorrect ? Colors.green : Colors.red)),
+            Text(isCorrect ? "Correct!" : "Incorrect",
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isCorrect ? Colors.green : Colors.red)),
           ]),
           const SizedBox(height: 10),
-          ElevatedButton(onPressed: _showSolution, child: const Text("View Full Solution")),
+          ElevatedButton(
+              onPressed: _showSolution, child: const Text("View Full Solution")),
         ],
       ),
     );
@@ -3528,25 +4177,97 @@ class _TestScreenState extends State<TestScreen> {
   Widget _buildBottomNavBar() {
     return Container(
       padding: const EdgeInsets.all(12),
-      color: Colors.white,
-      child: Row(
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [
+        BoxShadow(
+            color: Colors.grey.shade200,
+            blurRadius: 4,
+            offset: const Offset(0, -2))
+      ]),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           if (widget.testMode == TestMode.practice)
-            Expanded(
-              child: ElevatedButton(
-                onPressed: _checkAnswer,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
-                child: const Text("Check Answer"),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _checkAnswer,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text("Check Answer"),
+                ),
               ),
             ),
-
-          if (widget.testMode == TestMode.practice) const SizedBox(width: 10),
-
-          Expanded(
-            child: ElevatedButton(
-              onPressed: _handleSaveAndNext,
-              child: Text(_currentPage == widget.questions.length - 1 ? 'Finish' : 'Next'),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _handleSaveAndMarkForReview,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.purple,
+                    side: const BorderSide(color: Colors.purple),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    elevation: 0,
+                  ),
+                  child: const Text("Save & Mark Review",
+                      textAlign: TextAlign.center,
+                      style:
+                      TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _handleMarkForReviewAndNext,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.purple,
+                    side: const BorderSide(color: Colors.purple),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    elevation: 0,
+                  ),
+                  child: const Text("Mark Review & Next",
+                      textAlign: TextAlign.center,
+                      style:
+                      TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _handleClearResponse,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red),
+                  ),
+                  child: const Text("Clear",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _handleSaveAndNext,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text("Save & Next",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -3559,57 +4280,91 @@ FILE: lib/models/attempt_item_model.dart
 ================================================================================
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Represents a single item in the 'attempt_items' collection for detailed analytics.
 class AttemptItemModel {
   final String userId;
+  final DocumentReference attemptRef; // <--- The Fix: Stores reference to parent
   final String questionId;
   final String chapterId;
   final String topicId;
-  final String status; // e.g., 'CORRECT', 'INCORRECT', 'SKIPPED'
-  final int timeSpent; // in seconds
+  final String status;
+  final int timeSpent;
   final Timestamp attemptedAt;
+  final String assignmentCode;
+  final String mode;
+  final String? mistakeCategory;
+  final String? mistakeNote;
 
   AttemptItemModel({
     required this.userId,
+    required this.attemptRef,
     required this.questionId,
     required this.chapterId,
     required this.topicId,
     required this.status,
     required this.timeSpent,
     required this.attemptedAt,
+    required this.assignmentCode,
+    required this.mode,
+    this.mistakeCategory,
+    this.mistakeNote,
   });
 
-  // Method to convert an AttemptItemModel instance to a map for Firestore.
+  factory AttemptItemModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return AttemptItemModel(
+      userId: data['userId'] ?? '',
+      // Safe casting for the reference
+      attemptRef: data['attemptRef'] is DocumentReference
+          ? data['attemptRef']
+          : FirebaseFirestore.instance.collection('attempts').doc('unknown'),
+      questionId: data['questionId'] ?? '',
+      chapterId: data['chapterId'] ?? '',
+      topicId: data['topicId'] ?? '',
+      status: data['status'] ?? 'SKIPPED',
+      timeSpent: data['timeSpent'] ?? 0,
+      attemptedAt: data['attemptedAt'] ?? Timestamp.now(),
+      assignmentCode: data['assignmentCode'] ?? '',
+      mode: data['mode'] ?? 'Test',
+      mistakeCategory: data['mistakeCategory'],
+      mistakeNote: data['mistakeNote'],
+    );
+  }
+
   Map<String, dynamic> toFirestore() {
     return {
       'userId': userId,
+      'attemptRef': attemptRef,
       'questionId': questionId,
       'chapterId': chapterId,
       'topicId': topicId,
       'status': status,
       'timeSpent': timeSpent,
       'attemptedAt': attemptedAt,
+      'assignmentCode': assignmentCode,
+      'mode': mode,
+      'mistakeCategory': mistakeCategory,
+      'mistakeNote': mistakeNote,
     };
   }
-
-  // Note: A fromFirestore factory is not strictly necessary for this model
-  // as we are primarily using it for writing, not reading, in this flow.
 }
-
 
 ================================================================================
 FILE: lib/models/attempt_model.dart
 ================================================================================
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Represents the response for a single question within an attempt.
+// --- 1. ResponseObject Class ---
 class ResponseObject {
-  final String status; // e.g., 'CORRECT', 'INCORRECT', 'SKIPPED'
-  final String? selectedOption;
+  final String status; // 'CORRECT', 'INCORRECT', 'SKIPPED'
+  final dynamic selectedOption;
   final String correctOption;
-  final int timeSpent; // in seconds
+  final int timeSpent;
   final int visitCount;
-  final int q_no; // Added question number
+  final int q_no;
+
+  // NEW: Manual categorization fields
+  final String? mistakeCategory;
+  final String? mistakeNote;
 
   ResponseObject({
     required this.status,
@@ -3618,6 +4373,8 @@ class ResponseObject {
     required this.timeSpent,
     required this.visitCount,
     required this.q_no,
+    this.mistakeCategory,
+    this.mistakeNote,
   });
 
   factory ResponseObject.fromMap(Map<String, dynamic> map) {
@@ -3628,6 +4385,8 @@ class ResponseObject {
       timeSpent: map['timeSpent'] ?? 0,
       visitCount: map['visitCount'] ?? 0,
       q_no: map['q_no'] ?? 0,
+      mistakeCategory: map['mistakeCategory'],
+      mistakeNote: map['mistakeNote'],
     );
   }
 
@@ -3639,28 +4398,47 @@ class ResponseObject {
       'timeSpent': timeSpent,
       'visitCount': visitCount,
       'q_no': q_no,
+      'mistakeCategory': mistakeCategory,
+      'mistakeNote': mistakeNote,
     };
   }
 }
 
-// Represents an attempt document in the 'attempts' collection.
+// --- 2. AttemptModel Class ---
 class AttemptModel {
   final String id;
-  final String testId;
+  final String sourceId;
+  final String assignmentCode;
+  final String mode;
   final String userId;
   final Timestamp startedAt;
   final Timestamp completedAt;
-  final int score;
+  final num score;
+  final int totalQuestions;
+  final int maxMarks;
+
+  // Aggregates
+  final int correctCount;
+  final int incorrectCount;
+  final int skippedCount;
+
   final int timeTakenSeconds;
   final Map<String, ResponseObject> responses;
 
   AttemptModel({
     required this.id,
-    required this.testId,
+    required this.sourceId,
+    required this.assignmentCode,
+    required this.mode,
     required this.userId,
     required this.startedAt,
     required this.completedAt,
     required this.score,
+    required this.totalQuestions,
+    required this.maxMarks,
+    required this.correctCount,
+    required this.incorrectCount,
+    required this.skippedCount,
     required this.timeTakenSeconds,
     required this.responses,
   });
@@ -3669,10 +4447,14 @@ class AttemptModel {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
 
     dynamic rawStartedAt = data['startedAt'];
-    Timestamp startedAtTimestamp = (rawStartedAt is String) ? Timestamp.fromDate(DateTime.parse(rawStartedAt)) : rawStartedAt ?? Timestamp.now();
+    Timestamp startedAtTimestamp = (rawStartedAt is String)
+        ? Timestamp.fromDate(DateTime.parse(rawStartedAt))
+        : rawStartedAt ?? Timestamp.now();
 
     dynamic rawCompletedAt = data['completedAt'];
-    Timestamp completedAtTimestamp = (rawCompletedAt is String) ? Timestamp.fromDate(DateTime.parse(rawCompletedAt)) : rawCompletedAt ?? Timestamp.now();
+    Timestamp completedAtTimestamp = (rawCompletedAt is String)
+        ? Timestamp.fromDate(DateTime.parse(rawCompletedAt))
+        : rawCompletedAt ?? Timestamp.now();
 
     Map<String, ResponseObject> parsedResponses = {};
     if (data['responses'] is Map) {
@@ -3685,11 +4467,18 @@ class AttemptModel {
 
     return AttemptModel(
       id: doc.id,
-      testId: data['testId'] ?? '',
+      sourceId: data['sourceId'] ?? data['testId'] ?? '',
+      assignmentCode: data['assignmentCode'] ?? '----',
+      mode: data['mode'] ?? 'Test',
       userId: data['userId'] ?? '',
       startedAt: startedAtTimestamp,
       completedAt: completedAtTimestamp,
       score: data['score'] ?? 0,
+      totalQuestions: data['total_questions'] ?? 0,
+      maxMarks: data['max_marks'] ?? 0,
+      correctCount: data['correct_count'] ?? 0,
+      incorrectCount: data['incorrect_count'] ?? 0,
+      skippedCount: data['skipped_count'] ?? 0,
       timeTakenSeconds: data['timeTakenSeconds'] ?? 0,
       responses: parsedResponses,
     );
@@ -3697,17 +4486,23 @@ class AttemptModel {
 
   Map<String, dynamic> toFirestore() {
     return {
-      'testId': testId,
+      'sourceId': sourceId,
+      'assignmentCode': assignmentCode,
+      'mode': mode,
       'userId': userId,
       'startedAt': startedAt,
       'completedAt': completedAt,
       'score': score,
+      'total_questions': totalQuestions,
+      'max_marks': maxMarks,
+      'correct_count': correctCount,
+      'incorrect_count': incorrectCount,
+      'skipped_count': skippedCount,
       'timeTakenSeconds': timeTakenSeconds,
       'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
     };
   }
 }
-
 
 ================================================================================
 FILE: lib/models/custom_test_model.dart
@@ -3814,14 +4609,24 @@ FILE: lib/models/question_model.dart
 ================================================================================
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// 1. DEFINE THE ENUM HERE (Outside the class)
+enum QuestionType {
+  singleCorrect,   // Matches Firestore 'Single Correct'
+  numerical,       // Matches Firestore 'Numerical type'
+  multipleCorrect, // Matches Firestore 'One or more options correct'
+  matrixSingle,    // Matches Firestore 'Single Matrix Match'
+  matrixMulti,     // Matches Firestore 'Multi Matrix Match'
+  unknown          // Safety fallback
+}
+
 class Question {
   final String id;
   final String chapterId;
   final String topicId;
-  final String type;
+  final QuestionType type; // Using the Enum
   final String imageUrl;
   final String? solutionUrl;
-  final String correctAnswer;
+  final dynamic correctAnswer; // Dynamic (String, List, or Map)
   final String difficulty;
   final String source;
 
@@ -3839,21 +4644,38 @@ class Question {
 
   factory Question.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
     return Question(
       id: doc.id,
       chapterId: data['chapterId'] ?? '',
       topicId: data['topicId'] ?? '',
-      type: data['Question type'] ?? 'SCQ',
+      type: _mapStringToType(data['Question type']), // Helper function
       imageUrl: data['image_url'] ?? '',
       solutionUrl: data['solution_url'],
-      // FIX: Using the correct field name as you specified
-      correctAnswer: data['Correct Answer'] ?? '',
+      correctAnswer: data['Correct Answer'],
       difficulty: data['Difficulty_tag'] ?? 'Medium',
       source: data['Exam'] ?? '',
     );
   }
-}
 
+  // Helper to convert Firestore String -> Enum
+  static QuestionType _mapStringToType(String? typeString) {
+    switch (typeString) {
+      case 'Single Correct':
+        return QuestionType.singleCorrect;
+      case 'Numerical type':
+        return QuestionType.numerical;
+      case 'One or more options correct':
+        return QuestionType.multipleCorrect;
+      case 'Single Matrix Match':
+        return QuestionType.matrixSingle;
+      case 'Multi Matrix Match':
+        return QuestionType.matrixMulti;
+      default:
+        return QuestionType.unknown;
+    }
+  }
+}
 
 ================================================================================
 FILE: lib/models/test_enums.dart
@@ -3964,27 +4786,29 @@ class TestModel {
 ================================================================================
 FILE: lib/models/test_result.dart
 ================================================================================
+// lib/models/test_result.dart
+
 import 'package:study_smart_qc/models/attempt_model.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 
 class TestResult {
+  final String attemptId; // Added: Unique ID of the attempt session
   final List<Question> questions;
   final Map<int, AnswerState> answerStates;
   final Duration timeTaken;
   final int totalMarks;
-  final Map<String, ResponseObject>
-  responses; // Added to carry full response data
+  final Map<String, ResponseObject> responses;
 
   TestResult({
+    required this.attemptId, // Added
     required this.questions,
     required this.answerStates,
     required this.timeTaken,
     required this.totalMarks,
-    required this.responses, // Added
+    required this.responses,
   });
 }
-
 
 ================================================================================
 FILE: lib/models/user_model.dart
@@ -4597,61 +5421,186 @@ class TestOrchestrationService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   String? get _userId => _auth.currentUser?.uid;
 
-  // --- NEW: UNIVERSAL SUBMISSION HANDLER ---
-  // This is the method your TestScreen is looking for.
+  // ===========================================================================
+  // 1. HISTORY FETCH LOGIC
+  // ===========================================================================
+
+  /// Fetch attempts for a user. If [targetUserId] is provided (Mentor Mode),
+  /// it fetches for that specific student. Otherwise, it defaults to the current user.
+  Future<List<AttemptModel>> getUserAttempts({String? targetUserId}) async {
+    final String? idToQuery = targetUserId ?? _userId;
+    if (idToQuery == null) return [];
+
+    try {
+      // NOTE: Requires a Composite Index for 'userId' (Asc) and 'completedAt' (Desc)
+      final snapshot = await _firestore
+          .collection('attempts')
+          .where('userId', isEqualTo: idToQuery)
+          .orderBy('completedAt', descending: true)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => AttemptModel.fromFirestore(doc))
+          .toList();
+    } catch (e) {
+      print("Error fetching user attempts: $e");
+      return [];
+    }
+  }
+
+  // ===========================================================================
+  // 2. UNIVERSAL SUBMISSION LOGIC (With Aggregates & Behavioral Fields)
+  // ===========================================================================
+
   Future<void> submitAttempt({
-    required String curationId,
+    required String sourceId,
+    required String assignmentCode,
+    required String mode,
     required List<Question> questions,
-    required int score,
+    required num score,
     required int timeTakenSeconds,
     required Map<String, ResponseObject> responses,
   }) async {
     if (_userId == null) return;
 
     final batch = _firestore.batch();
+    final timestamp = Timestamp.now();
 
-    // 1. Create Attempt Record
+    // 1. Calculate Aggregates
+    int correctCount = 0;
+    int incorrectCount = 0;
+    int skippedCount = 0;
+
+    responses.forEach((qid, response) {
+      if (response.status == 'CORRECT') {
+        correctCount++;
+      } else if (response.status == 'INCORRECT') {
+        incorrectCount++;
+      } else {
+        skippedCount++;
+      }
+    });
+
+    final int totalQuestionsCount = questions.length;
+    final int maxMarksValue = totalQuestionsCount * 4;
+
+    // A. Create Attempt Record (The "Session" summary)
     final attemptRef = _firestore.collection('attempts').doc();
     final newAttempt = AttemptModel(
       id: attemptRef.id,
-      testId: curationId,
+      sourceId: sourceId,
+      assignmentCode: assignmentCode,
+      mode: mode,
       userId: _userId!,
-      startedAt: Timestamp.now(),
-      completedAt: Timestamp.now(),
+      startedAt: timestamp,
+      completedAt: timestamp,
       score: score,
+      totalQuestions: totalQuestionsCount,
+      maxMarks: maxMarksValue,
+      correctCount: correctCount,     // SAVED: New Aggregate
+      incorrectCount: incorrectCount, // SAVED: New Aggregate
+      skippedCount: skippedCount,     // SAVED: New Aggregate
       timeTakenSeconds: timeTakenSeconds,
       responses: responses,
     );
     batch.set(attemptRef, newAttempt.toFirestore());
 
-    // 2. Prepare Buckets for Tracker
-    List<String> correctIds = [];
-    List<String> incorrectIds = [];
-    List<String> skippedIds = [];
-    List<String> allAttemptedIds = [];
+    // B. Create Attempt Items (Question-level history)
+    for (final question in questions) {
+      final response = responses[question.id];
+      if (response != null) {
+        final attemptItemRef = _firestore.collection('attempt_items').doc(); //
 
-    responses.forEach((qid, response) {
-      allAttemptedIds.add(qid);
-      if (response.status == 'CORRECT') correctIds.add(qid);
-      else if (response.status == 'INCORRECT') incorrectIds.add(qid);
-      else skippedIds.add(qid);
-    });
+        final attemptItem = AttemptItemModel(
+          userId: _userId!,
+          attemptRef: attemptRef, // <--- FIXED: Passing parent reference here
+          questionId: question.id,
+          chapterId: question.chapterId,
+          topicId: question.topicId,
+          status: response.status,
+          timeSpent: response.timeSpent,
+          attemptedAt: timestamp,
+          assignmentCode: assignmentCode,
+          mode: mode,
+          // NEW: Support for manual categorization
+          mistakeCategory: response.mistakeCategory,
+          mistakeNote: response.mistakeNote,
+        );
 
-    // 3. Update Student Tracker
+        batch.set(attemptItemRef, attemptItem.toFirestore()); //
+      }
+    }
+
+    // C. Update Student Tracker (Latest Status Logic)
     final trackerRef = _firestore.collection('student_question_tracker').doc(_userId);
+    final trackerDoc = await trackerRef.get();
 
-    batch.update(trackerRef, {
-      'buckets.unattempted': FieldValue.arrayRemove(allAttemptedIds),
-      'buckets.correct': FieldValue.arrayUnion(correctIds),
-      'buckets.incorrect': FieldValue.arrayUnion(incorrectIds),
-      'buckets.skipped': FieldValue.arrayUnion(skippedIds),
-      'attempted_history': FieldValue.arrayUnion(allAttemptedIds),
-    });
+    if (trackerDoc.exists) {
+      final data = trackerDoc.data()!;
+      final buckets = data['buckets'] as Map<String, dynamic>;
+
+      List<String> unattempted = List<String>.from(buckets['unattempted'] ?? []);
+      List<String> correct = List<String>.from(buckets['correct'] ?? []);
+      List<String> incorrect = List<String>.from(buckets['incorrect'] ?? []);
+      List<String> skipped = List<String>.from(buckets['skipped'] ?? []);
+      List<String> history = List<String>.from(data['attempted_history'] ?? []);
+
+      responses.forEach((qid, response) {
+        unattempted.remove(qid);
+        correct.remove(qid);
+        incorrect.remove(qid);
+        skipped.remove(qid);
+
+        if (response.status == 'CORRECT') {
+          correct.add(qid);
+        } else if (response.status == 'INCORRECT') {
+          incorrect.add(qid);
+        } else {
+          skipped.add(qid);
+        }
+
+        if (!history.contains(qid)) history.add(qid);
+      });
+
+      batch.update(trackerRef, {
+        'buckets.unattempted': unattempted,
+        'buckets.correct': correct,
+        'buckets.incorrect': incorrect,
+        'buckets.skipped': skipped,
+        'attempted_history': history,
+      });
+    }
+
+    // D. Update Assignment Status (FIXED)
+    // We check 'questions_curation' instead of the legacy 'tests' collection.
+    if (sourceId.isNotEmpty) {
+      try {
+        // First check if it's an assignment (curation)
+        final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
+        final assignmentDoc = await assignmentRef.get();
+
+        if (assignmentDoc.exists) {
+          // Mark as 'submitted' so it drops off the Pending list
+          batch.update(assignmentRef, {'status': 'submitted'});
+        } else {
+          // Fallback: Check if it's a custom test (legacy support)
+          final testRef = _firestore.collection('tests').doc(sourceId);
+          final testDoc = await testRef.get();
+          if(testDoc.exists) {
+            batch.update(testRef, {'status': 'Attempted'});
+          }
+        }
+      } catch (e) {
+        print("Error updating status: $e");
+      }
+    }
 
     await batch.commit();
   }
 
-  // --- EXISTING METHODS (Kept for compatibility) ---
+  // ===========================================================================
+  // 3. CUSTOM TEST & HELPER METHODS
+  // ===========================================================================
 
   String _generateShareCode() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -4668,6 +5617,7 @@ class TestOrchestrationService {
     required String testName,
   }) async {
     if (_userId == null) return null;
+
     String shareCode;
     bool isUnique = false;
     do {
@@ -4677,10 +5627,9 @@ class TestOrchestrationService {
           .where('shareCode', isEqualTo: shareCode)
           .limit(1)
           .get();
-      if (existing.docs.isEmpty) {
-        isUnique = true;
-      }
+      if (existing.docs.isEmpty) isUnique = true;
     } while (!isUnique);
+
     final testRef = _firestore.collection('tests').doc();
 
     final newTest = TestModel(
@@ -4703,52 +5652,50 @@ class TestOrchestrationService {
     return newTest;
   }
 
-  // Legacy method for custom tests (can eventually be replaced by submitAttempt)
-  Future<void> saveTestAttempt({
-    required String testId,
-    required List<Question> questions,
-    required int score,
-    required int timeTakenSeconds,
-    required Map<String, ResponseObject> responses,
-  }) async {
+  Future<void> recordTestAttempt(String testId) async {
     if (_userId == null) return;
     final batch = _firestore.batch();
-    final attemptRef = _firestore.collection('attempts').doc();
-    final newAttempt = AttemptModel(
-      id: attemptRef.id,
-      testId: testId,
-      userId: _userId!,
-      startedAt: Timestamp.now(),
-      completedAt: Timestamp.now(),
-      score: score,
-      timeTakenSeconds: timeTakenSeconds,
-      responses: responses,
-    );
-    batch.set(attemptRef, newAttempt.toFirestore());
-
-    for (final question in questions) {
-      final response = responses[question.id];
-      if (response != null) {
-        final attemptItemRef = _firestore
-            .collection('attempt_items')
-            .doc('${_userId}_${question.id}');
-        final attemptItem = AttemptItemModel(
-          userId: _userId!,
-          questionId: question.id,
-          chapterId: question.chapterId,
-          topicId: question.topicId,
-          status: response.status,
-          timeSpent: response.timeSpent,
-          attemptedAt: Timestamp.now(),
-        );
-        batch.set(attemptItemRef, attemptItem.toFirestore());
-      }
-    }
 
     final testRef = _firestore.collection('tests').doc(testId);
-    batch.update(testRef, {'status': 'Attempted'});
+    batch.update(testRef, {
+      'uidsAttemptedTests': FieldValue.arrayUnion([_userId]),
+    });
+
+    final userRef = _firestore.collection('users').doc(_userId);
+    batch.update(userRef, {
+      'testIDsattempted': FieldValue.arrayUnion([testId]),
+    });
 
     await batch.commit();
+  }
+
+  Future<AttemptModel?> getAttemptForTest(String testId) async {
+    if (_userId == null) return null;
+
+    final querySnapshot = await _firestore
+        .collection('attempts')
+        .where('sourceId', isEqualTo: testId)
+        .where('userId', isEqualTo: _userId)
+        .orderBy('completedAt', descending: true)
+        .limit(1)
+        .get();
+
+    if (querySnapshot.docs.isNotEmpty) {
+      return AttemptModel.fromFirestore(querySnapshot.docs.first);
+    }
+
+    final oldQuerySnapshot = await _firestore
+        .collection('attempts')
+        .where('testId', isEqualTo: testId)
+        .where('userId', isEqualTo: _userId)
+        .limit(1)
+        .get();
+
+    if (oldQuerySnapshot.docs.isNotEmpty) {
+      return AttemptModel.fromFirestore(oldQuerySnapshot.docs.first);
+    }
+
+    return null;
   }
 
   Stream<List<TestModel>> getSavedTestsStream() {
@@ -4758,10 +5705,19 @@ class TestOrchestrationService {
         .where('createdBy', isEqualTo: _userId)
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map(
-          (snapshot) =>
-          snapshot.docs.map((doc) => TestModel.fromFirestore(doc)).toList(),
-    );
+        .map((snapshot) => snapshot.docs.map((doc) => TestModel.fromFirestore(doc)).toList());
+  }
+
+  Future<TestModel?> getTestByShareCode(String shareCode) async {
+    final querySnapshot = await _firestore
+        .collection('tests')
+        .where('shareCode', isEqualTo: shareCode)
+        .limit(1)
+        .get();
+    if (querySnapshot.docs.isNotEmpty) {
+      return TestModel.fromFirestore(querySnapshot.docs.first);
+    }
+    return null;
   }
 
   Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
@@ -4788,45 +5744,60 @@ class TestOrchestrationService {
     return questions;
   }
 
-  Future<TestModel?> getTestByShareCode(String shareCode) async {
-    final querySnapshot = await _firestore
-        .collection('tests')
-        .where('shareCode', isEqualTo: shareCode)
-        .limit(1)
-        .get();
-    if (querySnapshot.docs.isNotEmpty) {
-      return TestModel.fromFirestore(querySnapshot.docs.first);
-    }
-    return null;
-  }
+  // ===========================================================================
+  // 4. MISTAKE UPDATE LOGIC (NEW)
+  // ===========================================================================
 
-  Future<void> recordTestAttempt(String testId) async {
+  /// Updates the mistake category and note for a specific question in an existing attempt.
+  /// This updates BOTH the main 'attempts' document (nested map) AND the individual 'attempt_items' document.
+  Future<void> updateQuestionMistake({
+    required String attemptId,
+    required String questionId,
+    required String mistakeCategory,
+    String? mistakeNote,
+  }) async {
     if (_userId == null) return;
-    final batch = _firestore.batch();
-    final testRef = _firestore.collection('tests').doc(testId);
-    batch.update(testRef, {
-      'uidsAttemptedTests': FieldValue.arrayUnion([_userId]),
-    });
-    final userRef = _firestore.collection('users').doc(_userId);
-    batch.update(userRef, {
-      'testIDsattempted': FieldValue.arrayUnion([testId]),
-    });
 
-    await batch.commit();
-  }
+    try {
+      final attemptRef = _firestore.collection('attempts').doc(attemptId);
 
-  Future<AttemptModel?> getAttemptForTest(String testId) async {
-    if (_userId == null) return null;
-    final querySnapshot = await _firestore
-        .collection('attempts')
-        .where('testId', isEqualTo: testId)
-        .where('userId', isEqualTo: _userId)
-        .limit(1)
-        .get();
-    if (querySnapshot.docs.isNotEmpty) {
-      return AttemptModel.fromFirestore(querySnapshot.docs.first);
+      // 1. Fetch the attempt to get context (assignmentCode) needed to find the item
+      final attemptSnapshot = await attemptRef.get();
+      if (!attemptSnapshot.exists) return;
+
+      final data = attemptSnapshot.data();
+      // Ensure we safeguard against nulls, though assignmentCode should exist
+      final String? assignmentCode = data?['assignmentCode'];
+
+      // 2. Update the parent Attempt document (Nested Map Update)
+      // Note: We use dot notation to update just the specific fields inside the responses map
+      await attemptRef.update({
+        'responses.$questionId.mistakeCategory': mistakeCategory,
+        'responses.$questionId.mistakeNote': mistakeNote ?? '',
+      });
+
+      // 3. Update the specific Attempt Item document
+      // We use assignmentCode + questionId + userId to target the specific item
+      if (assignmentCode != null) {
+        final itemQuery = await _firestore
+            .collection('attempt_items')
+            .where('userId', isEqualTo: _userId)
+            .where('questionId', isEqualTo: questionId)
+            .where('assignmentCode', isEqualTo: assignmentCode)
+            .limit(1)
+            .get();
+
+        if (itemQuery.docs.isNotEmpty) {
+          await itemQuery.docs.first.reference.update({
+            'mistakeCategory': mistakeCategory,
+            'mistakeNote': mistakeNote ?? '',
+          });
+        }
+      }
+    } catch (e) {
+      print("Error updating mistake category: $e");
+      rethrow;
     }
-    return null;
   }
 }
 
@@ -4850,7 +5821,6 @@ class TestService {
       return [];
     }
 
-    // **CORRECTED LOGIC: Fetch Broad, Filter Local for correctness**
     // Step 1: Fetch all questions from the selected CHAPTERS.
     QuerySnapshot querySnapshot = await _firestore
         .collection('questions')
@@ -4874,11 +5844,13 @@ class TestService {
     }).toList();
 
     // Step 4: Apply 80/20 split for question types
+    // CHANGED: Using Enum Comparison instead of String trim()
     final scqQuestions = validQuestions
-        .where((q) => q.type.trim() == 'Single Correct')
+        .where((q) => q.type == QuestionType.singleCorrect)
         .toList();
+
     final numericalQuestions = validQuestions
-        .where((q) => q.type.trim() == 'Numerical type')
+        .where((q) => q.type == QuestionType.numerical)
         .toList();
 
     scqQuestions.shuffle();
@@ -4901,6 +5873,314 @@ class TestService {
   }
 }
 
+================================================================================
+FILE: lib/widgets/expandable_image.dart
+================================================================================
+import 'package:flutter/material.dart';
+
+class ExpandableImage extends StatelessWidget {
+  final String imageUrl;
+
+  const ExpandableImage({Key? key, required this.imageUrl}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => Scaffold(
+              backgroundColor: Colors.black,
+              appBar: AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                iconTheme: const IconThemeData(color: Colors.white),
+              ),
+              body: Center(
+                // This widget allows pinch-to-zoom
+                child: InteractiveViewer(
+                  panEnabled: true,
+                  minScale: 0.5,
+                  maxScale: 4.0,
+                  child: Image.network(imageUrl), // Switch to Image.asset if local
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      child: Image.network(imageUrl), // The thumbnail view in the question
+    );
+  }
+}
+
+================================================================================
+FILE: lib/widgets/question_input_widget.dart
+================================================================================
+import 'package:flutter/material.dart';
+import '../models/question_model.dart';
+
+class QuestionInputWidget extends StatefulWidget {
+  final Question question;
+  final dynamic currentAnswer;
+  final Function(dynamic) onAnswerChanged;
+
+  const QuestionInputWidget({
+    Key? key,
+    required this.question,
+    required this.currentAnswer,
+    required this.onAnswerChanged,
+  }) : super(key: key);
+
+  @override
+  State<QuestionInputWidget> createState() => _QuestionInputWidgetState();
+}
+
+class _QuestionInputWidgetState extends State<QuestionInputWidget> {
+  late TextEditingController _textController;
+
+  @override
+  void initState() {
+    super.initState();
+    _textController = TextEditingController();
+  }
+
+  @override
+  void didUpdateWidget(QuestionInputWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Refresh text field if the question changes or answer is externally reset
+    if (widget.question.id != oldWidget.question.id || widget.currentAnswer == null) {
+      _textController.text = widget.currentAnswer?.toString() ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    switch (widget.question.type) {
+      case QuestionType.singleCorrect:
+        return _buildSingleCorrectUI();
+      case QuestionType.numerical:
+        return _buildNumericalUI();
+      case QuestionType.multipleCorrect:
+        return _buildMultiCorrectUI();
+      case QuestionType.matrixSingle:
+      case QuestionType.matrixMulti:
+        return _buildMatrixUI();
+      default:
+        return const Center(child: Text("Unknown Question Type"));
+    }
+  }
+
+  // =========================================================
+  // TYPE 1: SINGLE CORRECT (Radio Tiles)
+  // =========================================================
+  Widget _buildSingleCorrectUI() {
+    final options = ['A', 'B', 'C', 'D'];
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: options.map((option) {
+        final isSelected = widget.currentAnswer == option;
+        return Expanded(
+          child: GestureDetector(
+            onTap: () => widget.onAnswerChanged(option),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.blue : Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: isSelected ? Colors.blue : Colors.grey.shade300
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  option,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // =========================================================
+  // TYPE 2: NUMERICAL (Text Field)
+  // =========================================================
+  Widget _buildNumericalUI() {
+    return TextField(
+      controller: _textController,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        hintText: 'Enter numerical answer (e.g. 5.5)',
+      ),
+      onChanged: (val) => widget.onAnswerChanged(val),
+    );
+  }
+
+  // =========================================================
+  // TYPE 3: MULTIPLE CORRECT (Checkboxes)
+  // =========================================================
+  Widget _buildMultiCorrectUI() {
+    final options = ['A', 'B', 'C', 'D'];
+    final List<dynamic> currentSelection = (widget.currentAnswer is List)
+        ? widget.currentAnswer
+        : [];
+
+    return Row(
+      children: options.map((option) {
+        final isSelected = currentSelection.contains(option);
+        return Expanded(
+          child: GestureDetector(
+            onTap: () {
+              List<dynamic> newSel = List.from(currentSelection);
+              if (isSelected) {
+                newSel.remove(option);
+              } else {
+                newSel.add(option);
+              }
+              widget.onAnswerChanged(newSel);
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.green.shade100 : Colors.white,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                    color: isSelected ? Colors.green : Colors.grey.shade300,
+                    width: 2
+                ),
+              ),
+              child: Center(child: Text(option)),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // =========================================================
+  // TYPE 4: MATRIX MATCH (The Grid)
+  // =========================================================
+  Widget _buildMatrixUI() {
+    // Standard JEE Matrix setup
+    final rows = ['A', 'B', 'C', 'D'];
+    final cols = ['P', 'Q', 'R', 'S', 'T'];
+
+    // Safe Cast: Ensure answer is a Map. If null/wrong type, start empty.
+    Map<String, List<String>> matrixAns = {};
+    if (widget.currentAnswer is Map) {
+      (widget.currentAnswer as Map).forEach((key, value) {
+        if (value is List) {
+          matrixAns[key.toString()] = List<String>.from(value);
+        }
+      });
+    }
+
+    return Column(
+      children: [
+        // 1. Header Row (Labels P, Q, R, S, T)
+        Row(
+          children: [
+            const SizedBox(width: 40), // Empty space for row labels column
+            ...cols.map((col) => Expanded(
+              child: Center(
+                child: Text(col, style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            )),
+          ],
+        ),
+        const Divider(),
+
+        // 2. The Data Rows (A, B, C, D)
+        ...rows.map((rowLabel) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Row(
+              children: [
+                // Row Label
+                SizedBox(
+                  width: 40,
+                  child: Center(
+                    child: Text(
+                      rowLabel,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                  ),
+                ),
+
+                // The Interactive Bubbles
+                ...cols.map((colLabel) {
+                  final rowSelections = matrixAns[rowLabel] ?? [];
+                  final isSelected = rowSelections.contains(colLabel);
+
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        // Create a copy of the current row's selection to modify
+                        List<String> newRowSel = List.from(rowSelections);
+
+                        if (widget.question.type == QuestionType.matrixSingle) {
+                          // LOGIC: Single Matrix (One choice per row)
+                          newRowSel.clear();
+                          if (!isSelected) {
+                            newRowSel.add(colLabel);
+                          }
+                        } else {
+                          // LOGIC: Multi Matrix (Multiple choices per row)
+                          if (isSelected) {
+                            newRowSel.remove(colLabel);
+                          } else {
+                            newRowSel.add(colLabel);
+                          }
+                        }
+
+                        // Update the Main Map
+                        Map<String, List<String>> newMatrixAns = Map.from(matrixAns);
+                        newMatrixAns[rowLabel] = newRowSel;
+
+                        // Send back to Controller
+                        widget.onAnswerChanged(newMatrixAns);
+                      },
+                      child: Container(
+                        height: 36, // Tap target size
+                        margin: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.deepPurple : Colors.grey.shade100,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: isSelected ? Colors.deepPurple : Colors.grey.shade400
+                          ),
+                        ),
+                        child: isSelected
+                            ? const Icon(Icons.check, size: 20, color: Colors.white)
+                            : null,
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+}
 
 ================================================================================
 FILE: lib/widgets/question_palette.dart
@@ -4965,21 +6245,23 @@ class QuestionPalette extends StatelessWidget {
 ================================================================================
 FILE: lib/widgets/solution_detail_sheet.dart
 ================================================================================
+// lib/widgets/solution_detail_sheet.dart
+
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
-import 'package:study_smart_qc/models/question_model.dart';
-import 'package:study_smart_qc/models/test_result.dart'; // Added missing import
+import 'package:study_smart_qc/models/test_result.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/widgets/expandable_image.dart';
 
 class SolutionDetailSheet extends StatefulWidget {
   final TestResult result;
   final int initialIndex;
-
   const SolutionDetailSheet({
     super.key,
     required this.result,
     required this.initialIndex,
   });
-
   @override
   State<SolutionDetailSheet> createState() => _SolutionDetailSheetState();
 }
@@ -5001,19 +6283,18 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
     super.dispose();
   }
 
-  String _formatTime(int totalSeconds) {
-    if (totalSeconds < 60) {
-      return '$totalSeconds s';
-    }
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
-    return '$minutes m ${seconds}s';
+  String _formatDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '${m}m ${s}s';
   }
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // --- HEADER ---
         Padding(
           padding: const EdgeInsets.all(8.0),
           child: Row(
@@ -5023,9 +6304,9 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
                 icon: const Icon(Icons.arrow_back_ios),
                 onPressed: _currentIndex > 0
                     ? () => _pageController.previousPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeIn,
-                      )
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeIn,
+                )
                     : null,
               ),
               Text(
@@ -5039,15 +6320,17 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
                 icon: const Icon(Icons.arrow_forward_ios),
                 onPressed: _currentIndex < widget.result.questions.length - 1
                     ? () => _pageController.nextPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeIn,
-                      )
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeIn,
+                )
                     : null,
               ),
             ],
           ),
         ),
         const Divider(height: 1),
+
+        // --- BODY ---
         Expanded(
           child: PageView.builder(
             controller: _pageController,
@@ -5056,41 +6339,119 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
             itemBuilder: (context, index) {
               final question = widget.result.questions[index];
               final answerState = widget.result.answerStates[index]!;
-              final isCorrect =
-                  answerState.userAnswer == question.correctAnswer;
+              final isCorrect = answerState.userAnswer?.trim().toLowerCase() ==
+                  question.correctAnswer.trim().toLowerCase();
+
+              final responseObj = widget.result.responses[question.id];
+              final timeSpentSec = responseObj?.timeSpent ?? 0;
 
               return SingleChildScrollView(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Question ${index + 1}',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+                    // 1. Question Text
+                    Text(
+                      'Question ${index + 1}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 10),
-                    Image.network(question.imageUrl),
+
+                    // 2. Question Image
+                    if (question.imageUrl.isNotEmpty)
+                      Center(
+                        child: Container(
+                          constraints: const BoxConstraints(maxHeight: 250),
+                          child: ExpandableImage(imageUrl: question.imageUrl),
+                        ),
+                      ),
                     const SizedBox(height: 20),
+
+                    // 3. Time Spent
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade100),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.timer, size: 16, color: Colors.blue),
+                          const SizedBox(width: 8),
+                          const Text("Time Spent: ",
+                              style: TextStyle(
+                                  fontSize: 14, color: Colors.black54)),
+                          Text(
+                            _formatDuration(timeSpentSec),
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade900),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // 4. Your Answer
                     _buildAnswerStatus(
                       'Your Answer: ${answerState.userAnswer ?? "Not Answered"}',
                       isCorrect,
                       answerState.status,
                     ),
                     const SizedBox(height: 8),
+
+                    // 5. Correct Answer
                     _buildAnswerStatus(
                       'Correct Answer: ${question.correctAnswer}',
                       true,
                       AnswerStatus.answered,
                     ),
-                    const Divider(height: 30),
+                    const SizedBox(height: 20),
+
+                    // --- MOVED: Mistake Analysis Section (Step 2) ---
+                    if (responseObj?.status == 'INCORRECT') ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.shade100),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Self Analysis',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red[800],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            _MistakeForm(
+                              attemptId: widget.result.attemptId,
+                              questionId: question.id,
+                              initialCategory: responseObj?.mistakeCategory,
+                              initialNote: responseObj?.mistakeNote,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+
+                    const Divider(),
+                    const SizedBox(height: 10),
+
+                    // 6. Solution Image
                     if (question.solutionUrl != null &&
                         question.solutionUrl!.isNotEmpty)
                       Column(
@@ -5104,9 +6465,21 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
                             ),
                           ),
                           const SizedBox(height: 10),
-                          Image.network(question.solutionUrl!),
+                          Center(
+                            child: Container(
+                              constraints: const BoxConstraints(maxHeight: 300),
+                              child: ExpandableImage(
+                                  imageUrl: question.solutionUrl!),
+                            ),
+                          ),
                         ],
-                      ),
+                      )
+                    else
+                      const Text("No detailed solution available.",
+                          style: TextStyle(
+                              fontStyle: FontStyle.italic, color: Colors.grey)),
+
+                    const SizedBox(height: 40),
                   ],
                 ),
               );
@@ -5119,17 +6492,21 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
 
   Widget _buildAnswerStatus(String text, bool isCorrect, AnswerStatus status) {
     Color color = Colors.grey;
-    if (status == AnswerStatus.answered ||
+    IconData icon = Icons.help_outline;
+
+    if (status == AnswerStatus.notAnswered ||
+        status == AnswerStatus.notVisited) {
+      color = Colors.orange;
+      icon = Icons.warning_amber_rounded;
+    } else if (status == AnswerStatus.answered ||
         status == AnswerStatus.answeredAndMarked) {
       color = isCorrect ? Colors.green : Colors.red;
+      icon = isCorrect ? Icons.check_circle : Icons.cancel;
     }
+
     return Row(
       children: [
-        Icon(
-          isCorrect ? Icons.check_circle : Icons.cancel,
-          color: color,
-          size: 20,
-        ),
+        Icon(icon, color: color, size: 20),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -5142,6 +6519,98 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
   }
 }
 
+// =============================================================================
+// INTERNAL WIDGET: Mistake Form (Refined)
+// =============================================================================
+class _MistakeForm extends StatefulWidget {
+  final String attemptId;
+  final String questionId;
+  final String? initialCategory;
+  final String? initialNote;
+
+  const _MistakeForm({
+    required this.attemptId,
+    required this.questionId,
+    this.initialCategory,
+    this.initialNote,
+  });
+
+  @override
+  State<_MistakeForm> createState() => _MistakeFormState();
+}
+
+class _MistakeFormState extends State<_MistakeForm> {
+  final TestOrchestrationService _service = TestOrchestrationService();
+  final TextEditingController _noteController = TextEditingController();
+  String? _selectedCategory;
+
+  // REMOVED 'Other' (Step 1)
+  final List<String> _categories = [
+    'Conceptual Error',
+    'Calculation Error',
+    'Silly Mistake',
+    'Time Pressure',
+    'Did not understand question',
+    'Guessed',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCategory = widget.initialCategory;
+    _noteController.text = widget.initialNote ?? '';
+  }
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String>(
+          value: _categories.contains(_selectedCategory)
+              ? _selectedCategory
+              : null,
+          hint: const Text("Why did you get this wrong?"),
+          isExpanded: true,
+          decoration: InputDecoration(
+            contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+          items: _categories.map((cat) {
+            return DropdownMenuItem(
+              value: cat,
+              child: Text(cat, style: const TextStyle(fontSize: 14)),
+            );
+          }).toList(),
+          onChanged: (value) {
+            setState(() {
+              _selectedCategory = value;
+            });
+            // Update Service with Note (even if empty, passed as '')
+            _service.updateQuestionMistake(
+              attemptId: widget.attemptId,
+              questionId: widget.questionId,
+              mistakeCategory: value ?? '',
+              mistakeNote: _noteController.text, // Passed directly, 'Other' field removed
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
 
 ================================================================================
 FILE: lib/widgets/test_configuration_bottom_sheet.dart

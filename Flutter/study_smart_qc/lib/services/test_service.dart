@@ -15,7 +15,6 @@ class TestService {
       return [];
     }
 
-    // **CORRECTED LOGIC: Fetch Broad, Filter Local for correctness**
     // Step 1: Fetch all questions from the selected CHAPTERS.
     QuerySnapshot querySnapshot = await _firestore
         .collection('questions')
@@ -39,11 +38,13 @@ class TestService {
     }).toList();
 
     // Step 4: Apply 80/20 split for question types
+    // CHANGED: Using Enum Comparison instead of String trim()
     final scqQuestions = validQuestions
-        .where((q) => q.type.trim() == 'Single Correct')
+        .where((q) => q.type == QuestionType.singleCorrect)
         .toList();
+
     final numericalQuestions = validQuestions
-        .where((q) => q.type.trim() == 'Numerical type')
+        .where((q) => q.type == QuestionType.numerical)
         .toList();
 
     scqQuestions.shuffle();

@@ -1,5 +1,9 @@
-// ... existing imports ...
+// lib/features/test_taking/screens/test_screen.dart
+
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Added for fetching ID
+import 'package:firebase_auth/firebase_auth.dart'; // Added for fetching ID
+import 'package:flutter/foundation.dart'; // For list/map equality checks
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_result.dart';
@@ -8,10 +12,12 @@ import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/widgets/expandable_image.dart';
+import 'package:study_smart_qc/widgets/question_input_widget.dart';
 
 class TestScreen extends StatefulWidget {
-  final String sourceId; // The Document ID
-  final String assignmentCode; // NEW: The Readable Code (e.g. A7B2)
+  final String sourceId;
+  final String assignmentCode;
   final List<Question> questions;
   final int timeLimitInMinutes;
   final TestMode testMode;
@@ -21,7 +27,7 @@ class TestScreen extends StatefulWidget {
     required this.questions,
     required this.timeLimitInMinutes,
     this.sourceId = '',
-    this.assignmentCode = 'PRAC', // Default for general practice
+    this.assignmentCode = 'PRAC',
     this.testMode = TestMode.test,
   });
 
@@ -30,16 +36,17 @@ class TestScreen extends StatefulWidget {
 }
 
 class _TestScreenState extends State<TestScreen> {
-  // ... (Keep existing State variables: _pageController, _timer, _answerStates, etc.) ...
   late final PageController _pageController;
   late final Timer _timer;
-  late Duration _timeCounter;
+  late Duration _overallTimeCounter;
   bool _isPaused = false;
+
+  // State Maps
   final Map<int, AnswerState> _answerStates = {};
-  final Map<String, TextEditingController> _numericalControllers = {};
-  int _currentPage = 0;
   final Map<int, int> _visitCounts = {};
   final Map<int, Stopwatch> _timeTrackers = {};
+
+  int _currentPage = 0;
   bool _isAnswerChecked = false;
 
   @override
@@ -47,86 +54,137 @@ class _TestScreenState extends State<TestScreen> {
     super.initState();
     _pageController = PageController();
 
+    // 1. Timer Setup
     if (widget.testMode == TestMode.test) {
-      _timeCounter = Duration(minutes: widget.timeLimitInMinutes);
+      _overallTimeCounter = Duration(minutes: widget.timeLimitInMinutes);
     } else {
-      _timeCounter = Duration.zero;
+      _overallTimeCounter = Duration.zero;
     }
 
+    // 2. Initialize Questions
     for (int i = 0; i < widget.questions.length; i++) {
-      _answerStates[i] = AnswerState();
-      final q = widget.questions[i];
-      if (q.type.trim() == 'Numerical type') {
-        _numericalControllers[q.id] = TextEditingController();
-      }
+      // AnswerState.userAnswer will now hold dynamic data (String, List, or Map)
+      _answerStates[i] = AnswerState(status: AnswerStatus.notVisited);
       _visitCounts[i] = 0;
       _timeTrackers[i] = Stopwatch();
     }
 
-    _onPageChanged(_currentPage, fromInit: true);
+    // Initialize first page
+    _onPageChanged(0, fromInit: true);
     _startTimer();
   }
 
-  // ... (Keep existing helpers: _startTimer, _togglePause, _onPageChanged) ...
-
+  // --- TIMER LOGIC ---
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_isPaused) return;
       if (mounted) {
         setState(() {
           if (widget.testMode == TestMode.test) {
-            if (_timeCounter.inSeconds > 0) {
-              _timeCounter -= const Duration(seconds: 1);
+            if (_overallTimeCounter.inSeconds > 0) {
+              _overallTimeCounter -= const Duration(seconds: 1);
             } else {
               _timer.cancel();
               _handleSubmit();
             }
           } else {
-            _timeCounter += const Duration(seconds: 1);
+            _overallTimeCounter += const Duration(seconds: 1);
           }
         });
       }
     });
   }
 
-  void _togglePause() {
-    setState(() { _isPaused = !_isPaused; });
-    if (_isPaused) _timeTrackers[_currentPage]?.stop();
-    else _timeTrackers[_currentPage]?.start();
-  }
-
   void _onPageChanged(int page, {bool fromInit = false}) {
     if (!fromInit && _timeTrackers.containsKey(_currentPage)) {
       _timeTrackers[_currentPage]!.stop();
     }
+
     setState(() {
       _currentPage = page;
       _isAnswerChecked = false;
       _visitCounts[page] = (_visitCounts[page] ?? 0) + 1;
+
       if (_answerStates[page]?.status == AnswerStatus.notVisited) {
         _answerStates[page]?.status = AnswerStatus.notAnswered;
       }
     });
-    if (_timeTrackers.containsKey(page)) _timeTrackers[page]!.start();
+
+    if (_timeTrackers.containsKey(page)) {
+      _timeTrackers[page]!.start();
+    }
   }
 
-  // ... (Keep _checkAnswer, _showSolution, _handleSaveAndNext, _showSubmitConfirmationDialog) ...
+  void _togglePause() {
+    setState(() => _isPaused = !_isPaused);
+    if (_isPaused) {
+      _timeTrackers[_currentPage]?.stop();
+    } else {
+      _timeTrackers[_currentPage]?.start();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  // --- HELPER: COMPARE ANSWERS (Handles Lists & Maps) ---
+  bool _checkEquality(dynamic userAns, dynamic correctAns) {
+    if (userAns == null || correctAns == null) return false;
+
+    // 1. Simple String/Number comparison
+    if (userAns is String || userAns is num) {
+      return userAns.toString().trim().toLowerCase() ==
+          correctAns.toString().trim().toLowerCase();
+    }
+
+    // 2. List Comparison (Multi-Correct) - Order doesn't matter
+    if (userAns is List && correctAns is List) {
+      if (userAns.length != correctAns.length) return false;
+      final userSet = userAns.map((e) => e.toString()).toSet();
+      final correctSet = correctAns.map((e) => e.toString()).toSet();
+      return userSet.containsAll(correctSet);
+    }
+
+    // 3. Map Comparison (Matrix)
+    if (userAns is Map && correctAns is Map) {
+      if (userAns.length != correctAns.length) return false;
+      for (var key in userAns.keys) {
+        if (!correctAns.containsKey(key)) return false;
+        // Compare values (which are usually lists in Matrix)
+        if (!_checkEquality(userAns[key], correctAns[key])) return false;
+      }
+      return true;
+    }
+
+    return userAns == correctAns;
+  }
+
+  // --- ACTION HANDLERS ---
 
   void _checkAnswer() {
-    final q = widget.questions[_currentPage];
     final state = _answerStates[_currentPage]!;
 
-    String? answer = (q.type.trim() == 'Single Correct')
-        ? state.userAnswer
-        : _numericalControllers[q.id]?.text;
+    // Check if answer is empty/null
+    bool isEmpty = false;
+    if (state.userAnswer == null) isEmpty = true;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
+      isEmpty = true;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
+      isEmpty = true;
+    if (state.userAnswer is Map && (state.userAnswer as Map).isEmpty)
+      isEmpty = true;
 
-    if (answer == null || answer.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select an answer first!")));
+    if (isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please select an answer first!")));
       return;
     }
     setState(() {
       _isAnswerChecked = true;
-      _answerStates[_currentPage]?.status = AnswerStatus.answered;
     });
   }
 
@@ -137,17 +195,23 @@ class _TestScreenState extends State<TestScreen> {
       isScrollControlled: true,
       builder: (ctx) => Container(
         padding: const EdgeInsets.all(16),
-        height: MediaQuery.of(ctx).size.height * 0.6,
+        height: MediaQuery.of(ctx).size.height * 0.7,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Solution", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text("Solution",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Divider(),
             const SizedBox(height: 10),
-            Text("Correct Answer: ${q.correctAnswer}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+            // Correct Answer display might need formatting for Map/List types
+            Text("Correct Answer: ${q.correctAnswer}",
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.green)),
             const SizedBox(height: 10),
             if (q.solutionUrl != null)
-              Expanded(child: Image.network(q.solutionUrl!))
+              Expanded(
+                  child: Center(
+                      child: ExpandableImage(imageUrl: q.solutionUrl!)))
             else
               const Text("No image solution available."),
           ],
@@ -157,261 +221,418 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   void _handleSaveAndNext() {
-    if (_currentPage < widget.questions.length - 1) {
-      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
+    final state = _answerStates[_currentPage]!;
+
+    // Check if answered
+    bool hasAnswer = state.userAnswer != null;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
+      hasAnswer = false;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
+      hasAnswer = false;
+
+    if (hasAnswer) {
+      setState(() => state.status = AnswerStatus.answered);
     } else {
-      _showSubmitConfirmationDialog();
+      setState(() => state.status = AnswerStatus.notAnswered);
+    }
+    _moveToNextPage();
+  }
+
+  void _handleSaveAndMarkForReview() {
+    final state = _answerStates[_currentPage]!;
+    bool hasAnswer = state.userAnswer != null;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
+      hasAnswer = false;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
+      hasAnswer = false;
+
+    if (hasAnswer) {
+      setState(() => state.status = AnswerStatus.answeredAndMarked);
+      _moveToNextPage();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text("Please select an answer to Save & Mark for Review")),
+      );
     }
   }
 
-  Future<void> _showSubmitConfirmationDialog() async {
-    return showDialog<void>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Submit Session?'),
-          content: Text(widget.testMode == TestMode.practice
-              ? 'Finish practice session and save progress?'
-              : 'Are you sure you want to end the test?'),
-          actions: <Widget>[
-            TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
-            TextButton(child: const Text('Submit'), onPressed: () {
-              Navigator.of(context).pop();
-              _handleSubmit();
-            }),
-          ],
-        );
-      },
-    );
+  void _handleMarkForReviewAndNext() {
+    setState(() {
+      _answerStates[_currentPage]!.status = AnswerStatus.markedForReview;
+    });
+    _moveToNextPage();
   }
 
-  // --- UPDATED SUBMISSION ---
+  void _handleClearResponse() {
+    setState(() {
+      _answerStates[_currentPage]!.userAnswer = null; // Clear dynamic answer
+      _answerStates[_currentPage]!.status = AnswerStatus.notAnswered;
+      _isAnswerChecked = false;
+    });
+  }
+
+  void _moveToNextPage() {
+    if (_currentPage < widget.questions.length - 1) {
+      _pageController.nextPage(
+          duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content:
+            Text("You are on the last question. Click Submit to finish.")),
+      );
+    }
+  }
+
   void _handleSubmit() async {
     _timer.cancel();
     _timeTrackers.values.forEach((sw) => sw.stop());
-
     Map<String, ResponseObject> responses = {};
 
     for (int i = 0; i < widget.questions.length; i++) {
       final question = widget.questions[i];
       final state = _answerStates[i]!;
       String finalStatus = 'SKIPPED';
-      String? finalAnswer = state.userAnswer;
 
-      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
-        final isCorrect = finalAnswer?.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase();
+      if (state.status == AnswerStatus.answered ||
+          state.status == AnswerStatus.answeredAndMarked) {
+        // USE NEW EQUALITY CHECK
+        final isCorrect =
+        _checkEquality(state.userAnswer, question.correctAnswer);
         finalStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
       } else if (state.status == AnswerStatus.markedForReview) {
         finalStatus = 'REVIEW';
       }
 
+      // Convert complex answers to String for storage if ResponseObject requires String
+      // If ResponseObject accepts dynamic, you can pass state.userAnswer directly
+      String storedAnswer = state.userAnswer.toString();
+
       responses[question.id] = ResponseObject(
         status: finalStatus,
-        selectedOption: finalAnswer,
-        correctOption: question.correctAnswer,
+        selectedOption: storedAnswer,
+        correctOption: question.correctAnswer.toString(),
         timeSpent: _timeTrackers[i]!.elapsed.inSeconds,
         visitCount: _visitCounts[i] ?? 0,
         q_no: i + 1,
       );
     }
 
-    final score = (responses.values.where((r) => r.status == 'CORRECT').length * 4) -
-        (responses.values.where((r) => r.status == 'INCORRECT').length * 1);
+    final score =
+        (responses.values.where((r) => r.status == 'CORRECT').length * 4) -
+            (responses.values.where((r) => r.status == 'INCORRECT').length * 1);
 
+    // 1. Submit to Firestore
     await TestOrchestrationService().submitAttempt(
-      sourceId: widget.sourceId, // Doc ID
-      assignmentCode: widget.assignmentCode, // Readable Code
-      mode: widget.testMode == TestMode.test ? 'Test' : 'Practice', // Readable Mode
+      sourceId: widget.sourceId,
+      assignmentCode: widget.assignmentCode,
+      mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
       questions: widget.questions,
       score: score,
       timeTakenSeconds: widget.testMode == TestMode.test
-          ? (Duration(minutes: widget.timeLimitInMinutes) - _timeCounter).inSeconds
-          : _timeCounter.inSeconds,
+          ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter)
+          .inSeconds
+          : _overallTimeCounter.inSeconds,
       responses: responses,
     );
 
+    // 2. Fetch the ID of the attempt we just created
+    // (This is necessary because submitAttempt returns void, but we need the ID for the next screen)
+    String attemptId = '';
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        final latestSnap = await FirebaseFirestore.instance
+            .collection('attempts')
+            .where('userId', isEqualTo: user.uid)
+            .orderBy('completedAt', descending: true)
+            .limit(1)
+            .get();
+
+        if (latestSnap.docs.isNotEmpty) {
+          attemptId = latestSnap.docs.first.id;
+        }
+      } catch (e) {
+        print("Error fetching latest attempt ID: $e");
+      }
+    }
+
     if (mounted) {
       final result = TestResult(
+        attemptId: attemptId, // FIXED: Now passing the generated/fetched ID
         questions: widget.questions,
         answerStates: _answerStates,
         timeTaken: widget.testMode == TestMode.test
-            ? Duration(minutes: widget.timeLimitInMinutes) - _timeCounter
-            : _timeCounter,
+            ? Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter
+            : _overallTimeCounter,
         totalMarks: widget.questions.length * 4,
         responses: responses,
       );
-
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
       );
     }
   }
 
-  // ... (Keep UI Builders: build, _buildTimerWidget, etc. - ensure radio/text fields update state!) ...
-  // Re-pasting UI builders just to be safe and ensure the fix from previous turn is included
+  Future<void> _showSubmitConfirmationDialog() async {
+    return showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Submit Test'),
+        content: const Text('Are you sure you want to finish the test?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _handleSubmit();
+            },
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- UI BUILDERS ---
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: _buildTimerWidget(),
+        title: _buildOverallTimerWidget(),
         centerTitle: true,
-        backgroundColor: widget.testMode == TestMode.practice ? Colors.deepPurple.shade50 : Colors.deepPurple,
-        foregroundColor: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white,
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
         actions: [
-          if (widget.testMode == TestMode.practice)
-            IconButton(
-              icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
-              onPressed: _togglePause,
-            ),
           TextButton(
             onPressed: _showSubmitConfirmationDialog,
-            child: Text('Submit', style: TextStyle(color: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white)),
+            child: const Text('Submit',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
-      body: Stack(
+      body: Column(
         children: [
-          Column(
-            children: [
-              _buildCompactQuestionPalette(),
-              const Divider(height: 1),
-              Expanded(
-                child: PageView.builder(
-                  controller: _pageController,
-                  physics: _isPaused ? const NeverScrollableScrollPhysics() : const AlwaysScrollableScrollPhysics(),
-                  onPageChanged: _onPageChanged,
-                  itemCount: widget.questions.length,
-                  itemBuilder: (context, index) {
-                    final q = widget.questions[index];
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Q.${index + 1}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 10),
-                          if (q.imageUrl.isNotEmpty)
-                            InteractiveViewer(maxScale: 4.0, child: Image.network(q.imageUrl)),
-                          const SizedBox(height: 20),
-                          if (q.type.trim() == 'Single Correct')
-                            _buildScqOptions(q)
-                          else
-                            _buildNumericalInput(q),
+          _buildNTAQuestionPalette(),
+          const Divider(height: 1),
 
-                          if (widget.testMode == TestMode.practice && _isAnswerChecked)
-                            _buildFeedbackUI(q),
+          Expanded(
+            child: PageView.builder(
+              controller: _pageController,
+              physics: _isPaused
+                  ? const NeverScrollableScrollPhysics()
+                  : const AlwaysScrollableScrollPhysics(),
+              onPageChanged: (index) => _onPageChanged(index),
+              itemCount: widget.questions.length,
+              itemBuilder: (context, index) {
+                final q = widget.questions[index];
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Q.${index + 1}',
+                              style: const TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold)),
+                          _buildQuestionTimerWidget(index),
                         ],
                       ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-          if (_isPaused)
-            Container(
-              color: Colors.black.withOpacity(0.8),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.pause_circle_filled, size: 80, color: Colors.white),
-                    const SizedBox(height: 20),
-                    const Text("Session Paused", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: _togglePause,
-                      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15)),
-                      child: const Text("Resume"),
-                    )
-                  ],
-                ),
-              ),
+                      const SizedBox(height: 10),
+
+                      if (q.imageUrl.isNotEmpty)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: ExpandableImage(imageUrl: q.imageUrl),
+                        ),
+                      const SizedBox(height: 20),
+
+                      // =======================================================
+                      // NEW: Unified Input Widget handles all types (SCQ, Num, Matrix)
+                      // =======================================================
+                      QuestionInputWidget(
+                        question: q,
+                        currentAnswer: _answerStates[index]?.userAnswer,
+                        onAnswerChanged: (newAnswer) {
+                          // Update state when widget reports a change
+                          if (!_isPaused) {
+                            setState(() {
+                              _answerStates[index]?.userAnswer = newAnswer;
+                              // Reset local feedback if in practice mode
+                              if (widget.testMode == TestMode.practice) {
+                                _isAnswerChecked = false;
+                              }
+                            });
+                          }
+                        },
+                      ),
+
+                      if (widget.testMode == TestMode.practice &&
+                          _isAnswerChecked)
+                        _buildFeedbackUI(q),
+                    ],
+                  ),
+                );
+              },
             ),
+          ),
         ],
       ),
       bottomNavigationBar: _buildBottomNavBar(),
     );
   }
 
-  Widget _buildTimerWidget() {
+  Widget _buildOverallTimerWidget() {
     String twoDigits(int n) => n.toString().padLeft(2, "0");
-    final minutes = twoDigits(_timeCounter.inMinutes.remainder(60));
-    final seconds = twoDigits(_timeCounter.inSeconds.remainder(60));
-    final hours = twoDigits(_timeCounter.inHours);
+    final minutes = twoDigits(_overallTimeCounter.inMinutes.remainder(60));
+    final seconds = twoDigits(_overallTimeCounter.inSeconds.remainder(60));
+    final hours = twoDigits(_overallTimeCounter.inHours);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
-        border: Border.all(color: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white),
+        color: Colors.deepPurple.shade700,
         borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        "$hours:$minutes:$seconds",
+        style: const TextStyle(
+            fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+      ),
+    );
+  }
+
+  Widget _buildQuestionTimerWidget(int index) {
+    final duration = _timeTrackers[index]?.elapsed ?? Duration.zero;
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.timer_outlined, size: 18, color: widget.testMode == TestMode.practice ? Colors.deepPurple : Colors.white),
-          const SizedBox(width: 4),
-          Text("$hours:$minutes:$seconds", style: const TextStyle(fontSize: 16)),
+          const Icon(Icons.access_time_filled, size: 16, color: Colors.black54),
+          const SizedBox(width: 5),
+          Text(
+            "$minutes:$seconds",
+            style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildCompactQuestionPalette() {
-    return SizedBox(
-      height: 60,
+  Widget _buildNTAQuestionPalette() {
+    return Container(
+      height: 70,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      color: Colors.grey.shade50,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         itemCount: widget.questions.length,
         itemBuilder: (context, index) {
           final state = _answerStates[index]!;
           final isCurrent = index == _currentPage;
-          return Container(
-            width: 40, margin: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-                color: state.status.color,
-                borderRadius: BorderRadius.circular(4),
-                border: isCurrent ? Border.all(width: 2) : null
+
+          BoxShape shape = BoxShape.rectangle;
+          Color color = Colors.white;
+          Border? border = Border.all(color: Colors.grey.shade300);
+          Widget? badge;
+
+          switch (state.status) {
+            case AnswerStatus.notVisited:
+              color = Colors.white;
+              break;
+            case AnswerStatus.notAnswered:
+              color = Colors.red;
+              border = null;
+              break;
+            case AnswerStatus.answered:
+              color = Colors.green;
+              border = null;
+              break;
+            case AnswerStatus.markedForReview:
+              shape = BoxShape.circle;
+              color = Colors.purple;
+              border = null;
+              break;
+            case AnswerStatus.answeredAndMarked:
+              shape = BoxShape.circle;
+              color = Colors.purple;
+              border = null;
+              badge = const Positioned(
+                bottom: 0,
+                right: 0,
+                child: Icon(Icons.check_circle, size: 14, color: Colors.green),
+              );
+              break;
+          }
+
+          return GestureDetector(
+            onTap: () => _pageController.jumpToPage(index),
+            child: Container(
+              width: 50,
+              margin: const EdgeInsets.symmetric(horizontal: 5),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: shape,
+                      border: isCurrent
+                          ? Border.all(color: Colors.blueAccent, width: 3)
+                          : border,
+                      borderRadius: shape == BoxShape.rectangle
+                          ? BorderRadius.circular(4)
+                          : null,
+                    ),
+                    child: Center(
+                      child: Text(
+                        "${index + 1}",
+                        style: TextStyle(
+                          color: (color == Colors.white)
+                              ? Colors.black
+                              : Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (badge != null) badge,
+                ],
+              ),
             ),
-            child: Center(child: Text("${index + 1}", style: const TextStyle(color: Colors.white))),
           );
         },
       ),
     );
   }
 
-  Widget _buildScqOptions(Question q) {
-    return Column(children: ['A','B','C','D'].map((opt) => RadioListTile<String>(
-      title: Text(opt),
-      value: opt,
-      groupValue: _answerStates[_currentPage]?.userAnswer,
-      onChanged: _isPaused ? null : (String? v) {
-        setState(() {
-          _answerStates[_currentPage]?.userAnswer = v;
-          _answerStates[_currentPage]?.status = AnswerStatus.answered; // Explicitly mark answered
-        });
-      },
-    )).toList());
-  }
-
-  Widget _buildNumericalInput(Question q) {
-    return TextField(
-      controller: _numericalControllers[q.id],
-      enabled: !_isPaused,
-      onChanged: (v) {
-        setState(() {
-          _answerStates[_currentPage]?.userAnswer = v;
-          _answerStates[_currentPage]?.status = v.isNotEmpty ? AnswerStatus.answered : AnswerStatus.notAnswered;
-        });
-      },
-      decoration: const InputDecoration(border: OutlineInputBorder(), labelText: "Answer"),
-    );
-  }
-
   Widget _buildFeedbackUI(Question q) {
-    final userAnswer = _answerStates[_currentPage]?.userAnswer;
-    final isCorrect = userAnswer?.trim().toLowerCase() == q.correctAnswer.trim().toLowerCase();
+    // Use the robust equality check for feedback as well
+    final isCorrect =
+    _checkEquality(_answerStates[_currentPage]?.userAnswer, q.correctAnswer);
 
     return Container(
       margin: const EdgeInsets.only(top: 20),
@@ -425,12 +646,17 @@ class _TestScreenState extends State<TestScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(isCorrect ? Icons.check_circle : Icons.cancel, color: isCorrect ? Colors.green : Colors.red),
+            Icon(isCorrect ? Icons.check_circle : Icons.cancel,
+                color: isCorrect ? Colors.green : Colors.red),
             const SizedBox(width: 10),
-            Text(isCorrect ? "Correct!" : "Incorrect", style: TextStyle(fontWeight: FontWeight.bold, color: isCorrect ? Colors.green : Colors.red)),
+            Text(isCorrect ? "Correct!" : "Incorrect",
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isCorrect ? Colors.green : Colors.red)),
           ]),
           const SizedBox(height: 10),
-          ElevatedButton(onPressed: _showSolution, child: const Text("View Full Solution")),
+          ElevatedButton(
+              onPressed: _showSolution, child: const Text("View Full Solution")),
         ],
       ),
     );
@@ -439,25 +665,97 @@ class _TestScreenState extends State<TestScreen> {
   Widget _buildBottomNavBar() {
     return Container(
       padding: const EdgeInsets.all(12),
-      color: Colors.white,
-      child: Row(
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [
+        BoxShadow(
+            color: Colors.grey.shade200,
+            blurRadius: 4,
+            offset: const Offset(0, -2))
+      ]),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           if (widget.testMode == TestMode.practice)
-            Expanded(
-              child: ElevatedButton(
-                onPressed: _checkAnswer,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
-                child: const Text("Check Answer"),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _checkAnswer,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text("Check Answer"),
+                ),
               ),
             ),
-
-          if (widget.testMode == TestMode.practice) const SizedBox(width: 10),
-
-          Expanded(
-            child: ElevatedButton(
-              onPressed: _handleSaveAndNext,
-              child: Text(_currentPage == widget.questions.length - 1 ? 'Finish' : 'Next'),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _handleSaveAndMarkForReview,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.purple,
+                    side: const BorderSide(color: Colors.purple),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    elevation: 0,
+                  ),
+                  child: const Text("Save & Mark Review",
+                      textAlign: TextAlign.center,
+                      style:
+                      TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _handleMarkForReviewAndNext,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.purple,
+                    side: const BorderSide(color: Colors.purple),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    elevation: 0,
+                  ),
+                  child: const Text("Mark Review & Next",
+                      textAlign: TextAlign.center,
+                      style:
+                      TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _handleClearResponse,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red),
+                  ),
+                  child: const Text("Clear",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _handleSaveAndNext,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text("Save & Next",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
           ),
         ],
       ),

@@ -3,13 +3,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-// --- CRITICAL IMPORTS ---
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
 
 class StudentAssignmentsList extends StatelessWidget {
-  const StudentAssignmentsList({super.key});
+  final bool isStrict; // <--- NEW FILTER PARAMETER
+
+  const StudentAssignmentsList({
+    super.key,
+    required this.isStrict,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +24,7 @@ class StudentAssignmentsList extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('questions_curation')
           .where('studentUid', isEqualTo: user.uid)
-          .where('status', isEqualTo: 'assigned') // Only show pending work
+          .where('status', isEqualTo: 'assigned')
           .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
@@ -28,77 +32,58 @@ class StudentAssignmentsList extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // --- ERROR HANDLING FOR MISSING INDEX ---
         if (snapshot.hasError) {
-          return Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.red.shade50,
-            child: Column(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.red),
-                const SizedBox(height: 10),
-                const Text(
-                  "Database Index Missing",
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
-                ),
-                const SizedBox(height: 5),
-                SelectableText(
-                  "Please create the index using the link below (check console logs if truncated):\n\n${snapshot.error}",
-                  style: const TextStyle(color: Colors.red),
-                ),
-              ],
-            ),
-          );
+          return Center(child: Text("Error: ${snapshot.error}"));
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return _buildEmptyState();
         }
 
-        final docs = snapshot.data!.docs;
+        // --- CLIENT SIDE FILTERING ---
+        // We do this here to safely handle 'null' values for legacy data
+        final allDocs = snapshot.data!.docs;
+        final filteredDocs = allDocs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final bool docIsStrict = data['onlySingleAttempt'] ?? false;
+          return docIsStrict == isStrict;
+        }).toList();
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
-              child: Text(
-                "My Assignments",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: docs.length,
-              itemBuilder: (context, index) {
-                final data = docs[index].data() as Map<String, dynamic>;
-                final docId = docs[index].id;
-                return _buildAssignmentCard(context, data, docId);
-              },
-            ),
-          ],
+        if (filteredDocs.isEmpty) {
+          return _buildEmptyState();
+        }
+
+        return ListView.builder(
+          // Allow this list to scroll nicely inside the main page
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          itemCount: filteredDocs.length,
+          itemBuilder: (context, index) {
+            final data = filteredDocs[index].data() as Map<String, dynamic>;
+            final docId = filteredDocs[index].id;
+            return _buildAssignmentCard(context, data, docId);
+          },
         );
       },
     );
   }
 
   Widget _buildEmptyState() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: const Center(
-        child: Column(
-          children: [
-            Icon(Icons.assignment_turned_in_outlined, size: 40, color: Colors.grey),
-            SizedBox(height: 10),
-            Text("No pending assignments!", style: TextStyle(color: Colors.grey)),
-          ],
-        ),
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            isStrict ? Icons.timer_off_outlined : Icons.assignment_turned_in_outlined,
+            size: 64,
+            color: Colors.grey.shade300,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            isStrict ? "No pending tests!" : "No pending assignments!",
+            style: const TextStyle(color: Colors.grey),
+          ),
+        ],
       ),
     );
   }
@@ -114,7 +99,7 @@ class StudentAssignmentsList extends StatelessWidget {
     final String code = data['assignmentCode'] ?? '----';
 
     return Card(
-      elevation: 3,
+      elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
@@ -134,12 +119,19 @@ class StudentAssignmentsList extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Colors.deepPurple.shade100,
+                      color: isStrict ? Colors.red.shade50 : Colors.deepPurple.shade50,
                       borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                          color: isStrict ? Colors.red.shade200 : Colors.deepPurple.shade200
+                      ),
                     ),
                     child: Text(
-                      "CODE: $code",
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.deepPurple.shade900),
+                      isStrict ? "TEST MODE" : "CODE: $code",
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: isStrict ? Colors.red.shade900 : Colors.deepPurple.shade900
+                      ),
                     ),
                   ),
                   Text(dateStr, style: const TextStyle(fontSize: 12, color: Colors.grey)),
@@ -167,7 +159,7 @@ class StudentAssignmentsList extends StatelessWidget {
                   Icon(Icons.quiz, size: 14, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
                   Text(
-                    "$questionCount Questions",
+                    "$questionCount Qs",
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                   ),
                 ],
@@ -181,13 +173,15 @@ class StudentAssignmentsList extends StatelessWidget {
 
   void _showModeSelectionDialog(BuildContext context, String docId, Map<String, dynamic> data) {
     final questionIds = List<String>.from(data['questionIds'] ?? []);
-    // Extract the assignment code to pass along
     final String code = data['assignmentCode'] ?? '----';
+
+    // READ THE FLAG
+    final bool isStrictAssignment = data['onlySingleAttempt'] ?? false;
 
     showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text("Start Assignment"),
+          title: const Text("Start Session"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -195,22 +189,46 @@ class StudentAssignmentsList extends StatelessWidget {
               Text("Title: ${data['title']}"),
               const SizedBox(height: 10),
               Text("Questions: ${questionIds.length}"),
+              const SizedBox(height: 10),
+
+              if (isStrictAssignment)
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.red.shade200)
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, size: 16, color: Colors.red),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Single Attempt Only. Practice Mode disabled.",
+                          style: TextStyle(fontSize: 12, color: Colors.red),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               const SizedBox(height: 20),
               const Text("Select Mode:", style: TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
           actions: [
-            // PRACTICE BUTTON
-            OutlinedButton.icon(
-              icon: const Icon(Icons.school_outlined),
-              label: const Text("Practice Mode"),
-              onPressed: () {
-                Navigator.pop(ctx);
-                _launchTest(context, docId, code, questionIds, TestMode.practice);
-              },
-            ),
+            // CONDITIONAL: Only show Practice Mode if NOT strict
+            if (!isStrictAssignment)
+              OutlinedButton.icon(
+                icon: const Icon(Icons.school_outlined),
+                label: const Text("Practice Mode"),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _launchTest(context, docId, code, questionIds, TestMode.practice);
+                },
+              ),
 
-            // TEST BUTTON
             ElevatedButton.icon(
               icon: const Icon(Icons.timer),
               label: const Text("Test Mode"),
@@ -228,9 +246,7 @@ class StudentAssignmentsList extends StatelessWidget {
     );
   }
 
-  // UPDATED: Now accepts assignmentCode
   Future<void> _launchTest(BuildContext context, String assignmentId, String assignmentCode, List<String> questionIds, TestMode mode) async {
-    // Show loading
     showDialog(
         context: context,
         barrierDismissible: false,
@@ -238,7 +254,6 @@ class StudentAssignmentsList extends StatelessWidget {
     );
 
     try {
-      // 1. Fetch Questions
       final questions = await TestOrchestrationService().getQuestionsByIds(questionIds);
 
       if (!context.mounted) return;
@@ -249,23 +264,21 @@ class StudentAssignmentsList extends StatelessWidget {
         return;
       }
 
-      // 2. Navigate to Player
       Navigator.push(
           context,
           MaterialPageRoute(
               builder: (_) => TestScreen(
-                sourceId: assignmentId, // Linking for analytics
-                assignmentCode: assignmentCode, // NEW: Passed to TestScreen
+                sourceId: assignmentId,
+                assignmentCode: assignmentCode,
                 questions: questions,
-                timeLimitInMinutes: questions.length * 3, // Default 3 mins per question
-                testMode: mode, // Pass the selected mode
+                timeLimitInMinutes: questions.length * 3,
+                testMode: mode,
               )
           )
       );
-
     } catch (e) {
       if (context.mounted) {
-        Navigator.pop(context); // Hide loading
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error loading test: $e")));
       }
     }

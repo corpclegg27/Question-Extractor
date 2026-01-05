@@ -1,3 +1,5 @@
+// lib/features/test_creation/screens/custom_test_history_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
@@ -152,7 +154,9 @@ class _CustomTestHistoryScreenState extends State<CustomTestHistoryScreen> {
                           );
                         }
 
+                        // FIXED: Added attemptId here
                         final result = TestResult(
+                          attemptId: attempt.id,
                           questions: questions,
                           answerStates: answerStates,
                           timeTaken: Duration(
@@ -161,6 +165,7 @@ class _CustomTestHistoryScreenState extends State<CustomTestHistoryScreen> {
                           totalMarks: questions.length * 4,
                           responses: attempt.responses,
                         );
+
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (context) => ResultsScreen(result: result),

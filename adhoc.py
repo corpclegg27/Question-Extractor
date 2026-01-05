@@ -389,6 +389,30 @@ def clearCollections(collection_names, batch_size=50):
 
 # --- MAIN MENU ---
 
+from firebase_admin import credentials, auth
+
+def delete_all_users():
+    """
+    Lists all users in Firebase Auth and deletes them one by one.
+    This effectively clears the 'Users' table in the Firebase Console.
+    """
+    try:
+        # Fetch users in batches to be memory efficient
+        page = auth.list_users()
+        while page:
+            for user in page.users:
+                print(f"Deleting user: {user.uid} ({user.email})")
+                auth.delete_user(user.uid)
+            
+            # Get next batch of users if they exist
+            page = page.get_next_page()
+            
+        print("Successfully deleted all users from Firebase Auth.")
+    except Exception as e:
+        print(f"Error during bulk deletion: {e}")
+
+# --- MAIN MENU ---
+
 def main():
     while True:
         print("\n" + "="*40)
@@ -399,6 +423,7 @@ def main():
         print("3. Add chapterID, topicID, topic_l2ID to existing questions in firebase")
         print("4. Create option sets document in static_data collection")
         print ("5. clearCollection [names already provided in file]")
+        print ("6. Delete all user records from auth system")
         print("0. Exit")
         print("-" * 40)
         
@@ -418,6 +443,9 @@ def main():
 
         if choice == '5':
             clearCollections(['users','attempts','attempt_items','questions_curation','student_question_tracker'])
+
+        if choice == '6':
+            delete_all_users()
 
 
         elif choice == '0':

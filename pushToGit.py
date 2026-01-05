@@ -4,7 +4,9 @@ import sys
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "Added flutter code"
+COMMIT_MESSAGE = "Updated flutter code - App now has homescreen tabs, tests, practice"
+
+
 # ==========================================
 
 def run_command(command, step_name):

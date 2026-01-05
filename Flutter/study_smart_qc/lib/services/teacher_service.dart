@@ -130,6 +130,7 @@ class TeacherService {
     required String teacherUid,
     required String targetAudience,
     String assignmentTitle = "Teacher Assignment",
+    bool onlySingleAttempt = false,
   }) async {
     final studentUid = await _findUidByStudentId(studentId);
     if (studentUid == null) throw Exception("Student not found");
@@ -161,6 +162,7 @@ class TeacherService {
       'questionIds': questionIds,
       'createdAt': FieldValue.serverTimestamp(),
       'status': 'assigned',
+      'onlySingleAttempt': onlySingleAttempt,
       'subjects': subjects, // List of subjects involved
       'meta_hierarchy': hierarchy, // Detailed breakdown
     });
