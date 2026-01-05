@@ -1,3 +1,5 @@
+// lib/services/teacher_service.dart
+
 import 'dart:math'; // For random code generation
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:study_smart_qc/models/question_model.dart';
@@ -40,31 +42,133 @@ class TeacherService {
   }) async {
     List<Question> candidates = [];
 
-    // STRATEGY:
-    // If Smart Filter is active (e.g., 'Incorrect'), source is the Tracker (Question IDs).
-    // If General/New, source is the Questions Collection (filtered by Syllabus).
-
     if (audienceType == 'Particular Student' && smartFilter != null && smartFilter != 'New Questions') {
-      // CASE A: Fetch from Tracker History (Incorrect, Unattempted, etc.)
       candidates = await _fetchFromTracker(studentId!, smartFilter);
     } else {
-      // CASE B: Fetch from General Pool (and optionally filter out 'seen' questions)
       candidates = await _fetchFromGeneralPool(subject, chapterIds, limit);
 
-      // If 'New Questions' for a student, exclude their history
       if (audienceType == 'Particular Student' && studentId != null) {
         final historyIds = await _getStudentHistory(studentId);
         candidates = candidates.where((q) => !historyIds.contains(q.id)).toList();
       }
     }
 
-    // --- APPLY CLIENT-SIDE FILTERS ---
-    // Firestore is limited, so we refine results here (Topic, Subject check)
     return candidates.where((q) {
       if (chapterIds != null && chapterIds.isNotEmpty && !chapterIds.contains(q.chapterId)) return false;
       if (topicIds != null && topicIds.isNotEmpty && !topicIds.contains(q.topicId)) return false;
       return true;
     }).take(limit).toList();
+  }
+
+  // --- 3. MANAGE CURATIONS (For TeacherHistoryScreen) ---
+
+  Stream<QuerySnapshot> getTeacherCurations(String teacherUid) {
+    return _firestore
+        .collection('questions_curation')
+        .where('teacherUid', isEqualTo: teacherUid)
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  // --- 4. MANAGEMENT (Clone & Reorder) ---
+
+  Future<void> cloneAssignment({
+    required String originalDocId,
+    required int targetStudentId,
+    required String teacherUid,
+  }) async {
+    // 1. Get Original Data
+    final docSnapshot = await _firestore.collection('questions_curation').doc(originalDocId).get();
+    if (!docSnapshot.exists) throw Exception("Original assignment not found.");
+    final data = docSnapshot.data()!;
+
+    // 2. Validate Target Student
+    final newStudentUid = await _findUidByStudentId(targetStudentId);
+    if (newStudentUid == null) throw Exception("Target student ID not found.");
+
+    // 3. Prepare New Data
+    final newRef = _firestore.collection('questions_curation').doc();
+    final newCode = _generateAssignmentCode();
+
+    final newData = Map<String, dynamic>.from(data);
+    newData['assignmentId'] = newRef.id;
+    newData['assignmentCode'] = newCode;
+    newData['studentUid'] = newStudentUid; // The new owner
+    newData['teacherUid'] = teacherUid;
+    newData['createdAt'] = FieldValue.serverTimestamp();
+    newData['status'] = 'assigned'; // Reset status to assigned
+    // We keep title, questionIds, timeLimit, isStrict, hierarchy exactly as is.
+
+    // 4. Write to DB
+    final batch = _firestore.batch();
+    batch.set(newRef, newData);
+
+    // Update new student's tracker
+    final trackerRef = _firestore.collection('student_question_tracker').doc(newStudentUid);
+    final List<dynamic> qIds = data['questionIds'] ?? [];
+
+    batch.update(trackerRef, {
+      'assigned_history': FieldValue.arrayUnion(qIds),
+      'buckets.unattempted': FieldValue.arrayUnion(qIds),
+    });
+
+    await batch.commit();
+  }
+
+  Future<void> updateQuestionOrder(String docId, List<String> newOrder) async {
+    await _firestore.collection('questions_curation').doc(docId).update({
+      'questionIds': newOrder,
+    });
+  }
+
+  // --- 5. ASSIGNMENT LOGIC ---
+
+  Future<void> assignQuestionsToStudent({
+    required int studentId,
+    required List<Question> questions,
+    required String teacherUid,
+    required String targetAudience,
+    String assignmentTitle = "Teacher Assignment",
+    bool onlySingleAttempt = false,
+    int? timeLimitMinutes, // <--- NEW PARAMETER ADDED HERE
+  }) async {
+    final studentUid = await _findUidByStudentId(studentId);
+    if (studentUid == null) throw Exception("Student not found");
+
+    final newAssignmentRef = _firestore.collection('questions_curation').doc();
+    final trackerRef = _firestore.collection('student_question_tracker').doc(studentUid);
+    final batch = _firestore.batch();
+
+    final assignmentCode = _generateAssignmentCode();
+    final questionIds = questions.map((q) => q.id).toList();
+    final subjects = questions.map((q) => q.chapterId.split('_').first).toSet().toList();
+    final hierarchy = _buildHierarchy(questions);
+
+    // Calculate default time if none provided (2 mins per question)
+    final int finalTimeLimit = timeLimitMinutes ?? (questions.length * 2);
+
+    batch.set(newAssignmentRef, {
+      'assignmentId': newAssignmentRef.id,
+      'assignmentCode': assignmentCode,
+      'targetAudience': targetAudience,
+      'studentUid': studentUid,
+      'teacherUid': teacherUid,
+      'title': assignmentTitle,
+      'questionIds': questionIds,
+      'createdAt': FieldValue.serverTimestamp(),
+      'status': 'assigned',
+      'onlySingleAttempt': onlySingleAttempt,
+      'timeLimitMinutes': finalTimeLimit, // <--- SAVED TO DB
+      'subjects': subjects,
+      'meta_hierarchy': hierarchy,
+    });
+
+    batch.update(trackerRef, {
+      'assigned_history': FieldValue.arrayUnion(questionIds),
+      'buckets.unattempted': FieldValue.arrayUnion(questionIds),
+    });
+
+    await batch.commit();
   }
 
   // --- INTERNAL HELPERS ---
@@ -78,7 +182,6 @@ class TeacherService {
 
     final buckets = doc.data()!['buckets'] as Map<String, dynamic>;
 
-    // Map UI string to DB key
     String dbKey = bucketKey.toLowerCase();
     if (bucketKey.contains('Incorrect')) dbKey = 'incorrect';
     if (bucketKey.contains('Unattempted')) dbKey = 'unattempted';
@@ -88,7 +191,6 @@ class TeacherService {
     final ids = List<String>.from(buckets[dbKey] ?? []);
     if (ids.isEmpty) return [];
 
-    // Fetch actual docs (batched if > 10, but taking top 10 for MVP safety)
     final safeIds = ids.take(10).toList();
     final query = await _firestore.collection('questions').where(FieldPath.documentId, whereIn: safeIds).get();
     return query.docs.map((d) => Question.fromFirestore(d)).toList();
@@ -97,15 +199,11 @@ class TeacherService {
   Future<List<Question>> _fetchFromGeneralPool(String? subject, List<String>? chapterIds, int limit) async {
     Query query = _firestore.collection('questions');
 
-    // Optimization: If specific chapters selected, use them (max 10 for 'whereIn')
     if (chapterIds != null && chapterIds.isNotEmpty && chapterIds.length <= 10) {
       query = query.where('chapterId', whereIn: chapterIds);
-    } else {
-      // Fallback to purely limit-based if no chapters or too many chapters
-      // In a real app, you'd filter by Subject string if it exists on the doc
     }
 
-    final snap = await query.limit(limit * 2).get(); // Fetch extra to allow for local filtering
+    final snap = await query.limit(limit * 2).get();
     return snap.docs.map((d) => Question.fromFirestore(d)).toList();
   }
 
@@ -123,61 +221,6 @@ class TeacherService {
     return query.docs.first.id;
   }
 
-  /// UPDATED ASSIGNMENT LOGIC
-  Future<void> assignQuestionsToStudent({
-    required int studentId,
-    required List<Question> questions, // Pass full objects for metadata
-    required String teacherUid,
-    required String targetAudience,
-    String assignmentTitle = "Teacher Assignment",
-    bool onlySingleAttempt = false,
-  }) async {
-    final studentUid = await _findUidByStudentId(studentId);
-    if (studentUid == null) throw Exception("Student not found");
-
-    final newAssignmentRef = _firestore.collection('questions_curation').doc();
-    final trackerRef = _firestore.collection('student_question_tracker').doc(studentUid);
-    final batch = _firestore.batch();
-
-    // 1. Generate Metadata
-    final assignmentCode = _generateAssignmentCode();
-    final questionIds = questions.map((q) => q.id).toList();
-
-    // Note: Assuming Question model implicitly has a subject via source or chapter,
-    // otherwise we rely on what's available. We will aggregate subjects here.
-    // Ideally add 'subjectId' to Question model if needed explicitly.
-    // For now we will try to infer or group based on existing data.
-    final subjects = questions.map((q) => q.chapterId.split('_').first).toSet().toList(); // Basic inference if subjectId missing
-
-    final hierarchy = _buildHierarchy(questions);
-
-    // 2. Create Assignment Document
-    batch.set(newAssignmentRef, {
-      'assignmentId': newAssignmentRef.id,
-      'assignmentCode': assignmentCode, // Unique 4-digit code
-      'targetAudience': targetAudience,
-      'studentUid': studentUid,
-      'teacherUid': teacherUid,
-      'title': assignmentTitle,
-      'questionIds': questionIds,
-      'createdAt': FieldValue.serverTimestamp(),
-      'status': 'assigned',
-      'onlySingleAttempt': onlySingleAttempt,
-      'subjects': subjects, // List of subjects involved
-      'meta_hierarchy': hierarchy, // Detailed breakdown
-    });
-
-    // 3. Update Student Tracker
-    batch.update(trackerRef, {
-      'assigned_history': FieldValue.arrayUnion(questionIds),
-      'buckets.unattempted': FieldValue.arrayUnion(questionIds),
-    });
-
-    await batch.commit();
-  }
-
-  // --- NEW HELPERS ---
-
   String _generateAssignmentCode() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final rnd = Random();
@@ -186,13 +229,11 @@ class TeacherService {
   }
 
   Map<String, dynamic> _buildHierarchy(List<Question> questions) {
-    // Structure: Exam -> Subject -> Chapter -> Topic -> Count
     Map<String, dynamic> hierarchy = {};
 
     for (var q in questions) {
       final exam = q.source.isEmpty ? 'Unknown Exam' : q.source;
-      // If subjectId is missing in Question model, use placeholder or extract from chapter
-      final subject = 'Physics'; // Hardcoded based on context, or q.subjectId if added
+      final subject = 'Physics';
       final chapter = q.chapterId.isEmpty ? 'Unknown Chapter' : q.chapterId;
       final topic = q.topicId.isEmpty ? 'Unknown Topic' : q.topicId;
 

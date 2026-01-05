@@ -1,3 +1,5 @@
+// lib/features/teacher/screens/teacher_filter_screen.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -130,42 +132,66 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> {
 
     final titleCtrl = TextEditingController(text: "Homework - ${DateTime.now().toString().split(' ')[0]}");
 
-    // 1. VARIABLE TO HOLD STATE
+    // Default time: 2 mins per question
+    final defaultTime = _selectedQuestionIds.length * 2;
+    final timeCtrl = TextEditingController(text: defaultTime.toString());
+
     bool isSingleAttempt = false;
 
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder( // <--- 2. MAGIC WIDGET FOR DIALOG STATE
-        builder: (context, setDialogState) { // setDialogState is a special updater
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
           return AlertDialog(
             title: const Text("Confirm Assignment"),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text("Assigning ${_selectedQuestionIds.length} questions."),
-                const SizedBox(height: 10),
-                TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: "Assignment Title")),
-                const SizedBox(height: 20),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text("Assigning ${_selectedQuestionIds.length} questions."),
+                  const SizedBox(height: 15),
 
-                // 3. THE CHECKBOX UI
-                Row(
-                  children: [
-                    SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: Checkbox(
-                        value: isSingleAttempt,
-                        onChanged: (val) {
-                          // 4. UPDATE DIALOG STATE
-                          setDialogState(() => isSingleAttempt = val ?? false);
-                        },
-                      ),
+                  // 1. Title Input
+                  TextField(
+                      controller: titleCtrl,
+                      decoration: const InputDecoration(
+                        labelText: "Assignment Title",
+                        border: OutlineInputBorder(),
+                      )
+                  ),
+                  const SizedBox(height: 15),
+
+                  // 2. Time Limit Input (NEW)
+                  TextField(
+                    controller: timeCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: "Time Limit (Minutes)",
+                      border: OutlineInputBorder(),
+                      suffixText: "min",
                     ),
-                    const SizedBox(width: 10),
-                    const Expanded(child: Text("Strict Mode (Single Attempt Only)")),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 15),
+
+                  // 3. Strict Mode Checkbox
+                  Row(
+                    children: [
+                      SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: Checkbox(
+                          value: isSingleAttempt,
+                          onChanged: (val) {
+                            setDialogState(() => isSingleAttempt = val ?? false);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(child: Text("Strict Mode (Single Attempt)")),
+                    ],
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
@@ -184,21 +210,28 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> {
         return;
       }
 
-      // 1. FILTER OBJECTS: We need to pass the full Question objects now
+      // Filter the actual question objects
       final selectedQuestions = _results!.where((q) => _selectedQuestionIds.contains(q.id)).toList();
+
+      // Parse time limit
+      int? customTime = int.tryParse(timeCtrl.text.trim());
 
       await _teacherService.assignQuestionsToStudent(
         studentId: widget.studentId!,
-        questions: selectedQuestions, // PASSING OBJECTS
+        questions: selectedQuestions,
         teacherUid: teacher.uid,
-        targetAudience: widget.audienceType, // PASSING AUDIENCE
+        targetAudience: widget.audienceType,
         assignmentTitle: titleCtrl.text,
         onlySingleAttempt: isSingleAttempt,
+        timeLimitMinutes: customTime, // <--- PASSED TO SERVICE
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Assigned Successfully!")));
-        Navigator.pop(context);
+
+        // --- FIX IS HERE ---
+        // We only pop ONCE. This closes the Filter Screen and returns to the Dashboard.
+        // The previous code popped twice, which closed the Dashboard too.
         Navigator.pop(context);
       }
     } catch (e) {

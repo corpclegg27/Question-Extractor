@@ -1,3 +1,4 @@
+//lib/services/auth_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -8,20 +9,10 @@ class AuthService {
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // --- UPDATED STREAM: Non-blocking ---
+  // --- FIX 1: Non-blocking Stream ---
+  // We removed asyncMap. The UI will now receive updates instantly.
   Stream<User?> get userStream {
-    return _auth.authStateChanges().asyncMap((user) async {
-      if (user != null) {
-        try {
-          // Try to create/check the doc, but don't crash the app if it fails
-          await _createUserDocumentIfNotExist(user);
-        } catch (e) {
-          print("⚠️ Warning: Failed to init user profile: $e");
-          // We still return 'user' so the UI can load and show a specific error
-        }
-      }
-      return user;
-    });
+    return _auth.authStateChanges();
   }
 
   Future<void> _createUserDocumentIfNotExist(
@@ -47,9 +38,7 @@ class AuthService {
     }
   }
 
-  // ... (Keep your existing signIn/signUp/signOut methods exactly as they are) ...
   Future<UserCredential?> signInWithGoogle() async {
-    // ... (Your existing code)
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) return null;
@@ -58,7 +47,15 @@ class AuthService {
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      return await _auth.signInWithCredential(credential);
+
+      // --- FIX 2: Ensure Document Exists for Google Users ---
+      UserCredential userCredential = await _auth.signInWithCredential(credential);
+      if (userCredential.user != null) {
+        // We manually check/create the doc here since we removed it from the stream
+        await _createUserDocumentIfNotExist(userCredential.user!);
+      }
+      return userCredential;
+
     } catch (e) {
       print("Error during Google Sign-In: $e");
       return null;
@@ -66,7 +63,6 @@ class AuthService {
   }
 
   Future<UserCredential?> signInWithEmailAndPassword(String email, String password) async {
-    // ... (Your existing code)
     try {
       return await _auth.signInWithEmailAndPassword(email: email, password: password);
     } on FirebaseAuthException catch (e) {
@@ -76,12 +72,12 @@ class AuthService {
   }
 
   Future<UserCredential?> signUpWithEmailAndPassword(String email, String password, String displayName) async {
-    // ... (Your existing code)
     try {
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(email: email, password: password);
       User? user = userCredential.user;
       if (user != null) {
         await user.updateDisplayName(displayName);
+        // This was already correct, it creates the doc explicitly
         await _createUserDocumentIfNotExist(user, displayName: displayName);
       }
       return userCredential;

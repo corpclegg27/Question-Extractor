@@ -1,9 +1,9 @@
+// lib/main.dart
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/features/auth/screens/auth_page.dart';
 import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart';
-import 'package:study_smart_qc/services/auth_service.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -24,27 +24,33 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
+      // DIAGNOSTIC: We access FirebaseAuth directly here to ensure the stream is valid.
       home: StreamBuilder<User?>(
-        stream: AuthService().userStream,
+        stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
-          // 1. Connection Error / Loading
+
+          // DIAGNOSTIC LOGS: Check your Debug Console for these lines
           if (snapshot.connectionState == ConnectionState.waiting) {
+            print("--- AUTH STREAM: WAITING ---");
             return const Scaffold(body: Center(child: CircularProgressIndicator()));
           }
 
-          // 2. Stream Error (Network, etc)
           if (snapshot.hasError) {
+            print("--- AUTH STREAM: ERROR: ${snapshot.error} ---");
             return Scaffold(
-                body: Center(child: Text("Authentication Error: ${snapshot.error}"))
+              body: Center(child: Text("Auth Error: ${snapshot.error}")),
             );
           }
 
-          // 3. Logged In -> Wrapper
           if (snapshot.hasData && snapshot.data != null) {
+            print("--- AUTH STREAM: USER LOGGED IN (${snapshot.data!.uid}) ---");
+            print("--- NAVIGATING TO AUTH WRAPPER ---");
+            // Successful Login -> Switch to Wrapper
             return AuthWrapper(firebaseUser: snapshot.data!);
           }
 
-          // 4. Logged Out -> AuthPage
+          print("--- AUTH STREAM: NO USER (Showing AuthPage) ---");
+          // No User -> Show Login/Register
           return const AuthPage();
         },
       ),

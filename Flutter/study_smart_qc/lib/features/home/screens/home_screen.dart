@@ -7,12 +7,13 @@ import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart';
 import 'package:study_smart_qc/features/student/widgets/student_assignments_list.dart';
 import 'package:study_smart_qc/features/analytics/screens/analysis_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_curation_screen.dart';
+// --- IMPORT THE NEW HISTORY SCREEN ---
+import 'package:study_smart_qc/features/teacher/screens/teacher_history_screen.dart';
 import 'package:study_smart_qc/features/test_creation/screens/custom_test_history_screen.dart';
 import 'package:study_smart_qc/features/test_taking/screens/enter_code_screen.dart';
 import 'package:study_smart_qc/models/user_model.dart';
 import 'package:study_smart_qc/services/auth_service.dart';
 import 'package:study_smart_qc/services/onboarding_service.dart';
-// --- NEW IMPORT ---
 import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -193,21 +194,39 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
               child: Text("Teacher Tools", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
             ),
+
+            // 1. My Curations (View History) [Image of Mobile app drawer menu with 'My Curations' highlighted]
+            ListTile(
+              leading: const Icon(Icons.history_edu),
+              title: const Text('My Curations'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TeacherHistoryScreen()),
+                );
+              },
+            ),
+
+            // 2. Curate (Create New)
             ListTile(
               leading: const Icon(Icons.edit_note),
               title: const Text('Curate Questions'),
               onTap: () {
                 Navigator.pop(context);
-                // Already on Home for teacher, but just in case logic changes
+                // We are already on the teacher dashboard, but if we were elsewhere this resets it
+                if (ModalRoute.of(context)?.settings.name != '/') {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                }
               },
             ),
-            // --- NEW: Check Performance Button ---
+
+            // 3. Check Performance
             ListTile(
               leading: const Icon(Icons.analytics),
               title: const Text("Check Student Performance"),
               onTap: () {
-                Navigator.pop(context); // Close drawer
-                // Show the Lookup Sheet
+                Navigator.pop(context);
                 showModalBottomSheet(
                   context: context,
                   isScrollControlled: true,

@@ -1,10 +1,11 @@
+import 'package:firebase_auth/firebase_auth.dart'; // Added this import
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/services/auth_service.dart';
+import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart'; // Added this import
 
 class RegisterScreen extends StatefulWidget {
   final VoidCallback showLoginScreen;
   const RegisterScreen({super.key, required this.showLoginScreen});
-
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
@@ -19,14 +20,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _signUp() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
-      await AuthService().signUpWithEmailAndPassword(
+
+      // 1. Capture the result
+      UserCredential? cred = await AuthService().signUpWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text.trim(),
         _displayNameController.text.trim(),
       );
-      // The auth stream will handle navigation
+
       if (mounted) {
         setState(() => _isLoading = false);
+
+        // 2. FORCE NAVIGATION if successful
+        if (cred != null && cred.user != null) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => AuthWrapper(firebaseUser: cred.user!),
+            ),
+          );
+        }
       }
     }
   }

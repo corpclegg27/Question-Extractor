@@ -8,7 +8,7 @@ import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
 
 class StudentAssignmentsList extends StatelessWidget {
-  final bool isStrict; // <--- NEW FILTER PARAMETER
+  final bool isStrict;
 
   const StudentAssignmentsList({
     super.key,
@@ -40,8 +40,7 @@ class StudentAssignmentsList extends StatelessWidget {
           return _buildEmptyState();
         }
 
-        // --- CLIENT SIDE FILTERING ---
-        // We do this here to safely handle 'null' values for legacy data
+        // Client-side filtering for legacy data safety
         final allDocs = snapshot.data!.docs;
         final filteredDocs = allDocs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
@@ -54,7 +53,6 @@ class StudentAssignmentsList extends StatelessWidget {
         }
 
         return ListView.builder(
-          // Allow this list to scroll nicely inside the main page
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           itemCount: filteredDocs.length,
@@ -98,21 +96,26 @@ class StudentAssignmentsList extends StatelessWidget {
     final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
     final String code = data['assignmentCode'] ?? '----';
 
+    // --- DISPLAY TIME LIMIT ---
+    // If baked in, use it. If not, estimate.
+    final int? storedTime = data['timeLimitMinutes'];
+    final String timeDisplay = storedTime != null
+        ? "${storedTime}m"
+        : "${questionCount * 2}m (Est)";
+
     return Card(
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          _showModeSelectionDialog(context, docId, data);
-        },
+        onTap: () => _showModeSelectionDialog(context, docId, data),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
+              // Header Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -146,13 +149,13 @@ class StudentAssignmentsList extends StatelessWidget {
               ),
               const SizedBox(height: 5),
 
-              // Details
+              // Details Row
               Row(
                 children: [
                   Icon(Icons.menu_book, size: 14, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
                   Text(
-                    subjects.join(", "),
+                    subjects.isNotEmpty ? subjects.join(", ") : "General",
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                   ),
                   const SizedBox(width: 15),
@@ -160,6 +163,13 @@ class StudentAssignmentsList extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text(
                     "$questionCount Qs",
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(width: 15),
+                  Icon(Icons.timer, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 4),
+                  Text(
+                    timeDisplay, // Shows actual time now
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                   ),
                 ],
@@ -174,9 +184,11 @@ class StudentAssignmentsList extends StatelessWidget {
   void _showModeSelectionDialog(BuildContext context, String docId, Map<String, dynamic> data) {
     final questionIds = List<String>.from(data['questionIds'] ?? []);
     final String code = data['assignmentCode'] ?? '----';
-
-    // READ THE FLAG
     final bool isStrictAssignment = data['onlySingleAttempt'] ?? false;
+
+    // --- EXTRACT TIME LIMIT ---
+    // Fallback: 2 minutes per question if not set
+    final int timeLimit = data['timeLimitMinutes'] ?? (questionIds.length * 2);
 
     showDialog(
         context: context,
@@ -189,6 +201,7 @@ class StudentAssignmentsList extends StatelessWidget {
               Text("Title: ${data['title']}"),
               const SizedBox(height: 10),
               Text("Questions: ${questionIds.length}"),
+              Text("Time Limit: $timeLimit mins"),
               const SizedBox(height: 10),
 
               if (isStrictAssignment)
@@ -218,14 +231,14 @@ class StudentAssignmentsList extends StatelessWidget {
             ],
           ),
           actions: [
-            // CONDITIONAL: Only show Practice Mode if NOT strict
+            // Only show Practice if NOT strict
             if (!isStrictAssignment)
               OutlinedButton.icon(
                 icon: const Icon(Icons.school_outlined),
                 label: const Text("Practice Mode"),
                 onPressed: () {
                   Navigator.pop(ctx);
-                  _launchTest(context, docId, code, questionIds, TestMode.practice);
+                  _launchTest(context, docId, code, questionIds, TestMode.practice, timeLimit);
                 },
               ),
 
@@ -238,7 +251,7 @@ class StudentAssignmentsList extends StatelessWidget {
               ),
               onPressed: () {
                 Navigator.pop(ctx);
-                _launchTest(context, docId, code, questionIds, TestMode.test);
+                _launchTest(context, docId, code, questionIds, TestMode.test, timeLimit);
               },
             ),
           ],
@@ -246,7 +259,15 @@ class StudentAssignmentsList extends StatelessWidget {
     );
   }
 
-  Future<void> _launchTest(BuildContext context, String assignmentId, String assignmentCode, List<String> questionIds, TestMode mode) async {
+  Future<void> _launchTest(
+      BuildContext context,
+      String assignmentId,
+      String assignmentCode,
+      List<String> questionIds,
+      TestMode mode,
+      int timeLimit // <--- PASSED HERE
+      ) async {
+
     showDialog(
         context: context,
         barrierDismissible: false,
@@ -271,7 +292,7 @@ class StudentAssignmentsList extends StatelessWidget {
                 sourceId: assignmentId,
                 assignmentCode: assignmentCode,
                 questions: questions,
-                timeLimitInMinutes: questions.length * 3,
+                timeLimitInMinutes: timeLimit, // <--- USED HERE
                 testMode: mode,
               )
           )

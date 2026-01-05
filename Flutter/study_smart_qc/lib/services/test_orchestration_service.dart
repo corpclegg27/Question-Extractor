@@ -1,3 +1,5 @@
+// lib/services/test_orchestration_service.dart
+
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -103,7 +105,7 @@ class TestOrchestrationService {
 
         final attemptItem = AttemptItemModel(
           userId: _userId!,
-          attemptRef: attemptRef, // <--- FIXED: Passing parent reference here
+          attemptRef: attemptRef, // Passing parent reference here
           questionId: question.id,
           chapterId: question.chapterId,
           topicId: question.topicId,
@@ -161,8 +163,7 @@ class TestOrchestrationService {
       });
     }
 
-    // D. Update Assignment Status (FIXED)
-    // We check 'questions_curation' instead of the legacy 'tests' collection.
+    // D. Update Assignment Status
     if (sourceId.isNotEmpty) {
       try {
         final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
@@ -178,12 +179,9 @@ class TestOrchestrationService {
           // 2. DECIDE FATE
           if (isStrict) {
             // Strict Mode: Mark 'submitted'.
-            // Result: It DISAPPEARS from the student's "Pending" list.
             batch.update(assignmentRef, {'status': 'submitted'});
           } else {
             // Practice Mode: Do NOT update status.
-            // Result: It STAYS 'assigned'. Student can tap it again to retry.
-            // (You might want to show a "Retake" label in the UI later)
           }
 
         } else {
@@ -324,10 +322,14 @@ class TestOrchestrationService {
     return null;
   }
 
+  // --- CRITICAL UPDATE: Sorts questions to match input order ---
   Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
     if (questionIds.isEmpty) return [];
-    final List<Question> questions = [];
+
+    final List<Question> fetchedQuestions = [];
     final chunks = [];
+
+    // Chunking to handle Firestore limit of 10 items per 'whereIn'
     for (var i = 0; i < questionIds.length; i += 10) {
       chunks.add(
         questionIds.sublist(
@@ -336,16 +338,28 @@ class TestOrchestrationService {
         ),
       );
     }
+
+    // Fetch data (This comes back in RANDOM order from Firestore)
     for (final chunk in chunks) {
       final querySnapshot = await _firestore
           .collection('questions')
           .where(FieldPath.documentId, whereIn: chunk)
           .get();
-      questions.addAll(
+      fetchedQuestions.addAll(
         querySnapshot.docs.map((doc) => Question.fromFirestore(doc)),
       );
     }
-    return questions;
+
+    // CRITICAL FIX: Sort the fetched questions to match the 'questionIds' order
+    final questionMap = {for (var q in fetchedQuestions) q.id: q};
+
+    // Map original IDs to question objects, filtering out any that might have been deleted
+    final List<Question> orderedQuestions = questionIds
+        .map((id) => questionMap[id])
+        .whereType<Question>() // Removes nulls if a question was not found
+        .toList();
+
+    return orderedQuestions;
   }
 
   // ===========================================================================

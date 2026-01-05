@@ -1,5 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart'; // Added import
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/services/auth_service.dart';
+import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart'; // Added import
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback showRegisterScreen;
@@ -18,13 +20,24 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signIn() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
-      await AuthService().signInWithEmailAndPassword(
+
+      // 1. Capture Result
+      UserCredential? cred = await AuthService().signInWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
-      // The auth stream will handle navigation
+
       if (mounted) {
         setState(() => _isLoading = false);
+
+        // 2. FORCE NAVIGATION
+        if (cred != null && cred.user != null) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => AuthWrapper(firebaseUser: cred.user!),
+            ),
+          );
+        }
       }
     }
   }
@@ -77,7 +90,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   label: const Text('Sign in with Google', style: TextStyle(fontSize: 16)),
                   style: ElevatedButton.styleFrom(
                       foregroundColor: Colors.black, backgroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)),
-                  onPressed: () => AuthService().signInWithGoogle(),
+                  onPressed: () async {
+                    // Manual nav for Google Sign In too
+                    UserCredential? cred = await AuthService().signInWithGoogle();
+                    if (cred != null && cred.user != null && mounted) {
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(
+                          builder: (_) => AuthWrapper(firebaseUser: cred.user!),
+                        ),
+                      );
+                    }
+                  },
                 ),
                 TextButton(
                   onPressed: widget.showRegisterScreen,
