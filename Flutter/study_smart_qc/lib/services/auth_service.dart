@@ -8,10 +8,17 @@ class AuthService {
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  // --- UPDATED STREAM: Non-blocking ---
   Stream<User?> get userStream {
     return _auth.authStateChanges().asyncMap((user) async {
       if (user != null) {
-        await _createUserDocumentIfNotExist(user);
+        try {
+          // Try to create/check the doc, but don't crash the app if it fails
+          await _createUserDocumentIfNotExist(user);
+        } catch (e) {
+          print("⚠️ Warning: Failed to init user profile: $e");
+          // We still return 'user' so the UI can load and show a specific error
+        }
       }
       return user;
     });
@@ -32,8 +39,7 @@ class AuthService {
         stats: UserStats(),
         testIDsattempted: [],
         createdAt: Timestamp.now(),
-
-        // --- NEW DEFAULTS FOR ONBOARDING ---
+        // Defaults
         role: 'student',
         onboardingCompleted: false,
       );
@@ -41,13 +47,13 @@ class AuthService {
     }
   }
 
+  // ... (Keep your existing signIn/signUp/signOut methods exactly as they are) ...
   Future<UserCredential?> signInWithGoogle() async {
+    // ... (Your existing code)
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) return null;
-
-      final GoogleSignInAuthentication googleAuth =
-      await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
       final OAuthCredential credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
@@ -59,30 +65,20 @@ class AuthService {
     }
   }
 
-  Future<UserCredential?> signInWithEmailAndPassword(
-      String email,
-      String password,
-      ) async {
+  Future<UserCredential?> signInWithEmailAndPassword(String email, String password) async {
+    // ... (Your existing code)
     try {
-      return await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      return await _auth.signInWithEmailAndPassword(email: email, password: password);
     } on FirebaseAuthException catch (e) {
-      print("Error during Email Sign-In: ${e.message}");
+      print("Error: ${e.message}");
       return null;
     }
   }
 
-  Future<UserCredential?> signUpWithEmailAndPassword(
-      String email,
-      String password,
-      String displayName,
-      ) async {
+  Future<UserCredential?> signUpWithEmailAndPassword(String email, String password, String displayName) async {
+    // ... (Your existing code)
     try {
-      UserCredential userCredential = await _auth
-          .createUserWithEmailAndPassword(email: email, password: password);
-
+      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(email: email, password: password);
       User? user = userCredential.user;
       if (user != null) {
         await user.updateDisplayName(displayName);
@@ -90,7 +86,7 @@ class AuthService {
       }
       return userCredential;
     } on FirebaseAuthException catch (e) {
-      print("Error during Email Sign-Up: ${e.message}");
+      print("Error: ${e.message}");
       return null;
     }
   }

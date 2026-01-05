@@ -2,17 +2,19 @@ import os
 
 # --- CONFIGURATION ---
 TARGET_DIRS = ['lib']  # Folders to scan
-EXTRA_FILES = ['pubspec.yaml', 'android/app/build.gradle', 'ios/Runner/Info.plist'] # Critical config files
+EXTRA_FILES = ['pubspec.yaml', 'android/app/build.gradle', 'ios/Runner/Info.plist'] 
 
 # Ignore rules
 IGNORE_EXTENSIONS = {
     '.g.dart', '.freezed.dart', '.part.dart', # Generated code
     '.png', '.jpg', '.jpeg', '.svg', '.ico', '.ttf', '.otf', # Assets
-    '.DS_Store', '.lock'
+    '.DS_Store', '.lock', '.env'
 }
 IGNORE_FILES = {
     'firebase_options.dart', 
-    'generated_plugin_registrant.dart'
+    'generated_plugin_registrant.dart',
+    '.gitignore',
+    '.gitkeep'
 }
 
 OUTPUT_FILENAME = 'project_context_v2.txt'
@@ -35,16 +37,24 @@ def generate_tree_structure(target_dirs):
             # Remove hidden dirs (like .git) from traversal
             dirs[:] = [d for d in dirs if not d.startswith('.')]
             
-            level = root.replace(target_dir, '').count(os.sep)
-            indent = ' ' * 4 * level
-            subindent = ' ' * 4 * (level + 1)
+            # Calculate depth for indentation
+            # We use os.path.relpath to get consistent depth regardless of slashes
+            rel_path = os.path.relpath(root, target_dir)
+            if rel_path == '.':
+                level = 0
+                folder_name = target_dir
+            else:
+                level = rel_path.count(os.sep) + 1
+                folder_name = os.path.basename(root)
             
-            folder_name = os.path.basename(root)
-            if level == 0: folder_name = target_dir
+            indent = '    ' * level
+            subindent = '    ' * (level + 1)
             
             # Filter files for the count
             valid_files = [f for f in files if not is_ignored(f)]
             
+            # LOGIC FIX: Only print folder if it has valid files OR it is the root
+            # This prevents empty folders (like an empty 'screens' folder) from appearing
             if valid_files or level == 0:
                 tree_lines.append(f"{indent}📂 {folder_name}/")
                 for f in valid_files:

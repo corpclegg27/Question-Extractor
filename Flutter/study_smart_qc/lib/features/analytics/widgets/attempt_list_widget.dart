@@ -1,3 +1,5 @@
+// lib/features/analytics/widgets/attempt_list_widget.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -11,10 +13,12 @@ import 'package:study_smart_qc/services/test_orchestration_service.dart';
 
 class AttemptListWidget extends StatelessWidget {
   final String? filterMode; // 'Practice', 'Test', or null (for all)
+  final String? targetUserId; // Optional: If provided (by Teacher), fetches specific student data
 
   const AttemptListWidget({
     super.key,
     this.filterMode,
+    this.targetUserId,
   });
 
   // --- NAVIGATION LOGIC ---
@@ -87,14 +91,18 @@ class AttemptListWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return const SizedBox.shrink();
+    // 1. Determine which User ID to fetch
+    final currentUser = FirebaseAuth.instance.currentUser;
+    // If targetUserId is passed (by Teacher via Drawer), use it. Otherwise use logged-in user.
+    final String? uidToQuery = targetUserId ?? currentUser?.uid;
+
+    if (uidToQuery == null) return const SizedBox.shrink();
 
     return StreamBuilder<QuerySnapshot>(
-      // Fetch all attempts for this user, ordered by most recent
+      // Fetch all attempts for the specific user (Student or Teacher Target), ordered by most recent
       stream: FirebaseFirestore.instance
           .collection('attempts')
-          .where('userId', isEqualTo: user.uid)
+          .where('userId', isEqualTo: uidToQuery)
           .orderBy('completedAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
@@ -129,7 +137,6 @@ class AttemptListWidget extends StatelessWidget {
           itemBuilder: (context, index) {
             final attempt = AttemptModel.fromFirestore(docs[index]);
 
-            // --- FIXED: Added the required onTap argument ---
             return AttemptDisplayCard(
               attempt: attempt,
               onTap: () => _navigateToAnalysis(context, attempt),

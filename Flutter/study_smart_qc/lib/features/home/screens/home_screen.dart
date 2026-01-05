@@ -1,7 +1,8 @@
-import 'package:firebase_auth/firebase_auth.dart'; // Import for currentUser
+// lib/features/home/screens/home_screen.dart
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-// REMOVED: import 'package:provider/provider.dart'; (Unused)
-import 'package:study_smart_qc/features/auth/screens/auth_page.dart'; // Import AuthPage
+import 'package:study_smart_qc/features/auth/screens/auth_page.dart';
 import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart';
 import 'package:study_smart_qc/features/student/widgets/student_assignments_list.dart';
 import 'package:study_smart_qc/features/analytics/screens/analysis_screen.dart';
@@ -11,6 +12,8 @@ import 'package:study_smart_qc/features/test_taking/screens/enter_code_screen.da
 import 'package:study_smart_qc/models/user_model.dart';
 import 'package:study_smart_qc/services/auth_service.dart';
 import 'package:study_smart_qc/services/onboarding_service.dart';
+// --- NEW IMPORT ---
+import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,7 +34,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fetchUserData() async {
-    // FIX 1: This method now exists in OnboardingService
     final user = await OnboardingService().getCurrentUserModel();
     if (mounted) {
       setState(() {
@@ -48,17 +50,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (_userModel == null) {
-      // FIX 2: If no user model found, check if firebase user exists
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser != null) {
         return AuthWrapper(firebaseUser: currentUser);
       } else {
-        return const AuthPage(); // Or LoginScreen
+        return const AuthPage();
       }
     }
 
-    // --- TEACHER DASHBOARD ---
-    if (_userModel!.role == 'Teacher') {
+    // --- TEACHER DASHBOARD (Main Screen) ---
+    if (_userModel!.role == 'teacher') {
       return Scaffold(
         appBar: AppBar(title: const Text("Teacher Dashboard")),
         drawer: _buildDrawer(context),
@@ -156,24 +157,67 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildDrawer(BuildContext context) {
+    final isTeacher = _userModel?.role == 'teacher';
+
     return Drawer(
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           UserAccountsDrawerHeader(
-            // FIX 3: Use 'displayName', not 'name'
             accountName: Text(_userModel?.displayName ?? "User"),
             accountEmail: Text(_userModel?.email ?? ""),
             currentAccountPicture: CircleAvatar(
               backgroundColor: Colors.white,
               child: Text(
-                // FIX 3: Use 'displayName' here too
                 (_userModel?.displayName ?? "U")[0].toUpperCase(),
                 style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
             ),
             decoration: const BoxDecoration(color: Colors.deepPurple),
           ),
+
+          // --- Student ID Display (Only for Students) ---
+          if (!isTeacher && _userModel?.studentId != null) ...[
+            ListTile(
+              leading: const Icon(Icons.badge_outlined),
+              title: Text("Student ID: ${_userModel!.studentId}"),
+              subtitle: const Text("Share this with your teacher"),
+              tileColor: Colors.grey.shade50,
+            ),
+            const Divider(),
+          ],
+
+          // --- TEACHER TOOLS SECTION ---
+          if (isTeacher) ...[
+            const Padding(
+              padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+              child: Text("Teacher Tools", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_note),
+              title: const Text('Curate Questions'),
+              onTap: () {
+                Navigator.pop(context);
+                // Already on Home for teacher, but just in case logic changes
+              },
+            ),
+            // --- NEW: Check Performance Button ---
+            ListTile(
+              leading: const Icon(Icons.analytics),
+              title: const Text("Check Student Performance"),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                // Show the Lookup Sheet
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) => const StudentLookupSheet(),
+                );
+              },
+            ),
+            const Divider(),
+          ],
+
           ListTile(
             leading: const Icon(Icons.person),
             title: const Text('Profile'),
@@ -188,9 +232,6 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () async {
               await AuthService().signOut();
               if (context.mounted) {
-                // FIX 4: Navigate to AuthPage (or wrapper) properly
-                // Since we are logging out, we can't pass a firebaseUser to AuthWrapper
-                // So we go to the root AuthPage
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const AuthPage()),
                       (route) => false,
