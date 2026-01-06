@@ -4,29 +4,26 @@ import sys
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "Updated flutter code - App now has homescreen tabs, tests, practice"
-
-
+COMMIT_MESSAGE = "MVP Release: Integrated Smart Time Analysis Engine, Coaching UI, and Dynamic Firestore Config"
 # ==========================================
 
 def run_command(command, step_name):
     print(f"\n🔄 {step_name}...")
     try:
-        # Run command and capture output
         result = subprocess.run(
             command,
             check=True,
             text=True,
             capture_output=True,
-            shell=True  # Ensures compatibility with Windows command line
+            shell=True 
         )
         print(f"✅ Success.")
         if result.stdout:
-            # Print first few lines of output for context
-            print(f"   Output: {result.stdout.strip().splitlines()[0]}...")
+            lines = result.stdout.strip().splitlines()
+            if lines:
+                print(f"   Output: {lines[0]}...")
             
     except subprocess.CalledProcessError as e:
-        # Handle "Nothing to commit" gracefully
         if "nothing to commit" in e.stdout.lower() or "nothing to commit" in e.stderr.lower():
             print("⚠️  Nothing to commit (Working tree clean).")
             return
@@ -39,13 +36,17 @@ if __name__ == "__main__":
     print(f"🚀 Starting Git Push Sequence")
     print(f"📝 Message: '{COMMIT_MESSAGE}'")
 
-    # 1. Stage all changes
-    run_command("git add .", "Staging all files")
+    # 1. Check Status (Debugging step to see what Git sees)
+    run_command("git status", "Checking repository status")
 
-    # 2. Commit changes
+    # 2. Stage all changes
+    # Forced add to ensure untracked files in subdirectories are caught
+    run_command("git add --all", "Staging all files (including new folders)")
+
+    # 3. Commit changes
     run_command(f'git commit -m "{COMMIT_MESSAGE}"', "Committing to local repo")
 
-    # 3. Push to remote
+    # 4. Push to remote
     run_command("git push", "Pushing to remote origin")
 
     print("\n🎉 DONE! Code is live.")
