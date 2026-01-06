@@ -1,5 +1,4 @@
 import 'dart:math';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 
@@ -16,6 +15,8 @@ class TestService {
     }
 
     // Step 1: Fetch all questions from the selected CHAPTERS.
+    // Note: Firestore 'whereIn' is limited to 10 items.
+    // If you have more than 10 chapters, you might need to chunk this request.
     QuerySnapshot querySnapshot = await _firestore
         .collection('questions')
         .where('chapterId', whereIn: chapterIds.toList())
@@ -38,7 +39,8 @@ class TestService {
     }).toList();
 
     // Step 4: Apply 80/20 split for question types
-    // CHANGED: Using Enum Comparison instead of String trim()
+
+    // CHANGED: Using the Enum defined in the model (QuestionType)
     final scqQuestions = validQuestions
         .where((q) => q.type == QuestionType.singleCorrect)
         .toList();

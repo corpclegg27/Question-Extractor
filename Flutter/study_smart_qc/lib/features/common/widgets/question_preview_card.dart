@@ -56,8 +56,8 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                     child: Row(
                       children: [
                         // UPDATED TAGS: Source -> Chapter -> Topic -> Difficulty
-                        if (q.source.isNotEmpty) ...[
-                          _buildTag(q.source, Colors.blue.shade50, Colors.blue.shade700),
+                        if (q.exam.isNotEmpty) ...[
+                          _buildTag(q.exam, Colors.blue.shade50, Colors.blue.shade700),
                           const SizedBox(width: 5),
                         ],
                         if (q.chapterId.isNotEmpty) ...[

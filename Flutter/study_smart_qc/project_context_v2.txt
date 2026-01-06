@@ -68,6 +68,9 @@
    📄 test_orchestration_service.dart
    📄 test_service.dart
 
+📂 lib/utils/
+   📄 performance_analysis_utils.dart
+
 📂 lib/widgets/
    📄 expandable_image.dart
    📄 question_input_widget.dart
@@ -76,7 +79,7 @@
    📄 student_lookup_sheet.dart
    📄 test_configuration_bottom_sheet.dart
 
-Total Source Files: 47
+Total Source Files: 48
 --------------------------------------------------
 --- FILE CONTENTS ---
 
@@ -385,6 +388,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
 ================================================================================
 FILE: lib/features/analytics/screens/results_screen.dart
 ================================================================================
+// lib/features/analytics/screens/results_screen.dart
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
@@ -401,13 +406,36 @@ class ResultsScreen extends StatefulWidget {
 }
 
 class _ResultsScreenState extends State<ResultsScreen> {
-  int correctCount = 0;
-  int incorrectCount = 0;
-  int unattemptedCount = 0;
-
+  // Stats
   int marksObtained = 0;
   double accuracy = 0.0;
   double attemptPercentage = 0.0;
+
+  // Basic Categories (For the top chart)
+  List<int> correctIndices = [];
+  List<int> incorrectIndices = [];
+  List<int> skippedIndices = [];
+  List<int> reviewIndices = [];
+
+  // Smart Analysis Categories (Key = Category Name, Value = List of Question Indices)
+  final Map<String, List<int>> _smartAnalysisGroups = {
+    "Perfect Attempt": [],
+    "Overtime Correct": [],
+    "Careless Mistake": [],
+    "Wasted Attempt": [],
+    "Good Skip": [],
+    "Time Wasted": [],
+  };
+
+  // Friendly coaching descriptions for the UI
+  final Map<String, String> _categoryDescriptions = {
+    "Perfect Attempt": "You nailed it! You got the answer right and managed your time perfectly within the subject's limit.",
+    "Overtime Correct": "You got it right! You reached the correct answer, though you spent a bit more time than the ideal limit for this subject.",
+    "Careless Mistake": "Slow down a bit! You answered very quickly but unfortunately missed this one. Double-check your work next time.",
+    "Wasted Attempt": "Don't get stuck! You spent a lot of time here but didn't quite get the right answer. It might be time to review this concept.",
+    "Good Skip": "Great tactical move! You recognized a tough one early and skipped it quickly to save your time for other questions.",
+    "Time Wasted": "Careful with the clock! You spent quite a while on this before skipping. Try to decide to move on a little sooner next time.",
+  };
 
   @override
   void initState() {
@@ -416,61 +444,78 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   void _calculateResults() {
-    int tempCorrect = 0;
-    int tempIncorrect = 0;
-    int tempSkipped = 0;
+    correctIndices.clear();
+    incorrectIndices.clear();
+    skippedIndices.clear();
+    reviewIndices.clear();
 
-    // Prefer using the detailed 'responses' map if available
-    if (widget.result.responses.isNotEmpty) {
-      widget.result.responses.forEach((key, response) {
-        switch (response.status) {
-          case 'CORRECT':
-            tempCorrect++;
-            break;
-          case 'INCORRECT':
-            tempIncorrect++;
-            break;
-          case 'REVIEW':
-          // "Marked for Review" without answer counts as SKIPPED
-            tempSkipped++;
-            break;
-          default: // SKIPPED
-            tempSkipped++;
-            break;
+    for (var key in _smartAnalysisGroups.keys) {
+      _smartAnalysisGroups[key] = [];
+    }
+
+    int tempCorrectCount = 0;
+    int tempIncorrectCount = 0;
+
+    for (int i = 0; i < widget.result.questions.length; i++) {
+      final question = widget.result.questions[i];
+      final qId = question.id;
+
+      String basicStatus = 'SKIPPED';
+
+      if (widget.result.responses.containsKey(qId)) {
+        basicStatus = widget.result.responses[qId]!.status;
+      } else {
+        final state = widget.result.answerStates[i];
+        if (state?.status == AnswerStatus.answered || state?.status == AnswerStatus.answeredAndMarked) {
+          final isCorrect = state?.userAnswer?.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase();
+          basicStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
+        } else if (state?.status == AnswerStatus.markedForReview) {
+          basicStatus = 'REVIEW';
         }
-      });
-      // Adjust for questions missing from responses map (pure skips)
-      int totalTracked = tempCorrect + tempIncorrect + tempSkipped;
-      if (totalTracked < widget.result.questions.length) {
-        tempSkipped += (widget.result.questions.length - totalTracked);
       }
-    } else {
-      // Fallback Logic (if responses map is empty)
-      widget.result.answerStates.forEach((index, state) {
-        if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
-          final question = widget.result.questions[index];
-          final userAnswer = state.userAnswer;
-          if (userAnswer != null && userAnswer.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase()) {
-            tempCorrect++;
-          } else {
-            tempIncorrect++;
-          }
-        } else {
-          // Not Visited, Not Answered, or Marked For Review (without answer) -> Skipped
-          tempSkipped++;
+
+      switch (basicStatus) {
+        case 'CORRECT':
+          correctIndices.add(i);
+          tempCorrectCount++;
+          break;
+        case 'INCORRECT':
+          incorrectIndices.add(i);
+          tempIncorrectCount++;
+          break;
+        case 'REVIEW':
+          reviewIndices.add(i);
+          skippedIndices.add(i);
+          break;
+        default:
+          skippedIndices.add(i);
+          break;
+      }
+
+      if (widget.result.responses.containsKey(qId)) {
+        final response = widget.result.responses[qId]!;
+        final tag = response.smartTimeAnalysis;
+
+        if (tag.contains("Perfect Attempt")) {
+          _smartAnalysisGroups["Perfect Attempt"]!.add(i);
+        } else if (tag.contains("Overtime Correct")) {
+          _smartAnalysisGroups["Overtime Correct"]!.add(i);
+        } else if (tag.contains("Careless Mistake")) {
+          _smartAnalysisGroups["Careless Mistake"]!.add(i);
+        } else if (tag.contains("Wasted Attempt")) {
+          _smartAnalysisGroups["Wasted Attempt"]!.add(i);
+        } else if (tag.contains("Good Skip")) {
+          _smartAnalysisGroups["Good Skip"]!.add(i);
+        } else if (tag.contains("Time Wasted")) {
+          _smartAnalysisGroups["Time Wasted"]!.add(i);
         }
-      });
+      }
     }
 
     setState(() {
-      correctCount = tempCorrect;
-      incorrectCount = tempIncorrect;
-      unattemptedCount = tempSkipped;
-
-      final totalAttempted = correctCount + incorrectCount;
-
-      marksObtained = (correctCount * 4) - (incorrectCount * 1);
-      accuracy = (totalAttempted > 0) ? (correctCount / totalAttempted) * 100 : 0.0;
+      int totalAttempted = tempCorrectCount + tempIncorrectCount;
+      marksObtained = (tempCorrectCount * 4) - (tempIncorrectCount * 1);
+      accuracy = (totalAttempted > 0) ? (tempCorrectCount / totalAttempted) * 100 : 0.0;
       attemptPercentage = (widget.result.questions.isNotEmpty)
           ? (totalAttempted / widget.result.questions.length) * 100
           : 0.0;
@@ -482,7 +527,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
       context: context,
       isScrollControlled: true,
       builder: (context) {
-        return Container(
+        return SizedBox(
           height: MediaQuery.of(context).size.height * 0.9,
           child: SolutionDetailSheet(
             result: widget.result,
@@ -497,6 +542,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final minutes = widget.result.timeTaken.inMinutes.toString().padLeft(2, '0');
     final seconds = (widget.result.timeTaken.inSeconds % 60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
+  }
+
+  Color _getSmartColor(String category) {
+    switch (category) {
+      case "Perfect Attempt": return Colors.green.shade800;
+      case "Overtime Correct": return Colors.green.shade300;
+      case "Careless Mistake": return Colors.red.shade200;
+      case "Wasted Attempt": return Colors.red.shade900;
+      case "Good Skip": return Colors.grey.shade400;
+      case "Time Wasted": return Colors.grey.shade700;
+      default: return Colors.blue;
+    }
   }
 
   @override
@@ -520,9 +577,19 @@ class _ResultsScreenState extends State<ResultsScreen> {
             const SizedBox(height: 20),
             _buildStatsRow(),
             const SizedBox(height: 20),
-            _buildVisualAnalysis(),
+            _buildPerformanceDistributionChart(),
+            const SizedBox(height: 24),
+            const Divider(thickness: 2),
+            const SizedBox(height: 24),
+            const Text(
+              "Smart Time Analysis",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+            ),
             const SizedBox(height: 20),
-            _buildReviewSolutionsGrid(),
+            _buildSmartAnalysisChart(),
+            const SizedBox(height: 20),
+            _buildSmartAnalysisList(),
           ],
         ),
       ),
@@ -530,9 +597,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Widget _buildScoreCard() {
-    double percentage = (marksObtained / widget.result.totalMarks) * 100;
+    double percentage = (widget.result.totalMarks > 0)
+        ? (marksObtained / widget.result.totalMarks) * 100
+        : 0;
     String motivation = percentage >= 75 ? 'Excellent Work!' : percentage >= 50 ? 'Good Effort!' : 'Keep Improving!';
-
     return Card(
       color: Colors.deepPurple.shade700,
       elevation: 4,
@@ -582,7 +650,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _buildVisualAnalysis() {
+  Widget _buildPerformanceDistributionChart() {
     return Card(
       elevation: 2,
       child: Padding(
@@ -597,16 +665,34 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 PieChartData(
                   sectionsSpace: 2,
                   centerSpaceRadius: 40,
+                  startDegreeOffset: 270, // Starts at 12 o'clock
                   sections: [
-                    PieChartSectionData(value: correctCount.toDouble(), title: '$correctCount', color: Colors.green, radius: 50, titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    PieChartSectionData(value: incorrectCount.toDouble(), title: '$incorrectCount', color: Colors.red, radius: 50, titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    PieChartSectionData(value: unattemptedCount.toDouble(), title: '$unattemptedCount', color: Colors.grey.shade300, radius: 50, titleStyle: const TextStyle(color: Colors.black54, fontWeight: FontWeight.bold)),
+                    PieChartSectionData(
+                        value: correctIndices.length.toDouble(),
+                        title: '${correctIndices.length}',
+                        color: Colors.green,
+                        radius: 50,
+                        titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+                    ),
+                    PieChartSectionData(
+                        value: incorrectIndices.length.toDouble(),
+                        title: '${incorrectIndices.length}',
+                        color: Colors.red,
+                        radius: 50,
+                        titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+                    ),
+                    PieChartSectionData(
+                        value: skippedIndices.length.toDouble(),
+                        title: '${skippedIndices.length}',
+                        color: Colors.grey.shade300,
+                        radius: 50,
+                        titleStyle: const TextStyle(color: Colors.black54, fontWeight: FontWeight.bold)
+                    ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 20),
-            // Legend
             Wrap(
               spacing: 16,
               runSpacing: 8,
@@ -614,8 +700,59 @@ class _ResultsScreenState extends State<ResultsScreen> {
               children: [
                 _buildLegendItem(Colors.green, 'Correct'),
                 _buildLegendItem(Colors.red, 'Incorrect'),
-                _buildLegendItem(Colors.grey.shade300, 'Skipped'),
+                _buildLegendItem(Colors.grey.shade300, 'Unattempted'),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSmartAnalysisChart() {
+    final activeCategories = _smartAnalysisGroups.entries.where((e) => e.value.isNotEmpty).toList();
+
+    if (activeCategories.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(20),
+        child: Center(child: Text("Not enough data for smart analysis.")),
+      );
+    }
+
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            SizedBox(
+              height: 200,
+              child: PieChart(
+                PieChartData(
+                  sectionsSpace: 2,
+                  centerSpaceRadius: 40,
+                  startDegreeOffset: 270, // Starts at 12 o'clock
+                  sections: activeCategories.map((entry) {
+                    final color = _getSmartColor(entry.key);
+                    return PieChartSectionData(
+                      value: entry.value.length.toDouble(),
+                      title: '${entry.value.length}',
+                      color: color,
+                      radius: 60,
+                      titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: activeCategories.map((entry) {
+                return _buildLegendItem(_getSmartColor(entry.key), entry.key);
+              }).toList(),
             ),
           ],
         ),
@@ -634,72 +771,100 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _buildReviewSolutionsGrid() {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Question Analysis', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 5),
-            const Text('Tap on a number to view solution & time spent.', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 15),
-            GridView.builder(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 6,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10
-              ),
-              itemCount: widget.result.questions.length,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemBuilder: (context, index) {
-                final question = widget.result.questions[index];
+  Widget _buildSmartAnalysisList() {
+    final orderedKeys = [
+      "Perfect Attempt",
+      "Overtime Correct",
+      "Careless Mistake",
+      "Wasted Attempt",
+      "Good Skip",
+      "Time Wasted"
+    ];
 
-                String statusStr = 'SKIPPED';
-                if (widget.result.responses.containsKey(question.id)) {
-                  statusStr = widget.result.responses[question.id]!.status;
-                }
+    return Column(
+      children: orderedKeys.map((key) {
+        final indices = _smartAnalysisGroups[key] ?? [];
+        if (indices.isEmpty) return const SizedBox.shrink();
 
-                // Map 'REVIEW' to 'SKIPPED' colors for the final grid as well
-                Color color = Colors.grey.shade300;
-                Color textColor = Colors.black;
+        final color = _getSmartColor(key);
+        final description = _categoryDescriptions[key] ?? "";
 
-                if (statusStr == 'CORRECT') {
-                  color = Colors.green;
-                  textColor = Colors.white;
-                } else if (statusStr == 'INCORRECT') {
-                  color = Colors.red;
-                  textColor = Colors.white;
-                } else {
-                  // SKIPPED or REVIEW (without answer)
-                  color = Colors.grey.shade200;
-                  textColor = Colors.black;
-                }
-
-                return GestureDetector(
-                  onTap: () => _showSolutionSheet(index),
-                  child: Container(
-                    decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.grey.shade300)
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                      child: Icon(Icons.label, size: 16, color: color),
                     ),
-                    child: Center(
+                    const SizedBox(width: 8),
+                    Text(
+                      key,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: Text(
-                          '${index + 1}',
-                          style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
+                        "${indices.length}",
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                       ),
                     ),
-                  ),
-                );
-              },
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // Coaching full text
+                Text(
+                  description,
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontStyle: FontStyle.italic),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: indices.map((index) {
+                    return GestureDetector(
+                      onTap: () => _showSolutionSheet(index),
+                      child: Container(
+                        width: 45,
+                        height: 35,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border.all(color: color.withOpacity(0.5)),
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              BoxShadow(color: color.withOpacity(0.05), blurRadius: 2, offset: const Offset(0, 1))
+                            ]
+                        ),
+                        child: Text(
+                          'Q${index + 1}',
+                          style: TextStyle(
+                            color: color,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      }).toList(),
     );
   }
 }
@@ -1874,8 +2039,8 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                     child: Row(
                       children: [
                         // UPDATED TAGS: Source -> Chapter -> Topic -> Difficulty
-                        if (q.source.isNotEmpty) ...[
-                          _buildTag(q.source, Colors.blue.shade50, Colors.blue.shade700),
+                        if (q.exam.isNotEmpty) ...[
+                          _buildTag(q.exam, Colors.blue.shade50, Colors.blue.shade700),
                           const SizedBox(width: 5),
                         ],
                         if (q.chapterId.isNotEmpty) ...[
@@ -4773,17 +4938,21 @@ FILE: lib/features/test_taking/screens/test_screen.dart
 // lib/features/test_taking/screens/test_screen.dart
 
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Added for fetching ID
-import 'package:firebase_auth/firebase_auth.dart'; // Added for fetching ID
-import 'package:flutter/foundation.dart'; // For list/map equality checks
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+// 1. IMPORT MODELS
 import 'package:study_smart_qc/models/question_model.dart';
-import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/models/attempt_model.dart';
-import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
-import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
+
+// 2. IMPORT SCREENS & SERVICES
+import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
 import 'package:study_smart_qc/widgets/expandable_image.dart';
 import 'package:study_smart_qc/widgets/question_input_widget.dart';
 
@@ -4835,7 +5004,6 @@ class _TestScreenState extends State<TestScreen> {
 
     // 2. Initialize Questions
     for (int i = 0; i < widget.questions.length; i++) {
-      // AnswerState.userAnswer will now hold dynamic data (String, List, or Map)
       _answerStates[i] = AnswerState(status: AnswerStatus.notVisited);
       _visitCounts[i] = 0;
       _timeTrackers[i] = Stopwatch();
@@ -4887,13 +5055,60 @@ class _TestScreenState extends State<TestScreen> {
     }
   }
 
-  void _togglePause() {
+  // Internal toggle helper
+  void _togglePauseState() {
     setState(() => _isPaused = !_isPaused);
     if (_isPaused) {
       _timeTrackers[_currentPage]?.stop();
     } else {
       _timeTrackers[_currentPage]?.start();
     }
+  }
+
+  // UI Dialog for Pause
+  void _showPauseDialog() {
+    _togglePauseState(); // Pause the timer
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Row(
+            children: const [
+              Icon(Icons.pause_circle_filled, color: Colors.orange, size: 28),
+              SizedBox(width: 10),
+              Text('Paused'),
+            ],
+          ),
+          content: const Text(
+            'Test timer is paused. Click Resume to continue.',
+            style: TextStyle(fontSize: 16),
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _togglePauseState(); // Resume timer
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: const Text('Resume',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -4926,7 +5141,6 @@ class _TestScreenState extends State<TestScreen> {
       if (userAns.length != correctAns.length) return false;
       for (var key in userAns.keys) {
         if (!correctAns.containsKey(key)) return false;
-        // Compare values (which are usually lists in Matrix)
         if (!_checkEquality(userAns[key], correctAns[key])) return false;
       }
       return true;
@@ -4939,8 +5153,6 @@ class _TestScreenState extends State<TestScreen> {
 
   void _checkAnswer() {
     final state = _answerStates[_currentPage]!;
-
-    // Check if answer is empty/null
     bool isEmpty = false;
     if (state.userAnswer == null) isEmpty = true;
     if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
@@ -4975,15 +5187,14 @@ class _TestScreenState extends State<TestScreen> {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Divider(),
             const SizedBox(height: 10),
-            // Correct Answer display might need formatting for Map/List types
             Text("Correct Answer: ${q.correctAnswer}",
                 style: const TextStyle(
                     fontWeight: FontWeight.bold, color: Colors.green)),
             const SizedBox(height: 10),
             if (q.solutionUrl != null)
               Expanded(
-                  child: Center(
-                      child: ExpandableImage(imageUrl: q.solutionUrl!)))
+                  child:
+                  Center(child: ExpandableImage(imageUrl: q.solutionUrl!)))
             else
               const Text("No image solution available."),
           ],
@@ -4994,8 +5205,6 @@ class _TestScreenState extends State<TestScreen> {
 
   void _handleSaveAndNext() {
     final state = _answerStates[_currentPage]!;
-
-    // Check if answered
     bool hasAnswer = state.userAnswer != null;
     if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
       hasAnswer = false;
@@ -5038,7 +5247,7 @@ class _TestScreenState extends State<TestScreen> {
 
   void _handleClearResponse() {
     setState(() {
-      _answerStates[_currentPage]!.userAnswer = null; // Clear dynamic answer
+      _answerStates[_currentPage]!.userAnswer = null;
       _answerStates[_currentPage]!.status = AnswerStatus.notAnswered;
       _isAnswerChecked = false;
     });
@@ -5057,94 +5266,129 @@ class _TestScreenState extends State<TestScreen> {
     }
   }
 
+  // =================================================================
+  //  CORE SUBMISSION LOGIC (Updated for Smart Analysis Integration)
+  // =================================================================
   void _handleSubmit() async {
+    // 1. Stop Timers
     _timer.cancel();
     _timeTrackers.values.forEach((sw) => sw.stop());
-    Map<String, ResponseObject> responses = {};
 
+    // 2. Show Loading Indicator (Critical for UX during async processing)
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    // 3. Prepare Local Data (Basic data needed for submission)
+    Map<String, ResponseObject> initialResponses = {};
     for (int i = 0; i < widget.questions.length; i++) {
       final question = widget.questions[i];
       final state = _answerStates[i]!;
       String finalStatus = 'SKIPPED';
 
-      if (state.status == AnswerStatus.answered ||
-          state.status == AnswerStatus.answeredAndMarked) {
-        // USE NEW EQUALITY CHECK
-        final isCorrect =
-        _checkEquality(state.userAnswer, question.correctAnswer);
+      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
+        final isCorrect = _checkEquality(state.userAnswer, question.correctAnswer);
         finalStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
       } else if (state.status == AnswerStatus.markedForReview) {
         finalStatus = 'REVIEW';
       }
 
-      // Convert complex answers to String for storage if ResponseObject requires String
-      // If ResponseObject accepts dynamic, you can pass state.userAnswer directly
-      String storedAnswer = state.userAnswer.toString();
-
-      responses[question.id] = ResponseObject(
+      // Metadata populated from Question model
+      initialResponses[question.id] = ResponseObject(
         status: finalStatus,
-        selectedOption: storedAnswer,
+        selectedOption: state.userAnswer.toString(),
         correctOption: question.correctAnswer.toString(),
         timeSpent: _timeTrackers[i]!.elapsed.inSeconds,
         visitCount: _visitCounts[i] ?? 0,
         q_no: i + 1,
+
+        // Metadata
+        exam: question.exam,
+        subject: question.subject,
+        chapter: question.chapter,
+        topic: question.topic,
+        topicL2: question.topicL2,
+
+        // IDs
+        chapterId: question.chapterId,
+        topicId: question.topicId,
+        topicL2Id: question.topicL2Id,
+
+        pyq: question.isPyq ? 'Yes' : 'No',
+        difficultyTag: question.difficulty,
       );
     }
 
-    final score =
-        (responses.values.where((r) => r.status == 'CORRECT').length * 4) -
-            (responses.values.where((r) => r.status == 'INCORRECT').length * 1);
+    // 4. Calculate final stats
+    final score = (initialResponses.values.where((r) => r.status == 'CORRECT').length * 4) -
+        (initialResponses.values.where((r) => r.status == 'INCORRECT').length * 1);
 
-    // 1. Submit to Firestore
-    await TestOrchestrationService().submitAttempt(
+    final finalTime = widget.testMode == TestMode.test
+        ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter).inSeconds
+        : _overallTimeCounter.inSeconds;
+
+    // 5. CALL SERVICE & AWAIT ENRICHED RESULT
+    // The service returns the AttemptModel containing the generated smartTimeAnalysisTags
+    final enrichedAttempt = await TestOrchestrationService().submitAttempt(
       sourceId: widget.sourceId,
       assignmentCode: widget.assignmentCode,
       mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
       questions: widget.questions,
       score: score,
-      timeTakenSeconds: widget.testMode == TestMode.test
-          ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter)
-          .inSeconds
-          : _overallTimeCounter.inSeconds,
-      responses: responses,
+      timeTakenSeconds: finalTime,
+      responses: initialResponses,
     );
 
-    // 2. Fetch the ID of the attempt we just created
-    // (This is necessary because submitAttempt returns void, but we need the ID for the next screen)
-    String attemptId = '';
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        final latestSnap = await FirebaseFirestore.instance
-            .collection('attempts')
-            .where('userId', isEqualTo: user.uid)
-            .orderBy('completedAt', descending: true)
-            .limit(1)
-            .get();
+    // 6. Navigate to Results
+    if (mounted) {
+      // Remove Loading Indicator
+      Navigator.pop(context);
 
-        if (latestSnap.docs.isNotEmpty) {
-          attemptId = latestSnap.docs.first.id;
-        }
-      } catch (e) {
-        print("Error fetching latest attempt ID: $e");
+      if (enrichedAttempt != null) {
+        // Construct Result using the ENRICHED responses (containing the calculated smart tags)
+        final result = TestResult(
+          attemptId: enrichedAttempt.id,
+          questions: widget.questions,
+          answerStates: _answerStates,
+          timeTaken: Duration(seconds: finalTime),
+          totalMarks: widget.questions.length * 4,
+          responses: enrichedAttempt.responses, // <--- KEY: Using service data with tags
+        );
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Error saving attempt. Please check internet connection."))
+        );
       }
     }
+  }
 
-    if (mounted) {
-      final result = TestResult(
-        attemptId: attemptId, // FIXED: Now passing the generated/fetched ID
-        questions: widget.questions,
-        answerStates: _answerStates,
-        timeTaken: widget.testMode == TestMode.test
-            ? Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter
-            : _overallTimeCounter,
-        totalMarks: widget.questions.length * 4,
-        responses: responses,
-      );
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
-      );
-    }
+  // --- CONFIRMATION DIALOGS ---
+  Future<bool> _onWillPop() async {
+    final shouldPop = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quit Test?'),
+        content: const Text(
+            'If you quit now, your progress will be lost. Are you sure?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('No, Resume')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Yes, Quit'),
+          ),
+        ],
+      ),
+    );
+    return shouldPop ?? false;
   }
 
   Future<void> _showSubmitConfirmationDialog() async {
@@ -5172,92 +5416,124 @@ class _TestScreenState extends State<TestScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: _buildOverallTimerWidget(),
-        centerTitle: true,
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.deepPurple,
-        foregroundColor: Colors.white,
-        actions: [
-          TextButton(
-            onPressed: _showSubmitConfirmationDialog,
-            child: const Text('Submit',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold)),
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        final shouldExit = await _onWillPop();
+        if (shouldExit && context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: Colors.deepPurple,
+          foregroundColor: Colors.white,
+          centerTitle: true,
+
+          // 1. CLOSE BUTTON (Top-Left)
+          automaticallyImplyLeading: false,
+          leading: IconButton(
+            icon: const Icon(Icons.close, color: Colors.white),
+            onPressed: () async {
+              final shouldExit = await _onWillPop();
+              if (shouldExit && context.mounted) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          _buildNTAQuestionPalette(),
-          const Divider(height: 1),
 
-          Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              physics: _isPaused
-                  ? const NeverScrollableScrollPhysics()
-                  : const AlwaysScrollableScrollPhysics(),
-              onPageChanged: (index) => _onPageChanged(index),
-              itemCount: widget.questions.length,
-              itemBuilder: (context, index) {
-                final q = widget.questions[index];
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Q.${index + 1}',
-                              style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold)),
-                          _buildQuestionTimerWidget(index),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
+          // 2. CENTER TITLE (Timer Pill)
+          title: _buildOverallTimerWidget(),
 
-                      if (q.imageUrl.isNotEmpty)
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: ExpandableImage(imageUrl: q.imageUrl),
-                        ),
-                      const SizedBox(height: 20),
+          // 3. ACTIONS (Pause + Submit)
+          actions: [
+            // Pause Button: ONLY if in Practice Mode
+            if (widget.testMode == TestMode.practice)
+              IconButton(
+                onPressed: _showPauseDialog,
+                icon:
+                const Icon(Icons.pause_circle_filled, color: Colors.white),
+                tooltip: "Pause",
+              ),
 
-                      // =======================================================
-                      // NEW: Unified Input Widget handles all types (SCQ, Num, Matrix)
-                      // =======================================================
-                      QuestionInputWidget(
-                        question: q,
-                        currentAnswer: _answerStates[index]?.userAnswer,
-                        onAnswerChanged: (newAnswer) {
-                          // Update state when widget reports a change
-                          if (!_isPaused) {
-                            setState(() {
-                              _answerStates[index]?.userAnswer = newAnswer;
-                              // Reset local feedback if in practice mode
-                              if (widget.testMode == TestMode.practice) {
-                                _isAnswerChecked = false;
-                              }
-                            });
-                          }
-                        },
-                      ),
-
-                      if (widget.testMode == TestMode.practice &&
-                          _isAnswerChecked)
-                        _buildFeedbackUI(q),
-                    ],
-                  ),
-                );
-              },
+            // Submit Button
+            TextButton(
+              onPressed: _showSubmitConfirmationDialog,
+              child: const Text('Submit',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
             ),
-          ),
-        ],
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: Column(
+          children: [
+            _buildNTAQuestionPalette(),
+            const Divider(height: 1),
+
+            Expanded(
+              child: PageView.builder(
+                controller: _pageController,
+                // Disable swiping when paused
+                physics: _isPaused
+                    ? const NeverScrollableScrollPhysics()
+                    : const AlwaysScrollableScrollPhysics(),
+                onPageChanged: (index) => _onPageChanged(index),
+                itemCount: widget.questions.length,
+                itemBuilder: (context, index) {
+                  final q = widget.questions[index];
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Q.${index + 1}',
+                                style: const TextStyle(
+                                    fontSize: 18, fontWeight: FontWeight.bold)),
+                            _buildQuestionTimerWidget(index),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        if (q.imageUrl.isNotEmpty)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: ExpandableImage(imageUrl: q.imageUrl),
+                          ),
+                        const SizedBox(height: 20),
+
+                        QuestionInputWidget(
+                          question: q,
+                          currentAnswer: _answerStates[index]?.userAnswer,
+                          onAnswerChanged: (newAnswer) {
+                            if (!_isPaused) {
+                              setState(() {
+                                _answerStates[index]?.userAnswer = newAnswer;
+                                if (widget.testMode == TestMode.practice) {
+                                  _isAnswerChecked = false;
+                                }
+                              });
+                            }
+                          },
+                        ),
+
+                        if (widget.testMode == TestMode.practice &&
+                            _isAnswerChecked)
+                          _buildFeedbackUI(q),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+        bottomNavigationBar: _buildBottomNavBar(),
       ),
-      bottomNavigationBar: _buildBottomNavBar(),
     );
   }
 
@@ -5276,7 +5552,10 @@ class _TestScreenState extends State<TestScreen> {
       child: Text(
         "$hours:$minutes:$seconds",
         style: const TextStyle(
-            fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+            fontSize: 16,
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.2),
       ),
     );
   }
@@ -5302,7 +5581,7 @@ class _TestScreenState extends State<TestScreen> {
           Text(
             "$minutes:$seconds",
             style: const TextStyle(
-                fontSize: 16,
+                fontSize: 14,
                 fontWeight: FontWeight.bold,
                 color: Colors.black87),
           ),
@@ -5402,7 +5681,6 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   Widget _buildFeedbackUI(Question q) {
-    // Use the robust equality check for feedback as well
     final isCorrect =
     _checkEquality(_answerStates[_currentPage]?.userAnswer, q.correctAnswer);
 
@@ -5428,7 +5706,8 @@ class _TestScreenState extends State<TestScreen> {
           ]),
           const SizedBox(height: 10),
           ElevatedButton(
-              onPressed: _showSolution, child: const Text("View Full Solution")),
+              onPressed: _showSolution,
+              child: const Text("View Full Solution")),
         ],
       ),
     );
@@ -5611,18 +5890,39 @@ class AttemptItemModel {
 ================================================================================
 FILE: lib/models/attempt_model.dart
 ================================================================================
+// lib/models/attempt_model.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// --- 1. ResponseObject Class ---
 class ResponseObject {
-  final String status; // 'CORRECT', 'INCORRECT', 'SKIPPED'
+  final String status;
   final dynamic selectedOption;
   final String correctOption;
   final int timeSpent;
   final int visitCount;
   final int q_no;
 
-  // NEW: Manual categorization fields
+  // Context Fields
+  final String exam;
+  final String subject;
+
+  // Tags
+  final String chapter;
+  final String topic;
+  final String topicL2;
+
+  // IDs
+  final String? chapterId;
+  final String? topicId;
+  final String? topicL2Id;
+
+  // *** NEW: Smart Time Analysis Tag for this specific question ***
+  // e.g., "Perfect Attempt", "Wasted Attempt", etc.
+  final String smartTimeAnalysis;
+
+  final String pyq;
+  final String difficultyTag;
+
   final String? mistakeCategory;
   final String? mistakeNote;
 
@@ -5633,6 +5933,17 @@ class ResponseObject {
     required this.timeSpent,
     required this.visitCount,
     required this.q_no,
+    required this.exam,
+    required this.subject,
+    this.chapter = '',
+    this.topic = '',
+    this.topicL2 = '',
+    this.chapterId,
+    this.topicId,
+    this.topicL2Id,
+    this.smartTimeAnalysis = '', // Default to empty
+    this.pyq = '',
+    this.difficultyTag = '',
     this.mistakeCategory,
     this.mistakeNote,
   });
@@ -5645,6 +5956,20 @@ class ResponseObject {
       timeSpent: map['timeSpent'] ?? 0,
       visitCount: map['visitCount'] ?? 0,
       q_no: map['q_no'] ?? 0,
+      exam: map['exam'] ?? '',
+      subject: map['subject'] ?? 'Physics',
+      chapter: map['chapter'] ?? '',
+      topic: map['topic'] ?? '',
+      topicL2: map['topicL2'] ?? '',
+      chapterId: map['chapterId'] as String?,
+      topicId: map['topicId'] as String?,
+      topicL2Id: map['topicL2Id'] as String?,
+
+      // Map the new field safely
+      smartTimeAnalysis: map['smartTimeAnalysis'] ?? '',
+
+      pyq: map['pyq'] ?? '',
+      difficultyTag: map['difficultyTag'] ?? '',
       mistakeCategory: map['mistakeCategory'],
       mistakeNote: map['mistakeNote'],
     );
@@ -5658,13 +5983,26 @@ class ResponseObject {
       'timeSpent': timeSpent,
       'visitCount': visitCount,
       'q_no': q_no,
+      'exam': exam,
+      'subject': subject,
+      'chapter': chapter,
+      'topic': topic,
+      'topicL2': topicL2,
+      'chapterId': chapterId,
+      'topicId': topicId,
+      'topicL2Id': topicL2Id,
+
+      // Write the new field
+      'smartTimeAnalysis': smartTimeAnalysis,
+
+      'pyq': pyq,
+      'difficultyTag': difficultyTag,
       'mistakeCategory': mistakeCategory,
       'mistakeNote': mistakeNote,
     };
   }
 }
 
-// --- 2. AttemptModel Class ---
 class AttemptModel {
   final String id;
   final String sourceId;
@@ -5677,12 +6015,15 @@ class AttemptModel {
   final int totalQuestions;
   final int maxMarks;
 
-  // Aggregates
   final int correctCount;
   final int incorrectCount;
   final int skippedCount;
 
   final int timeTakenSeconds;
+
+  // *** NEW: Aggregate counts for the 6 analysis types ***
+  final Map<String, int> smartTimeAnalysisCounts;
+
   final Map<String, ResponseObject> responses;
 
   AttemptModel({
@@ -5700,6 +6041,7 @@ class AttemptModel {
     required this.incorrectCount,
     required this.skippedCount,
     required this.timeTakenSeconds,
+    required this.smartTimeAnalysisCounts, // Required now
     required this.responses,
   });
 
@@ -5716,12 +6058,22 @@ class AttemptModel {
         ? Timestamp.fromDate(DateTime.parse(rawCompletedAt))
         : rawCompletedAt ?? Timestamp.now();
 
+    // Parse Responses
     Map<String, ResponseObject> parsedResponses = {};
     if (data['responses'] is Map) {
       (data['responses'] as Map).forEach((key, value) {
         if (value is Map) {
-          parsedResponses[key] = ResponseObject.fromMap(value as Map<String, dynamic>);
+          parsedResponses[key] =
+              ResponseObject.fromMap(value as Map<String, dynamic>);
         }
+      });
+    }
+
+    // Parse Smart Time Analysis Counts
+    Map<String, int> parsedAnalysisCounts = {};
+    if (data['smartTimeAnalysisCounts'] is Map) {
+      (data['smartTimeAnalysisCounts'] as Map).forEach((key, value) {
+        parsedAnalysisCounts[key.toString()] = (value as num).toInt();
       });
     }
 
@@ -5740,6 +6092,10 @@ class AttemptModel {
       incorrectCount: data['incorrect_count'] ?? 0,
       skippedCount: data['skipped_count'] ?? 0,
       timeTakenSeconds: data['timeTakenSeconds'] ?? 0,
+
+      // Assign the parsed map
+      smartTimeAnalysisCounts: parsedAnalysisCounts,
+
       responses: parsedResponses,
     );
   }
@@ -5759,6 +6115,10 @@ class AttemptModel {
       'incorrect_count': incorrectCount,
       'skipped_count': skippedCount,
       'timeTakenSeconds': timeTakenSeconds,
+
+      // Save the analysis counts
+      'smartTimeAnalysisCounts': smartTimeAnalysisCounts,
+
       'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
     };
   }
@@ -5867,9 +6227,10 @@ class AnswerState {
 ================================================================================
 FILE: lib/models/question_model.dart
 ================================================================================
+// lib/models/question_model.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// 1. DEFINE THE ENUM HERE (Outside the class)
 enum QuestionType {
   singleCorrect,   // Matches Firestore 'Single Correct'
   numerical,       // Matches Firestore 'Numerical type'
@@ -5881,25 +6242,45 @@ enum QuestionType {
 
 class Question {
   final String id;
+
+  // IDs
   final String chapterId;
   final String topicId;
-  final QuestionType type; // Using the Enum
+  final String topicL2Id;
+
+  // Names / Context
+  final String subject;
+  final String chapter;
+  final String topic;
+  final String topicL2;
+
+  // Question Details
+  final QuestionType type;
   final String imageUrl;
   final String? solutionUrl;
-  final dynamic correctAnswer; // Dynamic (String, List, or Map)
+  final dynamic correctAnswer;
   final String difficulty;
-  final String source;
+  final String exam; // Matches 'Exam' field
+  final bool isPyq;
+  final int questionNo;
 
   Question({
     required this.id,
     required this.chapterId,
     required this.topicId,
+    required this.topicL2Id,
+    required this.subject,
+    required this.chapter,
+    required this.topic,
+    required this.topicL2,
     required this.type,
     required this.imageUrl,
     this.solutionUrl,
     required this.correctAnswer,
     required this.difficulty,
-    required this.source,
+    required this.exam,
+    required this.isPyq,
+    required this.questionNo,
   });
 
   factory Question.fromFirestore(DocumentSnapshot doc) {
@@ -5907,14 +6288,28 @@ class Question {
 
     return Question(
       id: doc.id,
+      // IDs
       chapterId: data['chapterId'] ?? '',
-      topicId: data['topicId'] ?? '',
-      type: _mapStringToType(data['Question type']), // Helper function
+      topicId: data['topicId'] ?? '', // Default if missing in doc
+      topicL2Id: data['topicL2Id'] ?? '',
+
+      // Names
+      subject: data['Subject'] ?? 'Physics',
+      chapter: data['Chapter'] ?? '',
+      topic: data['Topic'] ?? '',
+      topicL2: data['Topic_L2'] ?? '',
+
+      // Details
+      type: _mapStringToType(data['Question type']),
       imageUrl: data['image_url'] ?? '',
       solutionUrl: data['solution_url'],
       correctAnswer: data['Correct Answer'],
       difficulty: data['Difficulty_tag'] ?? 'Medium',
-      source: data['Exam'] ?? '',
+      exam: data['Exam'] ?? '',
+      isPyq: (data['PYQ'] ?? '') == 'Yes',
+      questionNo: data['Question No.'] is int
+          ? data['Question No.']
+          : int.tryParse(data['Question No.']?.toString() ?? '0') ?? 0,
     );
   }
 
@@ -5944,6 +6339,15 @@ FILE: lib/models/test_enums.dart
 enum TestMode {
   test,      // Timer counts down, no feedback, auto-submit
   practice,  // Timer counts up (or hidden), instant feedback, solution access, pause allowed
+}
+
+enum PerformanceCategory {
+  mastery,      // Correct & Fast (Ideal)
+  needsSpeed,   // Correct & Slow (Knowledge is there, speed is not)
+  rushed,       // Incorrect & Fast (Likely a silly mistake or guess)
+  struggle,     // Incorrect & Slow (Conceptual gap)
+  skipped,      // Not attempted
+  notVisited    // Didn't reach
 }
 
 ================================================================================
@@ -6775,7 +7179,7 @@ class TeacherService {
   Map<String, dynamic> _buildHierarchy(List<Question> questions) {
     Map<String, dynamic> hierarchy = {};
     for (var q in questions) {
-      final exam = q.source.isEmpty ? 'Unknown Exam' : q.source;
+      final exam = q.exam.isEmpty ? 'Unknown Exam' : q.exam;
       final subject = 'Physics';
       final chapter = q.chapterId.isEmpty ? 'Unknown Chapter' : q.chapterId;
       final topic = q.topicId.isEmpty ? 'Unknown Topic' : q.topicId;
@@ -6799,6 +7203,8 @@ FILE: lib/services/test_orchestration_service.dart
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+// Ensure these imports point to your actual file locations
 import 'package:study_smart_qc/models/attempt_item_model.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_model.dart';
@@ -6813,12 +7219,12 @@ class TestOrchestrationService {
   // 1. HISTORY FETCH LOGIC
   // ===========================================================================
 
-  /// Fetch attempts for a user. If [targetUserId] is provided (Mentor Mode),
-  /// it fetches for that specific student. Otherwise, it defaults to the current user.
+  /// Fetch attempts for a user.
+  /// If [targetUserId] is provided (Mentor Mode), it fetches for that specific student.
+  /// Otherwise, it defaults to the current user.
   Future<List<AttemptModel>> getUserAttempts({String? targetUserId}) async {
     final String? idToQuery = targetUserId ?? _userId;
     if (idToQuery == null) return [];
-
     try {
       // NOTE: Requires a Composite Index for 'userId' (Asc) and 'completedAt' (Desc)
       final snapshot = await _firestore
@@ -6826,7 +7232,6 @@ class TestOrchestrationService {
           .where('userId', isEqualTo: idToQuery)
           .orderBy('completedAt', descending: true)
           .get();
-
       return snapshot.docs
           .map((doc) => AttemptModel.fromFirestore(doc))
           .toList();
@@ -6837,10 +7242,11 @@ class TestOrchestrationService {
   }
 
   // ===========================================================================
-  // 2. UNIVERSAL SUBMISSION LOGIC (With Aggregates & Behavioral Fields)
+  // 2. UNIVERSAL SUBMISSION LOGIC (With Enriched Metadata & Smart Analysis)
   // ===========================================================================
 
-  Future<void> submitAttempt({
+  /// Submits the test attempt and returns the enriched AttemptModel for immediate UI use
+  Future<AttemptModel?> submitAttempt({
     required String sourceId,
     required String assignmentCode,
     required String mode,
@@ -6849,30 +7255,108 @@ class TestOrchestrationService {
     required int timeTakenSeconds,
     required Map<String, ResponseObject> responses,
   }) async {
-    if (_userId == null) return;
+    if (_userId == null) return null;
+
+    // --- STEP 1: FETCH CONFIGURATION FOR SMART ANALYSIS ---
+    Map<String, dynamic> idealTimeMap = {};
+    double carelessFactor = 0.25; // Default fallback (25%)
+    double goodSkipFactorRaw = 20.0; // Default fallback (20%)
+
+    try {
+      final configSnap = await _firestore
+          .collection('static_data')
+          .doc('option_sets')
+          .get();
+
+      if (configSnap.exists) {
+        final data = configSnap.data()!;
+        if (data['idealTimePerQuestion'] != null) {
+          idealTimeMap = Map<String, dynamic>.from(data['idealTimePerQuestion']);
+        }
+        carelessFactor = (data['factorForCarelessAttempt'] ?? 0.25).toDouble();
+        goodSkipFactorRaw = (data['factorForGoodSkip'] ?? 20.0).toDouble();
+      }
+    } catch (e) {
+      print("Error fetching analysis config: $e");
+    }
 
     final batch = _firestore.batch();
     final timestamp = Timestamp.now();
 
-    // 1. Calculate Aggregates
+    // --- PHASE 2: Enrich Responses & Calculate Tags ---
+    Map<String, ResponseObject> enrichedResponses = {};
+
+    Map<String, int> analysisCounts = {
+      "Perfect Attempt": 0,
+      "Overtime Correct": 0,
+      "Careless Mistake": 0,
+      "Wasted Attempt": 0,
+      "Good Skip": 0,
+      "Time Wasted": 0
+    };
+
     int correctCount = 0;
     int incorrectCount = 0;
     int skippedCount = 0;
 
-    responses.forEach((qid, response) {
-      if (response.status == 'CORRECT') {
+    for (int i = 0; i < questions.length; i++) {
+      final question = questions[i];
+      final userResponse = responses[question.id];
+
+      final String status = userResponse?.status ?? 'SKIPPED';
+      final int timeSpent = userResponse?.timeSpent ?? 0;
+
+      if (status == 'CORRECT') {
         correctCount++;
-      } else if (response.status == 'INCORRECT') {
+      } else if (status == 'INCORRECT') {
         incorrectCount++;
       } else {
         skippedCount++;
       }
-    });
 
+      // Generate the analysis tag
+      String smartTag = _generateSmartTag(
+        status: status,
+        timeTaken: timeSpent,
+        examName: question.exam,
+        subject: question.subject,
+        idealTimeMap: idealTimeMap,
+        carelessFactor: carelessFactor,
+        goodSkipFactorRaw: goodSkipFactorRaw,
+      );
+
+      if (smartTag.isNotEmpty) {
+        String shortKey = smartTag.split(' (').first.trim();
+        analysisCounts[shortKey] = (analysisCounts[shortKey] ?? 0) + 1;
+      }
+
+      final enrichedResponse = ResponseObject(
+        status: status,
+        selectedOption: userResponse?.selectedOption,
+        correctOption: userResponse?.correctOption ?? question.correctAnswer.toString(),
+        timeSpent: timeSpent,
+        visitCount: userResponse?.visitCount ?? 0,
+        q_no: userResponse?.q_no ?? (i + 1),
+        exam: question.exam,
+        subject: question.subject,
+        chapter: question.chapter,
+        topic: question.topic,
+        chapterId: question.chapterId,
+        topicId: question.topicId,
+        topicL2Id: question.topicL2Id,
+        smartTimeAnalysis: smartTag,
+        mistakeCategory: userResponse?.mistakeCategory,
+        mistakeNote: userResponse?.mistakeNote,
+        pyq: question.isPyq ? 'Yes' : 'No',
+        difficultyTag: question.difficulty,
+      );
+      enrichedResponses[question.id] = enrichedResponse;
+    }
+
+    // --- PHASE 3: Create Records ---
     final int totalQuestionsCount = questions.length;
     final int maxMarksValue = totalQuestionsCount * 4;
 
-    // A. Create Attempt Record (The "Session" summary)
     final attemptRef = _firestore.collection('attempts').doc();
     final newAttempt = AttemptModel(
       id: attemptRef.id,
@@ -6885,23 +7369,22 @@ class TestOrchestrationService {
       score: score,
       totalQuestions: totalQuestionsCount,
       maxMarks: maxMarksValue,
-      correctCount: correctCount,     // SAVED: New Aggregate
-      incorrectCount: incorrectCount, // SAVED: New Aggregate
-      skippedCount: skippedCount,     // SAVED: New Aggregate
+      correctCount: correctCount,
+      incorrectCount: incorrectCount,
+      skippedCount: skippedCount,
       timeTakenSeconds: timeTakenSeconds,
-      responses: responses,
+      smartTimeAnalysisCounts: analysisCounts,
+      responses: enrichedResponses,
     );
     batch.set(attemptRef, newAttempt.toFirestore());
 
-    // B. Create Attempt Items (Question-level history)
     for (final question in questions) {
-      final response = responses[question.id];
+      final response = enrichedResponses[question.id];
       if (response != null) {
-        final attemptItemRef = _firestore.collection('attempt_items').doc(); //
-
-        final attemptItem = AttemptItemModel(
+        final attemptItemRef = _firestore.collection('attempt_items').doc();
+        batch.set(attemptItemRef, AttemptItemModel(
           userId: _userId!,
-          attemptRef: attemptRef, // Passing parent reference here
+          attemptRef: attemptRef,
           questionId: question.id,
           chapterId: question.chapterId,
           topicId: question.topicId,
@@ -6910,16 +7393,13 @@ class TestOrchestrationService {
           attemptedAt: timestamp,
           assignmentCode: assignmentCode,
           mode: mode,
-          // NEW: Support for manual categorization
           mistakeCategory: response.mistakeCategory,
           mistakeNote: response.mistakeNote,
-        );
-
-        batch.set(attemptItemRef, attemptItem.toFirestore()); //
+        ).toFirestore());
       }
     }
 
-    // C. Update Student Tracker (Latest Status Logic)
+    // --- PHASE 4: Update Tracker ---
     final trackerRef = _firestore.collection('student_question_tracker').doc(_userId);
     final trackerDoc = await trackerRef.get();
 
@@ -6933,19 +7413,15 @@ class TestOrchestrationService {
       List<String> skipped = List<String>.from(buckets['skipped'] ?? []);
       List<String> history = List<String>.from(data['attempted_history'] ?? []);
 
-      responses.forEach((qid, response) {
+      enrichedResponses.forEach((qid, response) {
         unattempted.remove(qid);
         correct.remove(qid);
         incorrect.remove(qid);
         skipped.remove(qid);
 
-        if (response.status == 'CORRECT') {
-          correct.add(qid);
-        } else if (response.status == 'INCORRECT') {
-          incorrect.add(qid);
-        } else {
-          skipped.add(qid);
-        }
+        if (response.status == 'CORRECT') correct.add(qid);
+        else if (response.status == 'INCORRECT') incorrect.add(qid);
+        else skipped.add(qid);
 
         if (!history.contains(qid)) history.add(qid);
       });
@@ -6959,34 +7435,20 @@ class TestOrchestrationService {
       });
     }
 
-    // D. Update Assignment Status
+    // Update Status
     if (sourceId.isNotEmpty) {
       try {
         final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
         final assignmentDoc = await assignmentRef.get();
 
         if (assignmentDoc.exists) {
-          final data = assignmentDoc.data();
-
-          // 1. CHECK THE FLAG
-          // If the field is missing (old data), assume false (allow retries)
-          final bool isStrict = data?['onlySingleAttempt'] ?? false;
-
-          // 2. DECIDE FATE
-          if (isStrict) {
-            // Strict Mode: Mark 'submitted'.
+          if (assignmentDoc.data()?['onlySingleAttempt'] == true) {
             batch.update(assignmentRef, {'status': 'submitted'});
-          } else {
-            // Practice Mode: Do NOT update status.
           }
-
         } else {
-          // Fallback for legacy "Test" collection
           final testRef = _firestore.collection('tests').doc(sourceId);
           final testDoc = await testRef.get();
-          if(testDoc.exists) {
-            batch.update(testRef, {'status': 'Attempted'});
-          }
+          if(testDoc.exists) batch.update(testRef, {'status': 'Attempted'});
         }
       } catch (e) {
         print("Error updating status: $e");
@@ -6994,6 +7456,48 @@ class TestOrchestrationService {
     }
 
     await batch.commit();
+    return newAttempt;
+  }
+
+  // ===========================================================================
+  // HELPER: SMART TIME TAG GENERATION
+  // ===========================================================================
+
+  String _generateSmartTag({
+    required String status,
+    required int timeTaken,
+    required String examName,
+    required String subject,
+    required Map<String, dynamic> idealTimeMap,
+    required double carelessFactor,
+    required double goodSkipFactorRaw,
+  }) {
+    String eName = examName.isEmpty ? "JEE Main" : examName;
+    String sName = subject.isEmpty ? "Physics" : subject;
+    String configKey = "${eName}_${sName}";
+
+    int idealTime = 120;
+    if (idealTimeMap.containsKey(configKey)) {
+      idealTime = (idealTimeMap[configKey] as num).toInt();
+    }
+
+    double fastThreshold = idealTime * carelessFactor;
+    double skipFactor = (goodSkipFactorRaw > 1) ? goodSkipFactorRaw / 100 : goodSkipFactorRaw;
+    double goodSkipThreshold = idealTime * skipFactor;
+
+    if (status == 'CORRECT') {
+      return (timeTaken <= idealTime)
+          ? "Perfect Attempt (Correct & answered within reasonable time)"
+          : "Overtime Correct (Correct but took too long)";
+    } else if (status == 'INCORRECT') {
+      return (timeTaken < fastThreshold)
+          ? "Careless Mistake (Incorrect & answered too fast)"
+          : "Wasted Attempt (Incorrect & took too long)";
+    } else {
+      return (timeTaken < goodSkipThreshold)
+          ? "Good Skip (Skipped quickly)"
+          : "Time Wasted (Skipped but spent too much time)";
+    }
   }
 
   // ===========================================================================
@@ -7003,9 +7507,7 @@ class TestOrchestrationService {
   String _generateShareCode() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     final rnd = Random();
-    return String.fromCharCodes(
-      Iterable.generate(4, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))),
-    );
+    return String.fromCharCodes(Iterable.generate(4, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
   }
 
   Future<TestModel?> createAndSaveTestBlueprint({
@@ -7015,37 +7517,27 @@ class TestOrchestrationService {
     required String testName,
   }) async {
     if (_userId == null) return null;
-
     String shareCode;
     bool isUnique = false;
     do {
       shareCode = _generateShareCode();
-      final existing = await _firestore
-          .collection('tests')
-          .where('shareCode', isEqualTo: shareCode)
-          .limit(1)
-          .get();
+      final existing = await _firestore.collection('tests').where('shareCode', isEqualTo: shareCode).limit(1).get();
       if (existing.docs.isEmpty) isUnique = true;
     } while (!isUnique);
 
     final testRef = _firestore.collection('tests').doc();
-
     final newTest = TestModel(
       id: testRef.id,
       createdBy: _userId!,
       createdAt: Timestamp.now(),
       status: 'Not Attempted',
       testName: testName,
-      config: TestConfig(
-        durationSeconds: durationSeconds,
-        totalQuestions: questions.length,
-      ),
+      config: TestConfig(durationSeconds: durationSeconds, totalQuestions: questions.length),
       questionIds: questions.map((q) => q.id).toList(),
       chapters: chapterNames,
       shareCode: shareCode,
       uidsAttemptedTests: [],
     );
-
     await testRef.set(newTest.toFirestore());
     return newTest;
   }
@@ -7053,117 +7545,46 @@ class TestOrchestrationService {
   Future<void> recordTestAttempt(String testId) async {
     if (_userId == null) return;
     final batch = _firestore.batch();
-
-    final testRef = _firestore.collection('tests').doc(testId);
-    batch.update(testRef, {
-      'uidsAttemptedTests': FieldValue.arrayUnion([_userId]),
-    });
-
-    final userRef = _firestore.collection('users').doc(_userId);
-    batch.update(userRef, {
-      'testIDsattempted': FieldValue.arrayUnion([testId]),
-    });
-
+    batch.update(_firestore.collection('tests').doc(testId), {'uidsAttemptedTests': FieldValue.arrayUnion([_userId])});
+    batch.update(_firestore.collection('users').doc(_userId), {'testIDsattempted': FieldValue.arrayUnion([testId])});
     await batch.commit();
   }
 
   Future<AttemptModel?> getAttemptForTest(String testId) async {
     if (_userId == null) return null;
-
-    final querySnapshot = await _firestore
-        .collection('attempts')
-        .where('sourceId', isEqualTo: testId)
-        .where('userId', isEqualTo: _userId)
-        .orderBy('completedAt', descending: true)
-        .limit(1)
-        .get();
-
-    if (querySnapshot.docs.isNotEmpty) {
-      return AttemptModel.fromFirestore(querySnapshot.docs.first);
-    }
-
-    final oldQuerySnapshot = await _firestore
-        .collection('attempts')
-        .where('testId', isEqualTo: testId)
-        .where('userId', isEqualTo: _userId)
-        .limit(1)
-        .get();
-
-    if (oldQuerySnapshot.docs.isNotEmpty) {
-      return AttemptModel.fromFirestore(oldQuerySnapshot.docs.first);
-    }
-
+    final querySnapshot = await _firestore.collection('attempts').where('sourceId', isEqualTo: testId).where('userId', isEqualTo: _userId).orderBy('completedAt', descending: true).limit(1).get();
+    if (querySnapshot.docs.isNotEmpty) return AttemptModel.fromFirestore(querySnapshot.docs.first);
+    final oldQuerySnapshot = await _firestore.collection('attempts').where('testId', isEqualTo: testId).where('userId', isEqualTo: _userId).limit(1).get();
+    if (oldQuerySnapshot.docs.isNotEmpty) return AttemptModel.fromFirestore(oldQuerySnapshot.docs.first);
     return null;
   }
 
   Stream<List<TestModel>> getSavedTestsStream() {
     if (_userId == null) return Stream.value([]);
-    return _firestore
-        .collection('tests')
-        .where('createdBy', isEqualTo: _userId)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => TestModel.fromFirestore(doc)).toList());
+    return _firestore.collection('tests').where('createdBy', isEqualTo: _userId).orderBy('createdAt', descending: true).snapshots().map((snapshot) => snapshot.docs.map((doc) => TestModel.fromFirestore(doc)).toList());
   }
 
   Future<TestModel?> getTestByShareCode(String shareCode) async {
-    final querySnapshot = await _firestore
-        .collection('tests')
-        .where('shareCode', isEqualTo: shareCode)
-        .limit(1)
-        .get();
-    if (querySnapshot.docs.isNotEmpty) {
-      return TestModel.fromFirestore(querySnapshot.docs.first);
-    }
-    return null;
+    final querySnapshot = await _firestore.collection('tests').where('shareCode', isEqualTo: shareCode).limit(1).get();
+    return querySnapshot.docs.isNotEmpty ? TestModel.fromFirestore(querySnapshot.docs.first) : null;
   }
 
-  // --- CRITICAL UPDATE: Sorts questions to match input order ---
   Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
     if (questionIds.isEmpty) return [];
-
     final List<Question> fetchedQuestions = [];
-    final chunks = [];
-
-    // Chunking to handle Firestore limit of 10 items per 'whereIn'
     for (var i = 0; i < questionIds.length; i += 10) {
-      chunks.add(
-        questionIds.sublist(
-          i,
-          i + 10 > questionIds.length ? questionIds.length : i + 10,
-        ),
-      );
+      final chunk = questionIds.sublist(i, min(i + 10, questionIds.length));
+      final querySnapshot = await _firestore.collection('questions').where(FieldPath.documentId, whereIn: chunk).get();
+      fetchedQuestions.addAll(querySnapshot.docs.map((doc) => Question.fromFirestore(doc)));
     }
-
-    // Fetch data (This comes back in RANDOM order from Firestore)
-    for (final chunk in chunks) {
-      final querySnapshot = await _firestore
-          .collection('questions')
-          .where(FieldPath.documentId, whereIn: chunk)
-          .get();
-      fetchedQuestions.addAll(
-        querySnapshot.docs.map((doc) => Question.fromFirestore(doc)),
-      );
-    }
-
-    // CRITICAL FIX: Sort the fetched questions to match the 'questionIds' order
     final questionMap = {for (var q in fetchedQuestions) q.id: q};
-
-    // Map original IDs to question objects, filtering out any that might have been deleted
-    final List<Question> orderedQuestions = questionIds
-        .map((id) => questionMap[id])
-        .whereType<Question>() // Removes nulls if a question was not found
-        .toList();
-
-    return orderedQuestions;
+    return questionIds.map((id) => questionMap[id]).whereType<Question>().toList();
   }
 
   // ===========================================================================
-  // 4. MISTAKE UPDATE LOGIC (NEW)
+  // 4. MISTAKE UPDATE LOGIC
   // ===========================================================================
 
-  /// Updates the mistake category and note for a specific question in an existing attempt.
-  /// This updates BOTH the main 'attempts' document (nested map) AND the individual 'attempt_items' document.
   Future<void> updateQuestionMistake({
     required String attemptId,
     required String questionId,
@@ -7171,41 +7592,21 @@ class TestOrchestrationService {
     String? mistakeNote,
   }) async {
     if (_userId == null) return;
-
     try {
       final attemptRef = _firestore.collection('attempts').doc(attemptId);
-
-      // 1. Fetch the attempt to get context (assignmentCode) needed to find the item
       final attemptSnapshot = await attemptRef.get();
       if (!attemptSnapshot.exists) return;
-
       final data = attemptSnapshot.data();
-      // Ensure we safeguard against nulls, though assignmentCode should exist
       final String? assignmentCode = data?['assignmentCode'];
 
-      // 2. Update the parent Attempt document (Nested Map Update)
-      // Note: We use dot notation to update just the specific fields inside the responses map
       await attemptRef.update({
         'responses.$questionId.mistakeCategory': mistakeCategory,
         'responses.$questionId.mistakeNote': mistakeNote ?? '',
       });
-
-      // 3. Update the specific Attempt Item document
-      // We use assignmentCode + questionId + userId to target the specific item
       if (assignmentCode != null) {
-        final itemQuery = await _firestore
-            .collection('attempt_items')
-            .where('userId', isEqualTo: _userId)
-            .where('questionId', isEqualTo: questionId)
-            .where('assignmentCode', isEqualTo: assignmentCode)
-            .limit(1)
-            .get();
-
+        final itemQuery = await _firestore.collection('attempt_items').where('userId', isEqualTo: _userId).where('questionId', isEqualTo: questionId).where('assignmentCode', isEqualTo: assignmentCode).limit(1).get();
         if (itemQuery.docs.isNotEmpty) {
-          await itemQuery.docs.first.reference.update({
-            'mistakeCategory': mistakeCategory,
-            'mistakeNote': mistakeNote ?? '',
-          });
+          await itemQuery.docs.first.reference.update({'mistakeCategory': mistakeCategory, 'mistakeNote': mistakeNote ?? ''});
         }
       }
     } catch (e) {
@@ -7219,7 +7620,6 @@ class TestOrchestrationService {
 FILE: lib/services/test_service.dart
 ================================================================================
 import 'dart:math';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 
@@ -7236,6 +7636,8 @@ class TestService {
     }
 
     // Step 1: Fetch all questions from the selected CHAPTERS.
+    // Note: Firestore 'whereIn' is limited to 10 items.
+    // If you have more than 10 chapters, you might need to chunk this request.
     QuerySnapshot querySnapshot = await _firestore
         .collection('questions')
         .where('chapterId', whereIn: chapterIds.toList())
@@ -7258,7 +7660,8 @@ class TestService {
     }).toList();
 
     // Step 4: Apply 80/20 split for question types
-    // CHANGED: Using Enum Comparison instead of String trim()
+
+    // CHANGED: Using the Enum defined in the model (QuestionType)
     final scqQuestions = validQuestions
         .where((q) => q.type == QuestionType.singleCorrect)
         .toList();
@@ -7284,6 +7687,92 @@ class TestService {
     finalTestQuestions.shuffle();
 
     return finalTestQuestions;
+  }
+}
+
+================================================================================
+FILE: lib/utils/performance_analysis_utils.dart
+================================================================================
+// lib/utils/performance_analysis_utils.dart
+
+// 1. Define the Quadrants
+enum PerformanceQuadrant {
+  mastery,      // Correct & Fast
+  needsSpeed,   // Correct & Slow
+  learningGap,  // Incorrect (Fast or Slow)
+  wastedEffort, // Incorrect & Slow (Special sub-case, optional)
+  skipped,      // Not attempted
+  unknown       // Fallback
+}
+
+class PerformanceAnalysisUtils {
+
+  // 2. Default Benchmarks (in seconds)
+  // You will likely fetch these from Firestore later, but these are safe defaults.
+  static const int defaultIdealTimePhysics = 120; // 2 mins
+  static const int defaultIdealTimeChemistry = 90; // 1.5 mins
+  static const int defaultIdealTimeMaths = 150;    // 2.5 mins
+
+  /// Returns the ideal time for a question based on its subject.
+  /// You can expand this to take 'difficulty' or 'questionType' later.
+  static int getIdealTime(String subject) {
+    switch (subject.toLowerCase()) {
+      case 'physics':
+        return defaultIdealTimePhysics;
+      case 'chemistry':
+        return defaultIdealTimeChemistry;
+      case 'maths':
+      case 'mathematics':
+        return defaultIdealTimeMaths;
+      default:
+        return 120; // Default average
+    }
+  }
+
+  /// The Core Logic: Determines the quadrant for a single response
+  static PerformanceQuadrant analyzeResponse({
+    required String status,
+    required int timeSpent,
+    required String subject,
+    int? customIdealTime, // Allow passing a specific time if you fetched it from Config
+  }) {
+    if (status == 'SKIPPED') {
+      return PerformanceQuadrant.skipped;
+    }
+
+    if (status == 'INCORRECT') {
+      // You could split this into "Silly Mistake" (Fast) vs "Conceptual Error" (Slow)
+      // For now, we group them as Learning Gap.
+      return PerformanceQuadrant.learningGap;
+    }
+
+    if (status == 'CORRECT') {
+      final int idealTime = customIdealTime ?? getIdealTime(subject);
+
+      if (timeSpent <= idealTime) {
+        return PerformanceQuadrant.mastery;
+      } else {
+        return PerformanceQuadrant.needsSpeed;
+      }
+    }
+
+    return PerformanceQuadrant.unknown;
+  }
+
+  /// Helper to get a color for the UI later
+  static int getColorHexForQuadrant(PerformanceQuadrant quadrant) {
+    switch (quadrant) {
+      case PerformanceQuadrant.mastery:
+        return 0xFF4CAF50; // Green
+      case PerformanceQuadrant.needsSpeed:
+        return 0xFFFFC107; // Amber/Yellow
+      case PerformanceQuadrant.learningGap:
+        return 0xFFF44336; // Red
+      case PerformanceQuadrant.skipped:
+        return 0xFF9E9E9E; // Grey
+      default:
+        return 0xFF000000;
+    }
   }
 }
 

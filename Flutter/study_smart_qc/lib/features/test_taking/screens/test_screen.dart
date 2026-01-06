@@ -1,17 +1,21 @@
 // lib/features/test_taking/screens/test_screen.dart
 
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Added for fetching ID
-import 'package:firebase_auth/firebase_auth.dart'; // Added for fetching ID
-import 'package:flutter/foundation.dart'; // For list/map equality checks
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+// 1. IMPORT MODELS
 import 'package:study_smart_qc/models/question_model.dart';
-import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/models/attempt_model.dart';
-import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
-import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
+
+// 2. IMPORT SCREENS & SERVICES
+import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
 import 'package:study_smart_qc/widgets/expandable_image.dart';
 import 'package:study_smart_qc/widgets/question_input_widget.dart';
 
@@ -63,7 +67,6 @@ class _TestScreenState extends State<TestScreen> {
 
     // 2. Initialize Questions
     for (int i = 0; i < widget.questions.length; i++) {
-      // AnswerState.userAnswer will now hold dynamic data (String, List, or Map)
       _answerStates[i] = AnswerState(status: AnswerStatus.notVisited);
       _visitCounts[i] = 0;
       _timeTrackers[i] = Stopwatch();
@@ -115,13 +118,60 @@ class _TestScreenState extends State<TestScreen> {
     }
   }
 
-  void _togglePause() {
+  // Internal toggle helper
+  void _togglePauseState() {
     setState(() => _isPaused = !_isPaused);
     if (_isPaused) {
       _timeTrackers[_currentPage]?.stop();
     } else {
       _timeTrackers[_currentPage]?.start();
     }
+  }
+
+  // UI Dialog for Pause
+  void _showPauseDialog() {
+    _togglePauseState(); // Pause the timer
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Row(
+            children: const [
+              Icon(Icons.pause_circle_filled, color: Colors.orange, size: 28),
+              SizedBox(width: 10),
+              Text('Paused'),
+            ],
+          ),
+          content: const Text(
+            'Test timer is paused. Click Resume to continue.',
+            style: TextStyle(fontSize: 16),
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _togglePauseState(); // Resume timer
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: const Text('Resume',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -154,7 +204,6 @@ class _TestScreenState extends State<TestScreen> {
       if (userAns.length != correctAns.length) return false;
       for (var key in userAns.keys) {
         if (!correctAns.containsKey(key)) return false;
-        // Compare values (which are usually lists in Matrix)
         if (!_checkEquality(userAns[key], correctAns[key])) return false;
       }
       return true;
@@ -167,8 +216,6 @@ class _TestScreenState extends State<TestScreen> {
 
   void _checkAnswer() {
     final state = _answerStates[_currentPage]!;
-
-    // Check if answer is empty/null
     bool isEmpty = false;
     if (state.userAnswer == null) isEmpty = true;
     if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
@@ -203,15 +250,14 @@ class _TestScreenState extends State<TestScreen> {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Divider(),
             const SizedBox(height: 10),
-            // Correct Answer display might need formatting for Map/List types
             Text("Correct Answer: ${q.correctAnswer}",
                 style: const TextStyle(
                     fontWeight: FontWeight.bold, color: Colors.green)),
             const SizedBox(height: 10),
             if (q.solutionUrl != null)
               Expanded(
-                  child: Center(
-                      child: ExpandableImage(imageUrl: q.solutionUrl!)))
+                  child:
+                  Center(child: ExpandableImage(imageUrl: q.solutionUrl!)))
             else
               const Text("No image solution available."),
           ],
@@ -222,8 +268,6 @@ class _TestScreenState extends State<TestScreen> {
 
   void _handleSaveAndNext() {
     final state = _answerStates[_currentPage]!;
-
-    // Check if answered
     bool hasAnswer = state.userAnswer != null;
     if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
       hasAnswer = false;
@@ -266,7 +310,7 @@ class _TestScreenState extends State<TestScreen> {
 
   void _handleClearResponse() {
     setState(() {
-      _answerStates[_currentPage]!.userAnswer = null; // Clear dynamic answer
+      _answerStates[_currentPage]!.userAnswer = null;
       _answerStates[_currentPage]!.status = AnswerStatus.notAnswered;
       _isAnswerChecked = false;
     });
@@ -285,94 +329,129 @@ class _TestScreenState extends State<TestScreen> {
     }
   }
 
+  // =================================================================
+  //  CORE SUBMISSION LOGIC (Updated for Smart Analysis Integration)
+  // =================================================================
   void _handleSubmit() async {
+    // 1. Stop Timers
     _timer.cancel();
     _timeTrackers.values.forEach((sw) => sw.stop());
-    Map<String, ResponseObject> responses = {};
 
+    // 2. Show Loading Indicator (Critical for UX during async processing)
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    // 3. Prepare Local Data (Basic data needed for submission)
+    Map<String, ResponseObject> initialResponses = {};
     for (int i = 0; i < widget.questions.length; i++) {
       final question = widget.questions[i];
       final state = _answerStates[i]!;
       String finalStatus = 'SKIPPED';
 
-      if (state.status == AnswerStatus.answered ||
-          state.status == AnswerStatus.answeredAndMarked) {
-        // USE NEW EQUALITY CHECK
-        final isCorrect =
-        _checkEquality(state.userAnswer, question.correctAnswer);
+      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
+        final isCorrect = _checkEquality(state.userAnswer, question.correctAnswer);
         finalStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
       } else if (state.status == AnswerStatus.markedForReview) {
         finalStatus = 'REVIEW';
       }
 
-      // Convert complex answers to String for storage if ResponseObject requires String
-      // If ResponseObject accepts dynamic, you can pass state.userAnswer directly
-      String storedAnswer = state.userAnswer.toString();
-
-      responses[question.id] = ResponseObject(
+      // Metadata populated from Question model
+      initialResponses[question.id] = ResponseObject(
         status: finalStatus,
-        selectedOption: storedAnswer,
+        selectedOption: state.userAnswer.toString(),
         correctOption: question.correctAnswer.toString(),
         timeSpent: _timeTrackers[i]!.elapsed.inSeconds,
         visitCount: _visitCounts[i] ?? 0,
         q_no: i + 1,
+
+        // Metadata
+        exam: question.exam,
+        subject: question.subject,
+        chapter: question.chapter,
+        topic: question.topic,
+        topicL2: question.topicL2,
+
+        // IDs
+        chapterId: question.chapterId,
+        topicId: question.topicId,
+        topicL2Id: question.topicL2Id,
+
+        pyq: question.isPyq ? 'Yes' : 'No',
+        difficultyTag: question.difficulty,
       );
     }
 
-    final score =
-        (responses.values.where((r) => r.status == 'CORRECT').length * 4) -
-            (responses.values.where((r) => r.status == 'INCORRECT').length * 1);
+    // 4. Calculate final stats
+    final score = (initialResponses.values.where((r) => r.status == 'CORRECT').length * 4) -
+        (initialResponses.values.where((r) => r.status == 'INCORRECT').length * 1);
 
-    // 1. Submit to Firestore
-    await TestOrchestrationService().submitAttempt(
+    final finalTime = widget.testMode == TestMode.test
+        ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter).inSeconds
+        : _overallTimeCounter.inSeconds;
+
+    // 5. CALL SERVICE & AWAIT ENRICHED RESULT
+    // The service returns the AttemptModel containing the generated smartTimeAnalysisTags
+    final enrichedAttempt = await TestOrchestrationService().submitAttempt(
       sourceId: widget.sourceId,
       assignmentCode: widget.assignmentCode,
       mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
       questions: widget.questions,
       score: score,
-      timeTakenSeconds: widget.testMode == TestMode.test
-          ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter)
-          .inSeconds
-          : _overallTimeCounter.inSeconds,
-      responses: responses,
+      timeTakenSeconds: finalTime,
+      responses: initialResponses,
     );
 
-    // 2. Fetch the ID of the attempt we just created
-    // (This is necessary because submitAttempt returns void, but we need the ID for the next screen)
-    String attemptId = '';
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        final latestSnap = await FirebaseFirestore.instance
-            .collection('attempts')
-            .where('userId', isEqualTo: user.uid)
-            .orderBy('completedAt', descending: true)
-            .limit(1)
-            .get();
+    // 6. Navigate to Results
+    if (mounted) {
+      // Remove Loading Indicator
+      Navigator.pop(context);
 
-        if (latestSnap.docs.isNotEmpty) {
-          attemptId = latestSnap.docs.first.id;
-        }
-      } catch (e) {
-        print("Error fetching latest attempt ID: $e");
+      if (enrichedAttempt != null) {
+        // Construct Result using the ENRICHED responses (containing the calculated smart tags)
+        final result = TestResult(
+          attemptId: enrichedAttempt.id,
+          questions: widget.questions,
+          answerStates: _answerStates,
+          timeTaken: Duration(seconds: finalTime),
+          totalMarks: widget.questions.length * 4,
+          responses: enrichedAttempt.responses, // <--- KEY: Using service data with tags
+        );
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Error saving attempt. Please check internet connection."))
+        );
       }
     }
+  }
 
-    if (mounted) {
-      final result = TestResult(
-        attemptId: attemptId, // FIXED: Now passing the generated/fetched ID
-        questions: widget.questions,
-        answerStates: _answerStates,
-        timeTaken: widget.testMode == TestMode.test
-            ? Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter
-            : _overallTimeCounter,
-        totalMarks: widget.questions.length * 4,
-        responses: responses,
-      );
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
-      );
-    }
+  // --- CONFIRMATION DIALOGS ---
+  Future<bool> _onWillPop() async {
+    final shouldPop = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quit Test?'),
+        content: const Text(
+            'If you quit now, your progress will be lost. Are you sure?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('No, Resume')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Yes, Quit'),
+          ),
+        ],
+      ),
+    );
+    return shouldPop ?? false;
   }
 
   Future<void> _showSubmitConfirmationDialog() async {
@@ -400,92 +479,124 @@ class _TestScreenState extends State<TestScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: _buildOverallTimerWidget(),
-        centerTitle: true,
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.deepPurple,
-        foregroundColor: Colors.white,
-        actions: [
-          TextButton(
-            onPressed: _showSubmitConfirmationDialog,
-            child: const Text('Submit',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold)),
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        final shouldExit = await _onWillPop();
+        if (shouldExit && context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: Colors.deepPurple,
+          foregroundColor: Colors.white,
+          centerTitle: true,
+
+          // 1. CLOSE BUTTON (Top-Left)
+          automaticallyImplyLeading: false,
+          leading: IconButton(
+            icon: const Icon(Icons.close, color: Colors.white),
+            onPressed: () async {
+              final shouldExit = await _onWillPop();
+              if (shouldExit && context.mounted) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          _buildNTAQuestionPalette(),
-          const Divider(height: 1),
 
-          Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              physics: _isPaused
-                  ? const NeverScrollableScrollPhysics()
-                  : const AlwaysScrollableScrollPhysics(),
-              onPageChanged: (index) => _onPageChanged(index),
-              itemCount: widget.questions.length,
-              itemBuilder: (context, index) {
-                final q = widget.questions[index];
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Q.${index + 1}',
-                              style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold)),
-                          _buildQuestionTimerWidget(index),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
+          // 2. CENTER TITLE (Timer Pill)
+          title: _buildOverallTimerWidget(),
 
-                      if (q.imageUrl.isNotEmpty)
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: ExpandableImage(imageUrl: q.imageUrl),
-                        ),
-                      const SizedBox(height: 20),
+          // 3. ACTIONS (Pause + Submit)
+          actions: [
+            // Pause Button: ONLY if in Practice Mode
+            if (widget.testMode == TestMode.practice)
+              IconButton(
+                onPressed: _showPauseDialog,
+                icon:
+                const Icon(Icons.pause_circle_filled, color: Colors.white),
+                tooltip: "Pause",
+              ),
 
-                      // =======================================================
-                      // NEW: Unified Input Widget handles all types (SCQ, Num, Matrix)
-                      // =======================================================
-                      QuestionInputWidget(
-                        question: q,
-                        currentAnswer: _answerStates[index]?.userAnswer,
-                        onAnswerChanged: (newAnswer) {
-                          // Update state when widget reports a change
-                          if (!_isPaused) {
-                            setState(() {
-                              _answerStates[index]?.userAnswer = newAnswer;
-                              // Reset local feedback if in practice mode
-                              if (widget.testMode == TestMode.practice) {
-                                _isAnswerChecked = false;
-                              }
-                            });
-                          }
-                        },
-                      ),
-
-                      if (widget.testMode == TestMode.practice &&
-                          _isAnswerChecked)
-                        _buildFeedbackUI(q),
-                    ],
-                  ),
-                );
-              },
+            // Submit Button
+            TextButton(
+              onPressed: _showSubmitConfirmationDialog,
+              child: const Text('Submit',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
             ),
-          ),
-        ],
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: Column(
+          children: [
+            _buildNTAQuestionPalette(),
+            const Divider(height: 1),
+
+            Expanded(
+              child: PageView.builder(
+                controller: _pageController,
+                // Disable swiping when paused
+                physics: _isPaused
+                    ? const NeverScrollableScrollPhysics()
+                    : const AlwaysScrollableScrollPhysics(),
+                onPageChanged: (index) => _onPageChanged(index),
+                itemCount: widget.questions.length,
+                itemBuilder: (context, index) {
+                  final q = widget.questions[index];
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Q.${index + 1}',
+                                style: const TextStyle(
+                                    fontSize: 18, fontWeight: FontWeight.bold)),
+                            _buildQuestionTimerWidget(index),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        if (q.imageUrl.isNotEmpty)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: ExpandableImage(imageUrl: q.imageUrl),
+                          ),
+                        const SizedBox(height: 20),
+
+                        QuestionInputWidget(
+                          question: q,
+                          currentAnswer: _answerStates[index]?.userAnswer,
+                          onAnswerChanged: (newAnswer) {
+                            if (!_isPaused) {
+                              setState(() {
+                                _answerStates[index]?.userAnswer = newAnswer;
+                                if (widget.testMode == TestMode.practice) {
+                                  _isAnswerChecked = false;
+                                }
+                              });
+                            }
+                          },
+                        ),
+
+                        if (widget.testMode == TestMode.practice &&
+                            _isAnswerChecked)
+                          _buildFeedbackUI(q),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+        bottomNavigationBar: _buildBottomNavBar(),
       ),
-      bottomNavigationBar: _buildBottomNavBar(),
     );
   }
 
@@ -504,7 +615,10 @@ class _TestScreenState extends State<TestScreen> {
       child: Text(
         "$hours:$minutes:$seconds",
         style: const TextStyle(
-            fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+            fontSize: 16,
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.2),
       ),
     );
   }
@@ -530,7 +644,7 @@ class _TestScreenState extends State<TestScreen> {
           Text(
             "$minutes:$seconds",
             style: const TextStyle(
-                fontSize: 16,
+                fontSize: 14,
                 fontWeight: FontWeight.bold,
                 color: Colors.black87),
           ),
@@ -630,7 +744,6 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   Widget _buildFeedbackUI(Question q) {
-    // Use the robust equality check for feedback as well
     final isCorrect =
     _checkEquality(_answerStates[_currentPage]?.userAnswer, q.correctAnswer);
 
@@ -656,7 +769,8 @@ class _TestScreenState extends State<TestScreen> {
           ]),
           const SizedBox(height: 10),
           ElevatedButton(
-              onPressed: _showSolution, child: const Text("View Full Solution")),
+              onPressed: _showSolution,
+              child: const Text("View Full Solution")),
         ],
       ),
     );

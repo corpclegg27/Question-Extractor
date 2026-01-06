@@ -1,3 +1,102 @@
+StudySmart Project Documentation (Updated Jan 6, 2026)
+1. System Overview
+StudySmart is a comprehensive NTA-style testing platform that integrates granular time-tracking with "Smart Time Analysis." The system not only scores students but also coaches them on their time management and behavioral patterns during exams.
+
+2. Core Modules
+A. Smart Time Analysis Engine (The Brain)
+This module categorizes every question attempt into one of six "Coach-Tone" categories based on performance and time spent relative to subject-specific ideal limits.
+
+Dynamic Thresholds:
+
+
+Ideal Time: Fetched per Exam_Subject (e.g., JEE Main_Physics) from Firestore /static_data/option_sets.
+
+
+Careless Factor: Percentage (default 0.25) to identify "too fast" incorrect answers.
+
+
+Good Skip Factor: Percentage (default 20%) to identify "tactical" quick skips.
+
+The 6 Coaching Categories:
+
+
+Perfect Attempt: "You nailed it! You got the answer right and managed your time perfectly." 
+
+
+Overtime Correct: "You got it right! Though you spent a bit more time than the ideal limit." 
+
+
+Careless Mistake: "Slow down a bit! You answered very quickly but unfortunately missed this one." 
+
+
+Wasted Attempt: "Don't get stuck! You spent a lot of time here but didn't get the right answer." 
+
+
+Good Skip: "Great tactical move! You recognized a tough one early and skipped it quickly." 
+
+
+Time Wasted: "Careful with the clock! You spent quite a while on this before skipping." 
+
+B. Test Orchestration Service
+
+TestOrchestrationService handles the critical bridge between local test-taking and Firestore storage.
+
+
+submitAttempt: Fetches configuration, calculates the 6-tier analysis tags for every question, updates the student_question_tracker, and returns a fully enriched AttemptModel to the UI.
+
+
+Atomic Batching: Ensures attempts, attempt_items, and student_question_tracker are updated in a single transaction.
+
+C. UI & Analytics Dashboard
+The ResultsScreen provides immediate, high-value feedback:
+
+Dual Pie Charts:
+
+
+Performance Distribution: Traditional Correct/Incorrect/Unattempted split.
+
+
+Smart Time Analysis: Distribution of the 6 coaching categories, starting at the 12 o'clock position for logical readability.
+
+
+Interactive Grid: Questions are grouped by their Smart Tags, allowing students to tap a "Qx" bubble to view solutions for specific behavioral mistakes (e.g., viewing all "Careless Mistakes").
+
+3. Data Models
+AttemptModel
+
+smartTimeAnalysisCounts: A map storing the totals for the 6 analysis categories (e.g., { "Careless Mistake": 2 }).
+
+
+responses: A map of ResponseObject where each entry contains a smartTimeAnalysis string.
+
+ResponseObject
+
+smartTimeAnalysis: Stores the full "Friendly Tone" coaching string for that specific question attempt.
+
+
+timeSpent: Actual time in seconds spent on the question.
+
+
+status: CORRECT, INCORRECT, or SKIPPED.
+
+4. Firestore Structure Updates
+/static_data/option_sets
+
+idealTimePerQuestion: (Map) Key: Exam_Subject, Value: int (seconds).
+
+
+factorForCarelessAttempt: (Number) e.g., 0.25.
+
+
+factorForGoodSkip: (Number) e.g., 20.
+
+/attempts/{attemptId}
+Now includes the smartTimeAnalysisCounts map for high-level aggregate reporting and the enriched responses map for question-level coaching.
+
+Progress saved. Documentation current as of the latest "Friendly UI" and "Smart Analysis" update.
+
+
+
 Here is the comprehensive documentation for the StudySmart project, updated based on the latest codebase provided.
 
 1. File Summaries

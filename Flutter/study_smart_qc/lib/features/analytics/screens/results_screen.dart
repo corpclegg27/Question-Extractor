@@ -1,3 +1,5 @@
+// lib/features/analytics/screens/results_screen.dart
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
@@ -14,13 +16,36 @@ class ResultsScreen extends StatefulWidget {
 }
 
 class _ResultsScreenState extends State<ResultsScreen> {
-  int correctCount = 0;
-  int incorrectCount = 0;
-  int unattemptedCount = 0;
-
+  // Stats
   int marksObtained = 0;
   double accuracy = 0.0;
   double attemptPercentage = 0.0;
+
+  // Basic Categories (For the top chart)
+  List<int> correctIndices = [];
+  List<int> incorrectIndices = [];
+  List<int> skippedIndices = [];
+  List<int> reviewIndices = [];
+
+  // Smart Analysis Categories (Key = Category Name, Value = List of Question Indices)
+  final Map<String, List<int>> _smartAnalysisGroups = {
+    "Perfect Attempt": [],
+    "Overtime Correct": [],
+    "Careless Mistake": [],
+    "Wasted Attempt": [],
+    "Good Skip": [],
+    "Time Wasted": [],
+  };
+
+  // Friendly coaching descriptions for the UI
+  final Map<String, String> _categoryDescriptions = {
+    "Perfect Attempt": "You nailed it! You got the answer right and managed your time perfectly within the subject's limit.",
+    "Overtime Correct": "You got it right! You reached the correct answer, though you spent a bit more time than the ideal limit for this subject.",
+    "Careless Mistake": "Slow down a bit! You answered very quickly but unfortunately missed this one. Double-check your work next time.",
+    "Wasted Attempt": "Don't get stuck! You spent a lot of time here but didn't quite get the right answer. It might be time to review this concept.",
+    "Good Skip": "Great tactical move! You recognized a tough one early and skipped it quickly to save your time for other questions.",
+    "Time Wasted": "Careful with the clock! You spent quite a while on this before skipping. Try to decide to move on a little sooner next time.",
+  };
 
   @override
   void initState() {
@@ -29,61 +54,78 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   void _calculateResults() {
-    int tempCorrect = 0;
-    int tempIncorrect = 0;
-    int tempSkipped = 0;
+    correctIndices.clear();
+    incorrectIndices.clear();
+    skippedIndices.clear();
+    reviewIndices.clear();
 
-    // Prefer using the detailed 'responses' map if available
-    if (widget.result.responses.isNotEmpty) {
-      widget.result.responses.forEach((key, response) {
-        switch (response.status) {
-          case 'CORRECT':
-            tempCorrect++;
-            break;
-          case 'INCORRECT':
-            tempIncorrect++;
-            break;
-          case 'REVIEW':
-          // "Marked for Review" without answer counts as SKIPPED
-            tempSkipped++;
-            break;
-          default: // SKIPPED
-            tempSkipped++;
-            break;
+    for (var key in _smartAnalysisGroups.keys) {
+      _smartAnalysisGroups[key] = [];
+    }
+
+    int tempCorrectCount = 0;
+    int tempIncorrectCount = 0;
+
+    for (int i = 0; i < widget.result.questions.length; i++) {
+      final question = widget.result.questions[i];
+      final qId = question.id;
+
+      String basicStatus = 'SKIPPED';
+
+      if (widget.result.responses.containsKey(qId)) {
+        basicStatus = widget.result.responses[qId]!.status;
+      } else {
+        final state = widget.result.answerStates[i];
+        if (state?.status == AnswerStatus.answered || state?.status == AnswerStatus.answeredAndMarked) {
+          final isCorrect = state?.userAnswer?.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase();
+          basicStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
+        } else if (state?.status == AnswerStatus.markedForReview) {
+          basicStatus = 'REVIEW';
         }
-      });
-      // Adjust for questions missing from responses map (pure skips)
-      int totalTracked = tempCorrect + tempIncorrect + tempSkipped;
-      if (totalTracked < widget.result.questions.length) {
-        tempSkipped += (widget.result.questions.length - totalTracked);
       }
-    } else {
-      // Fallback Logic (if responses map is empty)
-      widget.result.answerStates.forEach((index, state) {
-        if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
-          final question = widget.result.questions[index];
-          final userAnswer = state.userAnswer;
-          if (userAnswer != null && userAnswer.trim().toLowerCase() == question.correctAnswer.trim().toLowerCase()) {
-            tempCorrect++;
-          } else {
-            tempIncorrect++;
-          }
-        } else {
-          // Not Visited, Not Answered, or Marked For Review (without answer) -> Skipped
-          tempSkipped++;
+
+      switch (basicStatus) {
+        case 'CORRECT':
+          correctIndices.add(i);
+          tempCorrectCount++;
+          break;
+        case 'INCORRECT':
+          incorrectIndices.add(i);
+          tempIncorrectCount++;
+          break;
+        case 'REVIEW':
+          reviewIndices.add(i);
+          skippedIndices.add(i);
+          break;
+        default:
+          skippedIndices.add(i);
+          break;
+      }
+
+      if (widget.result.responses.containsKey(qId)) {
+        final response = widget.result.responses[qId]!;
+        final tag = response.smartTimeAnalysis;
+
+        if (tag.contains("Perfect Attempt")) {
+          _smartAnalysisGroups["Perfect Attempt"]!.add(i);
+        } else if (tag.contains("Overtime Correct")) {
+          _smartAnalysisGroups["Overtime Correct"]!.add(i);
+        } else if (tag.contains("Careless Mistake")) {
+          _smartAnalysisGroups["Careless Mistake"]!.add(i);
+        } else if (tag.contains("Wasted Attempt")) {
+          _smartAnalysisGroups["Wasted Attempt"]!.add(i);
+        } else if (tag.contains("Good Skip")) {
+          _smartAnalysisGroups["Good Skip"]!.add(i);
+        } else if (tag.contains("Time Wasted")) {
+          _smartAnalysisGroups["Time Wasted"]!.add(i);
         }
-      });
+      }
     }
 
     setState(() {
-      correctCount = tempCorrect;
-      incorrectCount = tempIncorrect;
-      unattemptedCount = tempSkipped;
-
-      final totalAttempted = correctCount + incorrectCount;
-
-      marksObtained = (correctCount * 4) - (incorrectCount * 1);
-      accuracy = (totalAttempted > 0) ? (correctCount / totalAttempted) * 100 : 0.0;
+      int totalAttempted = tempCorrectCount + tempIncorrectCount;
+      marksObtained = (tempCorrectCount * 4) - (tempIncorrectCount * 1);
+      accuracy = (totalAttempted > 0) ? (tempCorrectCount / totalAttempted) * 100 : 0.0;
       attemptPercentage = (widget.result.questions.isNotEmpty)
           ? (totalAttempted / widget.result.questions.length) * 100
           : 0.0;
@@ -95,7 +137,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
       context: context,
       isScrollControlled: true,
       builder: (context) {
-        return Container(
+        return SizedBox(
           height: MediaQuery.of(context).size.height * 0.9,
           child: SolutionDetailSheet(
             result: widget.result,
@@ -110,6 +152,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final minutes = widget.result.timeTaken.inMinutes.toString().padLeft(2, '0');
     final seconds = (widget.result.timeTaken.inSeconds % 60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
+  }
+
+  Color _getSmartColor(String category) {
+    switch (category) {
+      case "Perfect Attempt": return Colors.green.shade800;
+      case "Overtime Correct": return Colors.green.shade300;
+      case "Careless Mistake": return Colors.red.shade200;
+      case "Wasted Attempt": return Colors.red.shade900;
+      case "Good Skip": return Colors.grey.shade400;
+      case "Time Wasted": return Colors.grey.shade700;
+      default: return Colors.blue;
+    }
   }
 
   @override
@@ -133,9 +187,19 @@ class _ResultsScreenState extends State<ResultsScreen> {
             const SizedBox(height: 20),
             _buildStatsRow(),
             const SizedBox(height: 20),
-            _buildVisualAnalysis(),
+            _buildPerformanceDistributionChart(),
+            const SizedBox(height: 24),
+            const Divider(thickness: 2),
+            const SizedBox(height: 24),
+            const Text(
+              "Smart Time Analysis",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+            ),
             const SizedBox(height: 20),
-            _buildReviewSolutionsGrid(),
+            _buildSmartAnalysisChart(),
+            const SizedBox(height: 20),
+            _buildSmartAnalysisList(),
           ],
         ),
       ),
@@ -143,9 +207,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Widget _buildScoreCard() {
-    double percentage = (marksObtained / widget.result.totalMarks) * 100;
+    double percentage = (widget.result.totalMarks > 0)
+        ? (marksObtained / widget.result.totalMarks) * 100
+        : 0;
     String motivation = percentage >= 75 ? 'Excellent Work!' : percentage >= 50 ? 'Good Effort!' : 'Keep Improving!';
-
     return Card(
       color: Colors.deepPurple.shade700,
       elevation: 4,
@@ -195,7 +260,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _buildVisualAnalysis() {
+  Widget _buildPerformanceDistributionChart() {
     return Card(
       elevation: 2,
       child: Padding(
@@ -210,16 +275,34 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 PieChartData(
                   sectionsSpace: 2,
                   centerSpaceRadius: 40,
+                  startDegreeOffset: 270, // Starts at 12 o'clock
                   sections: [
-                    PieChartSectionData(value: correctCount.toDouble(), title: '$correctCount', color: Colors.green, radius: 50, titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    PieChartSectionData(value: incorrectCount.toDouble(), title: '$incorrectCount', color: Colors.red, radius: 50, titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    PieChartSectionData(value: unattemptedCount.toDouble(), title: '$unattemptedCount', color: Colors.grey.shade300, radius: 50, titleStyle: const TextStyle(color: Colors.black54, fontWeight: FontWeight.bold)),
+                    PieChartSectionData(
+                        value: correctIndices.length.toDouble(),
+                        title: '${correctIndices.length}',
+                        color: Colors.green,
+                        radius: 50,
+                        titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+                    ),
+                    PieChartSectionData(
+                        value: incorrectIndices.length.toDouble(),
+                        title: '${incorrectIndices.length}',
+                        color: Colors.red,
+                        radius: 50,
+                        titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+                    ),
+                    PieChartSectionData(
+                        value: skippedIndices.length.toDouble(),
+                        title: '${skippedIndices.length}',
+                        color: Colors.grey.shade300,
+                        radius: 50,
+                        titleStyle: const TextStyle(color: Colors.black54, fontWeight: FontWeight.bold)
+                    ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 20),
-            // Legend
             Wrap(
               spacing: 16,
               runSpacing: 8,
@@ -227,8 +310,59 @@ class _ResultsScreenState extends State<ResultsScreen> {
               children: [
                 _buildLegendItem(Colors.green, 'Correct'),
                 _buildLegendItem(Colors.red, 'Incorrect'),
-                _buildLegendItem(Colors.grey.shade300, 'Skipped'),
+                _buildLegendItem(Colors.grey.shade300, 'Unattempted'),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSmartAnalysisChart() {
+    final activeCategories = _smartAnalysisGroups.entries.where((e) => e.value.isNotEmpty).toList();
+
+    if (activeCategories.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(20),
+        child: Center(child: Text("Not enough data for smart analysis.")),
+      );
+    }
+
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            SizedBox(
+              height: 200,
+              child: PieChart(
+                PieChartData(
+                  sectionsSpace: 2,
+                  centerSpaceRadius: 40,
+                  startDegreeOffset: 270, // Starts at 12 o'clock
+                  sections: activeCategories.map((entry) {
+                    final color = _getSmartColor(entry.key);
+                    return PieChartSectionData(
+                      value: entry.value.length.toDouble(),
+                      title: '${entry.value.length}',
+                      color: color,
+                      radius: 60,
+                      titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: activeCategories.map((entry) {
+                return _buildLegendItem(_getSmartColor(entry.key), entry.key);
+              }).toList(),
             ),
           ],
         ),
@@ -247,72 +381,100 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _buildReviewSolutionsGrid() {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Question Analysis', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 5),
-            const Text('Tap on a number to view solution & time spent.', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 15),
-            GridView.builder(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 6,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10
-              ),
-              itemCount: widget.result.questions.length,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemBuilder: (context, index) {
-                final question = widget.result.questions[index];
+  Widget _buildSmartAnalysisList() {
+    final orderedKeys = [
+      "Perfect Attempt",
+      "Overtime Correct",
+      "Careless Mistake",
+      "Wasted Attempt",
+      "Good Skip",
+      "Time Wasted"
+    ];
 
-                String statusStr = 'SKIPPED';
-                if (widget.result.responses.containsKey(question.id)) {
-                  statusStr = widget.result.responses[question.id]!.status;
-                }
+    return Column(
+      children: orderedKeys.map((key) {
+        final indices = _smartAnalysisGroups[key] ?? [];
+        if (indices.isEmpty) return const SizedBox.shrink();
 
-                // Map 'REVIEW' to 'SKIPPED' colors for the final grid as well
-                Color color = Colors.grey.shade300;
-                Color textColor = Colors.black;
+        final color = _getSmartColor(key);
+        final description = _categoryDescriptions[key] ?? "";
 
-                if (statusStr == 'CORRECT') {
-                  color = Colors.green;
-                  textColor = Colors.white;
-                } else if (statusStr == 'INCORRECT') {
-                  color = Colors.red;
-                  textColor = Colors.white;
-                } else {
-                  // SKIPPED or REVIEW (without answer)
-                  color = Colors.grey.shade200;
-                  textColor = Colors.black;
-                }
-
-                return GestureDetector(
-                  onTap: () => _showSolutionSheet(index),
-                  child: Container(
-                    decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.grey.shade300)
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                      child: Icon(Icons.label, size: 16, color: color),
                     ),
-                    child: Center(
+                    const SizedBox(width: 8),
+                    Text(
+                      key,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: Text(
-                          '${index + 1}',
-                          style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
+                        "${indices.length}",
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                       ),
                     ),
-                  ),
-                );
-              },
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // Coaching full text
+                Text(
+                  description,
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontStyle: FontStyle.italic),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: indices.map((index) {
+                    return GestureDetector(
+                      onTap: () => _showSolutionSheet(index),
+                      child: Container(
+                        width: 45,
+                        height: 35,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border.all(color: color.withOpacity(0.5)),
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              BoxShadow(color: color.withOpacity(0.05), blurRadius: 2, offset: const Offset(0, 1))
+                            ]
+                        ),
+                        child: Text(
+                          'Q${index + 1}',
+                          style: TextStyle(
+                            color: color,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      }).toList(),
     );
   }
 }

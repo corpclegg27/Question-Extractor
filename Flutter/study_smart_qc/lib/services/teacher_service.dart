@@ -265,7 +265,7 @@ class TeacherService {
   Map<String, dynamic> _buildHierarchy(List<Question> questions) {
     Map<String, dynamic> hierarchy = {};
     for (var q in questions) {
-      final exam = q.source.isEmpty ? 'Unknown Exam' : q.source;
+      final exam = q.exam.isEmpty ? 'Unknown Exam' : q.exam;
       final subject = 'Physics';
       final chapter = q.chapterId.isEmpty ? 'Unknown Chapter' : q.chapterId;
       final topic = q.topicId.isEmpty ? 'Unknown Topic' : q.topicId;

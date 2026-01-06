@@ -411,6 +411,41 @@ def delete_all_users():
     except Exception as e:
         print(f"Error during bulk deletion: {e}")
 
+
+
+# The data mapping based on your requirements
+# Structure: "Exam_Subject": Seconds
+IDEAL_TIME_MAP = {
+    "NEET_Physics": 80,
+    "JEE Main_Physics": 150,
+    
+    # You can easily add more here later:
+    # "NEET_Chemistry": 60,
+    # "JEE Main_Maths": 120,
+}
+
+def addIdealTimeMapToOptionSets():
+    try:
+
+        
+        # 2. Reference the document
+        doc_ref = db.collection('static_data').document('option_sets')
+        
+        # 3. Update the document
+        # We use set(..., merge=True) to ensure we don't wipe out 
+        # existing fields like 'exams_list' or 'classes_list'.
+        doc_ref.set({
+            'idealTimePerQuestion': IDEAL_TIME_MAP
+        }, merge=True)
+        
+        print(f"✅ Successfully updated /static_data/option_sets")
+        print(f"   Added {len(IDEAL_TIME_MAP)} benchmarks.")
+        
+    except Exception as e:
+        print(f"❌ Error updating Firestore: {e}")
+
+
+
 # --- MAIN MENU ---
 
 def main():
@@ -424,6 +459,7 @@ def main():
         print("4. Create option sets document in static_data collection")
         print ("5. clearCollection [names already provided in file]")
         print ("6. Delete all user records from auth system")
+        print ("7. Add ideal time per question map")
         print("0. Exit")
         print("-" * 40)
         
@@ -447,6 +483,8 @@ def main():
         if choice == '6':
             delete_all_users()
 
+        if choice == '7':
+            addIdealTimeMapToOptionSets()
 
         elif choice == '0':
             print("Bye! 👋")
