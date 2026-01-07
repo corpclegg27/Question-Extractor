@@ -16,15 +16,24 @@ import 'package:study_smart_qc/models/nta_test_models.dart';
 // 2. IMPORT SCREENS & SERVICES
 import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/services/local_session_service.dart';
 import 'package:study_smart_qc/widgets/expandable_image.dart';
 import 'package:study_smart_qc/widgets/question_input_widget.dart';
 
 class TestScreen extends StatefulWidget {
   final String sourceId;
   final String assignmentCode;
+
+  // NEW FIELD: Title
+  final String title;
+
   final List<Question> questions;
   final int timeLimitInMinutes;
   final TestMode testMode;
+
+  final int? resumedTimerSeconds;
+  final int? resumedPageIndex;
+  final Map<String, ResponseObject>? resumedResponses;
 
   const TestScreen({
     super.key,
@@ -32,52 +41,168 @@ class TestScreen extends StatefulWidget {
     required this.timeLimitInMinutes,
     this.sourceId = '',
     this.assignmentCode = 'PRAC',
+
+    // Default Title
+    this.title = 'Practice Test',
+
     this.testMode = TestMode.test,
+    this.resumedTimerSeconds,
+    this.resumedPageIndex,
+    this.resumedResponses,
   });
 
   @override
   State<TestScreen> createState() => _TestScreenState();
 }
 
-class _TestScreenState extends State<TestScreen> {
+class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   late final PageController _pageController;
   late final Timer _timer;
   late Duration _overallTimeCounter;
   bool _isPaused = false;
 
-  // State Maps
   final Map<int, AnswerState> _answerStates = {};
   final Map<int, int> _visitCounts = {};
   final Map<int, Stopwatch> _timeTrackers = {};
+  final Map<int, int> _accumulatedTime = {};
 
   int _currentPage = 0;
   bool _isAnswerChecked = false;
 
+  final LocalSessionService _localSessionService = LocalSessionService();
+
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    WidgetsBinding.instance.addObserver(this);
 
-    // 1. Timer Setup
-    if (widget.testMode == TestMode.test) {
-      _overallTimeCounter = Duration(minutes: widget.timeLimitInMinutes);
+    _currentPage = widget.resumedPageIndex ?? 0;
+    _pageController = PageController(initialPage: _currentPage);
+
+    if (widget.resumedTimerSeconds != null) {
+      _overallTimeCounter = Duration(seconds: widget.resumedTimerSeconds!);
     } else {
-      _overallTimeCounter = Duration.zero;
+      if (widget.testMode == TestMode.test) {
+        _overallTimeCounter = Duration(minutes: widget.timeLimitInMinutes);
+      } else {
+        _overallTimeCounter = Duration.zero;
+      }
     }
 
-    // 2. Initialize Questions
     for (int i = 0; i < widget.questions.length; i++) {
-      _answerStates[i] = AnswerState(status: AnswerStatus.notVisited);
+      final question = widget.questions[i];
       _visitCounts[i] = 0;
       _timeTrackers[i] = Stopwatch();
+      _accumulatedTime[i] = 0;
+
+      AnswerState newState = AnswerState(status: AnswerStatus.notVisited);
+
+      if (widget.resumedResponses != null &&
+          widget.resumedResponses!.containsKey(question.id)) {
+
+        final savedResponse = widget.resumedResponses![question.id]!;
+        newState.userAnswer = savedResponse.selectedOption;
+        _accumulatedTime[i] = savedResponse.timeSpent;
+
+        switch (savedResponse.status) {
+          case 'REVIEW':
+            newState.status = AnswerStatus.markedForReview;
+            break;
+          case 'REVIEW_ANSWERED':
+            newState.status = AnswerStatus.answeredAndMarked;
+            break;
+          case 'ANSWERED':
+          case 'CORRECT':
+          case 'INCORRECT':
+            newState.status = AnswerStatus.answered;
+            break;
+          case 'SKIPPED':
+            newState.status = AnswerStatus.notAnswered;
+            break;
+          default:
+            if (savedResponse.selectedOption != null) {
+              newState.status = AnswerStatus.answered;
+            }
+        }
+        _visitCounts[i] = savedResponse.visitCount;
+      }
+      _answerStates[i] = newState;
     }
 
-    // Initialize first page
-    _onPageChanged(0, fromInit: true);
+    _onPageChanged(_currentPage, fromInit: true);
     _startTimer();
   }
 
-  // --- TIMER LOGIC ---
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _triggerLocalSave();
+    }
+  }
+
+  Future<void> _triggerLocalSave() async {
+    Map<String, ResponseObject> currentResponses = _buildResponseMap();
+    await _localSessionService.saveSession(
+      assignmentCode: widget.assignmentCode,
+      mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
+      testId: widget.sourceId,
+      totalQuestions: widget.questions.length,
+      currentTimerValue: _overallTimeCounter.inSeconds,
+      currentQuestionIndex: _currentPage,
+      responses: currentResponses,
+    );
+  }
+
+  Map<String, ResponseObject> _buildResponseMap() {
+    Map<String, ResponseObject> responses = {};
+    for (int i = 0; i < widget.questions.length; i++) {
+      final question = widget.questions[i];
+      final state = _answerStates[i]!;
+
+      final int totalTimeSpent = (_accumulatedTime[i] ?? 0) + (_timeTrackers[i]?.elapsed.inSeconds ?? 0);
+
+      String statusString = 'SKIPPED';
+      if (state.status == AnswerStatus.answered) {
+        final isCorrect = _checkEquality(state.userAnswer, question.correctAnswer);
+        statusString = isCorrect ? 'CORRECT' : 'INCORRECT';
+      } else if (state.status == AnswerStatus.answeredAndMarked) {
+        statusString = 'REVIEW_ANSWERED';
+      } else if (state.status == AnswerStatus.markedForReview) {
+        statusString = 'REVIEW';
+      } else if (state.status == AnswerStatus.notAnswered) {
+        statusString = 'SKIPPED';
+      }
+
+      responses[question.id] = ResponseObject(
+        status: statusString,
+        selectedOption: state.userAnswer,
+        correctOption: question.correctAnswer.toString(),
+        timeSpent: totalTimeSpent,
+        visitCount: _visitCounts[i] ?? 0,
+        q_no: i + 1,
+        exam: question.exam,
+        subject: question.subject,
+        chapter: question.chapter,
+        topic: question.topic,
+        topicL2: question.topicL2,
+        chapterId: question.chapterId,
+        topicId: question.topicId,
+        topicL2Id: question.topicL2Id,
+        pyq: question.isPyq ? 'Yes' : 'No',
+        difficultyTag: question.difficulty,
+      );
+    }
+    return responses;
+  }
+
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_isPaused) return;
@@ -102,44 +227,39 @@ class _TestScreenState extends State<TestScreen> {
     if (!fromInit && _timeTrackers.containsKey(_currentPage)) {
       _timeTrackers[_currentPage]!.stop();
     }
-
     setState(() {
       _currentPage = page;
       _isAnswerChecked = false;
       _visitCounts[page] = (_visitCounts[page] ?? 0) + 1;
-
       if (_answerStates[page]?.status == AnswerStatus.notVisited) {
         _answerStates[page]?.status = AnswerStatus.notAnswered;
       }
     });
-
     if (_timeTrackers.containsKey(page)) {
       _timeTrackers[page]!.start();
     }
+    if(!fromInit) _triggerLocalSave();
   }
 
-  // Internal toggle helper
   void _togglePauseState() {
     setState(() => _isPaused = !_isPaused);
     if (_isPaused) {
       _timeTrackers[_currentPage]?.stop();
+      _triggerLocalSave();
     } else {
       _timeTrackers[_currentPage]?.start();
     }
   }
 
-  // UI Dialog for Pause
   void _showPauseDialog() {
-    _togglePauseState(); // Pause the timer
-
+    _togglePauseState();
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => PopScope(
         canPop: false,
         child: AlertDialog(
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
           title: Row(
             children: const [
               Icon(Icons.pause_circle_filled, color: Colors.orange, size: 28),
@@ -157,15 +277,14 @@ class _TestScreenState extends State<TestScreen> {
               child: ElevatedButton(
                 onPressed: () {
                   Navigator.pop(ctx);
-                  _togglePauseState(); // Resume timer
+                  _togglePauseState();
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.deepPurple,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 child: const Text('Resume',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -174,32 +293,18 @@ class _TestScreenState extends State<TestScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _timer.cancel();
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  // --- HELPER: COMPARE ANSWERS (Handles Lists & Maps) ---
   bool _checkEquality(dynamic userAns, dynamic correctAns) {
     if (userAns == null || correctAns == null) return false;
-
-    // 1. Simple String/Number comparison
     if (userAns is String || userAns is num) {
       return userAns.toString().trim().toLowerCase() ==
           correctAns.toString().trim().toLowerCase();
     }
-
-    // 2. List Comparison (Multi-Correct) - Order doesn't matter
     if (userAns is List && correctAns is List) {
       if (userAns.length != correctAns.length) return false;
       final userSet = userAns.map((e) => e.toString()).toSet();
       final correctSet = correctAns.map((e) => e.toString()).toSet();
       return userSet.containsAll(correctSet);
     }
-
-    // 3. Map Comparison (Matrix)
     if (userAns is Map && correctAns is Map) {
       if (userAns.length != correctAns.length) return false;
       for (var key in userAns.keys) {
@@ -208,22 +313,16 @@ class _TestScreenState extends State<TestScreen> {
       }
       return true;
     }
-
     return userAns == correctAns;
   }
-
-  // --- ACTION HANDLERS ---
 
   void _checkAnswer() {
     final state = _answerStates[_currentPage]!;
     bool isEmpty = false;
     if (state.userAnswer == null) isEmpty = true;
-    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
-      isEmpty = true;
-    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
-      isEmpty = true;
-    if (state.userAnswer is Map && (state.userAnswer as Map).isEmpty)
-      isEmpty = true;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty) isEmpty = true;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty) isEmpty = true;
+    if (state.userAnswer is Map && (state.userAnswer as Map).isEmpty) isEmpty = true;
 
     if (isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -233,6 +332,7 @@ class _TestScreenState extends State<TestScreen> {
     setState(() {
       _isAnswerChecked = true;
     });
+    _triggerLocalSave();
   }
 
   void _showSolution() {
@@ -246,18 +346,14 @@ class _TestScreenState extends State<TestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Solution",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text("Solution", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Divider(),
             const SizedBox(height: 10),
             Text("Correct Answer: ${q.correctAnswer}",
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, color: Colors.green)),
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
             const SizedBox(height: 10),
             if (q.solutionUrl != null)
-              Expanded(
-                  child:
-                  Center(child: ExpandableImage(imageUrl: q.solutionUrl!)))
+              Expanded(child: Center(child: ExpandableImage(imageUrl: q.solutionUrl!)))
             else
               const Text("No image solution available."),
           ],
@@ -269,34 +365,29 @@ class _TestScreenState extends State<TestScreen> {
   void _handleSaveAndNext() {
     final state = _answerStates[_currentPage]!;
     bool hasAnswer = state.userAnswer != null;
-    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
-      hasAnswer = false;
-    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
-      hasAnswer = false;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty) hasAnswer = false;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty) hasAnswer = false;
 
     if (hasAnswer) {
       setState(() => state.status = AnswerStatus.answered);
     } else {
       setState(() => state.status = AnswerStatus.notAnswered);
     }
-    _moveToNextPage();
+    _triggerLocalSave().then((_) => _moveToNextPage());
   }
 
   void _handleSaveAndMarkForReview() {
     final state = _answerStates[_currentPage]!;
     bool hasAnswer = state.userAnswer != null;
-    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
-      hasAnswer = false;
-    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
-      hasAnswer = false;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty) hasAnswer = false;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty) hasAnswer = false;
 
     if (hasAnswer) {
       setState(() => state.status = AnswerStatus.answeredAndMarked);
-      _moveToNextPage();
+      _triggerLocalSave().then((_) => _moveToNextPage());
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Please select an answer to Save & Mark for Review")),
+        const SnackBar(content: Text("Please select an answer to Save & Mark for Review")),
       );
     }
   }
@@ -305,7 +396,7 @@ class _TestScreenState extends State<TestScreen> {
     setState(() {
       _answerStates[_currentPage]!.status = AnswerStatus.markedForReview;
     });
-    _moveToNextPage();
+    _triggerLocalSave().then((_) => _moveToNextPage());
   }
 
   void _handleClearResponse() {
@@ -314,6 +405,7 @@ class _TestScreenState extends State<TestScreen> {
       _answerStates[_currentPage]!.status = AnswerStatus.notAnswered;
       _isAnswerChecked = false;
     });
+    _triggerLocalSave();
   }
 
   void _moveToNextPage() {
@@ -322,69 +414,26 @@ class _TestScreenState extends State<TestScreen> {
           duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content:
-            Text("You are on the last question. Click Submit to finish.")),
+        const SnackBar(content: Text("You are on the last question. Click Submit to finish.")),
       );
     }
   }
 
   // =================================================================
-  //  CORE SUBMISSION LOGIC (Updated for Smart Analysis Integration)
+  //  CORE SUBMISSION LOGIC (UPDATED)
   // =================================================================
   void _handleSubmit() async {
-    // 1. Stop Timers
     _timer.cancel();
     _timeTrackers.values.forEach((sw) => sw.stop());
 
-    // 2. Show Loading Indicator (Critical for UX during async processing)
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
-    // 3. Prepare Local Data (Basic data needed for submission)
-    Map<String, ResponseObject> initialResponses = {};
-    for (int i = 0; i < widget.questions.length; i++) {
-      final question = widget.questions[i];
-      final state = _answerStates[i]!;
-      String finalStatus = 'SKIPPED';
+    Map<String, ResponseObject> initialResponses = _buildResponseMap();
 
-      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
-        final isCorrect = _checkEquality(state.userAnswer, question.correctAnswer);
-        finalStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
-      } else if (state.status == AnswerStatus.markedForReview) {
-        finalStatus = 'REVIEW';
-      }
-
-      // Metadata populated from Question model
-      initialResponses[question.id] = ResponseObject(
-        status: finalStatus,
-        selectedOption: state.userAnswer.toString(),
-        correctOption: question.correctAnswer.toString(),
-        timeSpent: _timeTrackers[i]!.elapsed.inSeconds,
-        visitCount: _visitCounts[i] ?? 0,
-        q_no: i + 1,
-
-        // Metadata
-        exam: question.exam,
-        subject: question.subject,
-        chapter: question.chapter,
-        topic: question.topic,
-        topicL2: question.topicL2,
-
-        // IDs
-        chapterId: question.chapterId,
-        topicId: question.topicId,
-        topicL2Id: question.topicL2Id,
-
-        pyq: question.isPyq ? 'Yes' : 'No',
-        difficultyTag: question.difficulty,
-      );
-    }
-
-    // 4. Calculate final stats
     final score = (initialResponses.values.where((r) => r.status == 'CORRECT').length * 4) -
         (initialResponses.values.where((r) => r.status == 'INCORRECT').length * 1);
 
@@ -392,32 +441,38 @@ class _TestScreenState extends State<TestScreen> {
         ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter).inSeconds
         : _overallTimeCounter.inSeconds;
 
-    // 5. CALL SERVICE & AWAIT ENRICHED RESULT
-    // The service returns the AttemptModel containing the generated smartTimeAnalysisTags
+    final int? limitToSave = widget.testMode == TestMode.test
+        ? widget.timeLimitInMinutes
+        : null;
+
     final enrichedAttempt = await TestOrchestrationService().submitAttempt(
       sourceId: widget.sourceId,
       assignmentCode: widget.assignmentCode,
+
+      // PASS TITLE
+      title: widget.title,
+
       mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
       questions: widget.questions,
       score: score,
       timeTakenSeconds: finalTime,
       responses: initialResponses,
+      timeLimitMinutes: limitToSave,
     );
 
-    // 6. Navigate to Results
     if (mounted) {
-      // Remove Loading Indicator
       Navigator.pop(context);
 
       if (enrichedAttempt != null) {
-        // Construct Result using the ENRICHED responses (containing the calculated smart tags)
+        await _localSessionService.clearSession();
+
         final result = TestResult(
           attemptId: enrichedAttempt.id,
           questions: widget.questions,
           answerStates: _answerStates,
           timeTaken: Duration(seconds: finalTime),
           totalMarks: widget.questions.length * 4,
-          responses: enrichedAttempt.responses, // <--- KEY: Using service data with tags
+          responses: enrichedAttempt.responses,
         );
 
         Navigator.of(context).pushReplacement(
@@ -425,28 +480,28 @@ class _TestScreenState extends State<TestScreen> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Error saving attempt. Please check internet connection."))
+            const SnackBar(content: Text("Error uploading. Progress saved locally. Check internet."))
         );
       }
     }
   }
 
-  // --- CONFIRMATION DIALOGS ---
   Future<bool> _onWillPop() async {
     final shouldPop = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Quit Test?'),
-        content: const Text(
-            'If you quit now, your progress will be lost. Are you sure?'),
+        content: const Text('If you quit now, your progress will be saved locally. You can resume later.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('No, Resume')),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
+            onPressed: () {
+              _triggerLocalSave().then((_) => Navigator.pop(ctx, true));
+            },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Yes, Quit'),
+            child: const Text('Yes, Quit (Save & Exit)'),
           ),
         ],
       ),
@@ -461,8 +516,7 @@ class _TestScreenState extends State<TestScreen> {
         title: const Text('Submit Test'),
         content: const Text('Are you sure you want to finish the test?'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -474,8 +528,6 @@ class _TestScreenState extends State<TestScreen> {
       ),
     );
   }
-
-  // --- UI BUILDERS ---
 
   @override
   Widget build(BuildContext context) {
@@ -493,8 +545,6 @@ class _TestScreenState extends State<TestScreen> {
           backgroundColor: Colors.deepPurple,
           foregroundColor: Colors.white,
           centerTitle: true,
-
-          // 1. CLOSE BUTTON (Top-Left)
           automaticallyImplyLeading: false,
           leading: IconButton(
             icon: const Icon(Icons.close, color: Colors.white),
@@ -505,27 +555,17 @@ class _TestScreenState extends State<TestScreen> {
               }
             },
           ),
-
-          // 2. CENTER TITLE (Timer Pill)
           title: _buildOverallTimerWidget(),
-
-          // 3. ACTIONS (Pause + Submit)
           actions: [
-            // Pause Button: ONLY if in Practice Mode
             if (widget.testMode == TestMode.practice)
               IconButton(
                 onPressed: _showPauseDialog,
-                icon:
-                const Icon(Icons.pause_circle_filled, color: Colors.white),
+                icon: const Icon(Icons.pause_circle_filled, color: Colors.white),
                 tooltip: "Pause",
               ),
-
-            // Submit Button
             TextButton(
               onPressed: _showSubmitConfirmationDialog,
-              child: const Text('Submit',
-                  style: TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.bold)),
+              child: const Text('Submit', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(width: 8),
           ],
@@ -534,11 +574,9 @@ class _TestScreenState extends State<TestScreen> {
           children: [
             _buildNTAQuestionPalette(),
             const Divider(height: 1),
-
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
-                // Disable swiping when paused
                 physics: _isPaused
                     ? const NeverScrollableScrollPhysics()
                     : const AlwaysScrollableScrollPhysics(),
@@ -554,21 +592,17 @@ class _TestScreenState extends State<TestScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Q.${index + 1}',
-                                style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold)),
+                            Text('Q.${index + 1}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             _buildQuestionTimerWidget(index),
                           ],
                         ),
                         const SizedBox(height: 10),
-
                         if (q.imageUrl.isNotEmpty)
                           Align(
                             alignment: Alignment.centerLeft,
                             child: ExpandableImage(imageUrl: q.imageUrl),
                           ),
                         const SizedBox(height: 20),
-
                         QuestionInputWidget(
                           question: q,
                           currentAnswer: _answerStates[index]?.userAnswer,
@@ -583,9 +617,7 @@ class _TestScreenState extends State<TestScreen> {
                             }
                           },
                         ),
-
-                        if (widget.testMode == TestMode.practice &&
-                            _isAnswerChecked)
+                        if (widget.testMode == TestMode.practice && _isAnswerChecked)
                           _buildFeedbackUI(q),
                       ],
                     ),
@@ -614,17 +646,16 @@ class _TestScreenState extends State<TestScreen> {
       ),
       child: Text(
         "$hours:$minutes:$seconds",
-        style: const TextStyle(
-            fontSize: 16,
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2),
+        style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2),
       ),
     );
   }
 
   Widget _buildQuestionTimerWidget(int index) {
-    final duration = _timeTrackers[index]?.elapsed ?? Duration.zero;
+    final currentElapsed = _timeTrackers[index]?.elapsed.inSeconds ?? 0;
+    final totalSeconds = (_accumulatedTime[index] ?? 0) + currentElapsed;
+    final duration = Duration(seconds: totalSeconds);
+
     String twoDigits(int n) => n.toString().padLeft(2, "0");
     final minutes = twoDigits(duration.inMinutes.remainder(60));
     final seconds = twoDigits(duration.inSeconds.remainder(60));
@@ -643,10 +674,7 @@ class _TestScreenState extends State<TestScreen> {
           const SizedBox(width: 5),
           Text(
             "$minutes:$seconds",
-            style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
           ),
         ],
       ),
@@ -725,9 +753,7 @@ class _TestScreenState extends State<TestScreen> {
                       child: Text(
                         "${index + 1}",
                         style: TextStyle(
-                          color: (color == Colors.white)
-                              ? Colors.black
-                              : Colors.white,
+                          color: (color == Colors.white) ? Colors.black : Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -744,9 +770,7 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   Widget _buildFeedbackUI(Question q) {
-    final isCorrect =
-    _checkEquality(_answerStates[_currentPage]?.userAnswer, q.correctAnswer);
-
+    final isCorrect = _checkEquality(_answerStates[_currentPage]?.userAnswer, q.correctAnswer);
     return Container(
       margin: const EdgeInsets.only(top: 20),
       padding: const EdgeInsets.all(12),
@@ -759,18 +783,13 @@ class _TestScreenState extends State<TestScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(isCorrect ? Icons.check_circle : Icons.cancel,
-                color: isCorrect ? Colors.green : Colors.red),
+            Icon(isCorrect ? Icons.check_circle : Icons.cancel, color: isCorrect ? Colors.green : Colors.red),
             const SizedBox(width: 10),
             Text(isCorrect ? "Correct!" : "Incorrect",
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: isCorrect ? Colors.green : Colors.red)),
+                style: TextStyle(fontWeight: FontWeight.bold, color: isCorrect ? Colors.green : Colors.red)),
           ]),
           const SizedBox(height: 10),
-          ElevatedButton(
-              onPressed: _showSolution,
-              child: const Text("View Full Solution")),
+          ElevatedButton(onPressed: _showSolution, child: const Text("View Full Solution")),
         ],
       ),
     );
@@ -780,10 +799,7 @@ class _TestScreenState extends State<TestScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(color: Colors.white, boxShadow: [
-        BoxShadow(
-            color: Colors.grey.shade200,
-            blurRadius: 4,
-            offset: const Offset(0, -2))
+        BoxShadow(color: Colors.grey.shade200, blurRadius: 4, offset: const Offset(0, -2))
       ]),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -818,8 +834,7 @@ class _TestScreenState extends State<TestScreen> {
                   ),
                   child: const Text("Save & Mark Review",
                       textAlign: TextAlign.center,
-                      style:
-                      TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(width: 12),
@@ -835,8 +850,7 @@ class _TestScreenState extends State<TestScreen> {
                   ),
                   child: const Text("Mark Review & Next",
                       textAlign: TextAlign.center,
-                      style:
-                      TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -852,8 +866,7 @@ class _TestScreenState extends State<TestScreen> {
                     foregroundColor: Colors.red,
                     side: const BorderSide(color: Colors.red),
                   ),
-                  child: const Text("Clear",
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: const Text("Clear", style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(width: 12),
@@ -865,8 +878,7 @@ class _TestScreenState extends State<TestScreen> {
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  child: const Text("Save & Next",
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: const Text("Save & Next", style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
             ],

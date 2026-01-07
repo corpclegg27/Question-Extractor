@@ -1,4 +1,5 @@
-//lib/services/auth_service.dart
+// lib/services/auth_service.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -9,8 +10,7 @@ class AuthService {
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // --- FIX 1: Non-blocking Stream ---
-  // We removed asyncMap. The UI will now receive updates instantly.
+  // Stream for auth changes
   Stream<User?> get userStream {
     return _auth.authStateChanges();
   }
@@ -21,7 +21,6 @@ class AuthService {
       }) async {
     final userRef = _firestore.collection('users').doc(user.uid);
     final doc = await userRef.get();
-
     if (!doc.exists) {
       final newUser = UserModel(
         uid: user.uid,
@@ -38,53 +37,39 @@ class AuthService {
     }
   }
 
+  // UPDATED: Now rethrows exceptions so UI can handle them
   Future<UserCredential?> signInWithGoogle() async {
-    try {
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) return null;
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      final OAuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
+    // Let errors bubble up to be caught by the UI
+    final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) return null; // User canceled
 
-      // --- FIX 2: Ensure Document Exists for Google Users ---
-      UserCredential userCredential = await _auth.signInWithCredential(credential);
-      if (userCredential.user != null) {
-        // We manually check/create the doc here since we removed it from the stream
-        await _createUserDocumentIfNotExist(userCredential.user!);
-      }
-      return userCredential;
+    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+    final OAuthCredential credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
 
-    } catch (e) {
-      print("Error during Google Sign-In: $e");
-      return null;
+    UserCredential userCredential = await _auth.signInWithCredential(credential);
+    if (userCredential.user != null) {
+      await _createUserDocumentIfNotExist(userCredential.user!);
     }
+    return userCredential;
   }
 
+  // UPDATED: Removed try-catch to allow specific error handling in UI
   Future<UserCredential?> signInWithEmailAndPassword(String email, String password) async {
-    try {
-      return await _auth.signInWithEmailAndPassword(email: email, password: password);
-    } on FirebaseAuthException catch (e) {
-      print("Error: ${e.message}");
-      return null;
-    }
+    return await _auth.signInWithEmailAndPassword(email: email, password: password);
   }
 
+  // UPDATED: Removed try-catch to allow specific error handling in UI
   Future<UserCredential?> signUpWithEmailAndPassword(String email, String password, String displayName) async {
-    try {
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(email: email, password: password);
-      User? user = userCredential.user;
-      if (user != null) {
-        await user.updateDisplayName(displayName);
-        // This was already correct, it creates the doc explicitly
-        await _createUserDocumentIfNotExist(user, displayName: displayName);
-      }
-      return userCredential;
-    } on FirebaseAuthException catch (e) {
-      print("Error: ${e.message}");
-      return null;
+    UserCredential userCredential = await _auth.createUserWithEmailAndPassword(email: email, password: password);
+    User? user = userCredential.user;
+    if (user != null) {
+      await user.updateDisplayName(displayName);
+      await _createUserDocumentIfNotExist(user, displayName: displayName);
     }
+    return userCredential;
   }
 
   Future<void> signOut() async {

@@ -20,13 +20,10 @@ class TestOrchestrationService {
   // ===========================================================================
 
   /// Fetch attempts for a user.
-  /// If [targetUserId] is provided (Mentor Mode), it fetches for that specific student.
-  /// Otherwise, it defaults to the current user.
   Future<List<AttemptModel>> getUserAttempts({String? targetUserId}) async {
     final String? idToQuery = targetUserId ?? _userId;
     if (idToQuery == null) return [];
     try {
-      // NOTE: Requires a Composite Index for 'userId' (Asc) and 'completedAt' (Desc)
       final snapshot = await _firestore
           .collection('attempts')
           .where('userId', isEqualTo: idToQuery)
@@ -42,25 +39,30 @@ class TestOrchestrationService {
   }
 
   // ===========================================================================
-  // 2. UNIVERSAL SUBMISSION LOGIC (With Enriched Metadata & Smart Analysis)
+  // 2. UNIVERSAL SUBMISSION LOGIC
   // ===========================================================================
 
   /// Submits the test attempt and returns the enriched AttemptModel for immediate UI use
   Future<AttemptModel?> submitAttempt({
     required String sourceId,
     required String assignmentCode,
+
+    // NEW REQUIRED PARAMETER: Title
+    required String title,
+
     required String mode,
     required List<Question> questions,
     required num score,
     required int timeTakenSeconds,
     required Map<String, ResponseObject> responses,
+    int? timeLimitMinutes,
   }) async {
     if (_userId == null) return null;
 
     // --- STEP 1: FETCH CONFIGURATION FOR SMART ANALYSIS ---
     Map<String, dynamic> idealTimeMap = {};
-    double carelessFactor = 0.25; // Default fallback (25%)
-    double goodSkipFactorRaw = 20.0; // Default fallback (20%)
+    double carelessFactor = 0.25;
+    double goodSkipFactorRaw = 20.0;
 
     try {
       final configSnap = await _firestore
@@ -95,6 +97,16 @@ class TestOrchestrationService {
       "Time Wasted": 0
     };
 
+    Map<String, int> highLevelTime = {"CORRECT": 0, "INCORRECT": 0, "SKIPPED": 0};
+    Map<String, int> smartTimeBreakdown = {
+      "Perfect Attempt": 0,
+      "Overtime Correct": 0,
+      "Careless Mistake": 0,
+      "Wasted Attempt": 0,
+      "Good Skip": 0,
+      "Time Wasted": 0
+    };
+
     int correctCount = 0;
     int incorrectCount = 0;
     int skippedCount = 0;
@@ -114,7 +126,8 @@ class TestOrchestrationService {
         skippedCount++;
       }
 
-      // Generate the analysis tag
+      highLevelTime[status] = (highLevelTime[status] ?? 0) + timeSpent;
+
       String smartTag = _generateSmartTag(
         status: status,
         timeTaken: timeSpent,
@@ -128,6 +141,7 @@ class TestOrchestrationService {
       if (smartTag.isNotEmpty) {
         String shortKey = smartTag.split(' (').first.trim();
         analysisCounts[shortKey] = (analysisCounts[shortKey] ?? 0) + 1;
+        smartTimeBreakdown[shortKey] = (smartTimeBreakdown[shortKey] ?? 0) + timeSpent;
       }
 
       final enrichedResponse = ResponseObject(
@@ -162,6 +176,10 @@ class TestOrchestrationService {
       id: attemptRef.id,
       sourceId: sourceId,
       assignmentCode: assignmentCode,
+
+      // PASS TITLE HERE
+      title: title,
+
       mode: mode,
       userId: _userId!,
       startedAt: timestamp,
@@ -173,7 +191,10 @@ class TestOrchestrationService {
       incorrectCount: incorrectCount,
       skippedCount: skippedCount,
       timeTakenSeconds: timeTakenSeconds,
+      timeLimitMinutes: timeLimitMinutes,
       smartTimeAnalysisCounts: analysisCounts,
+      secondsBreakdownHighLevel: highLevelTime,
+      secondsBreakdownSmartTimeAnalysis: smartTimeBreakdown,
       responses: enrichedResponses,
     );
     batch.set(attemptRef, newAttempt.toFirestore());
@@ -253,6 +274,16 @@ class TestOrchestrationService {
       } catch (e) {
         print("Error updating status: $e");
       }
+    }
+
+    // ==========================================================
+    // Update User's Submitted List (MOVED BEFORE COMMIT)
+    // ==========================================================
+    if (assignmentCode.isNotEmpty && assignmentCode != 'PRAC') {
+      final userRef = _firestore.collection('users').doc(_userId);
+      batch.update(userRef, {
+        'assignmentCodesSubmitted': FieldValue.arrayUnion([assignmentCode])
+      });
     }
 
     await batch.commit();

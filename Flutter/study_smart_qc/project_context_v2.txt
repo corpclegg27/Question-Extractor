@@ -63,6 +63,7 @@
 📂 lib/services/
    📄 auth_service.dart
    📄 custom_test_service.dart
+   📄 local_session_service.dart
    📄 onboarding_service.dart
    📄 teacher_service.dart
    📄 test_orchestration_service.dart
@@ -78,8 +79,9 @@
    📄 solution_detail_sheet.dart
    📄 student_lookup_sheet.dart
    📄 test_configuration_bottom_sheet.dart
+   📄 timer_hms.dart
 
-Total Source Files: 48
+Total Source Files: 50
 --------------------------------------------------
 --- FILE CONTENTS ---
 
@@ -102,6 +104,7 @@ dependencies:
     sdk: flutter
 
   cupertino_icons: ^1.0.8
+  shared_preferences: ^2.2.2
   firebase_core: ^4.3.0
   cloud_firestore: ^6.1.1
   firebase_auth: ^6.1.3
@@ -113,6 +116,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
 
   flutter_lints: ^6.0.0
   flutter_native_splash: "^2.3.10"
@@ -411,7 +415,17 @@ class _ResultsScreenState extends State<ResultsScreen> {
   double accuracy = 0.0;
   double attemptPercentage = 0.0;
 
-  // Basic Categories (For the top chart)
+  // Consistent ordering for behavioral analysis
+  final List<String> _behavioralOrder = [
+    "Perfect Attempt",
+    "Overtime Correct",
+    "Careless Mistake",
+    "Wasted Attempt",
+    "Good Skip",
+    "Time Wasted"
+  ];
+
+  // Basic Categories
   List<int> correctIndices = [];
   List<int> incorrectIndices = [];
   List<int> skippedIndices = [];
@@ -496,18 +510,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
         final response = widget.result.responses[qId]!;
         final tag = response.smartTimeAnalysis;
 
-        if (tag.contains("Perfect Attempt")) {
-          _smartAnalysisGroups["Perfect Attempt"]!.add(i);
-        } else if (tag.contains("Overtime Correct")) {
-          _smartAnalysisGroups["Overtime Correct"]!.add(i);
-        } else if (tag.contains("Careless Mistake")) {
-          _smartAnalysisGroups["Careless Mistake"]!.add(i);
-        } else if (tag.contains("Wasted Attempt")) {
-          _smartAnalysisGroups["Wasted Attempt"]!.add(i);
-        } else if (tag.contains("Good Skip")) {
-          _smartAnalysisGroups["Good Skip"]!.add(i);
-        } else if (tag.contains("Time Wasted")) {
-          _smartAnalysisGroups["Time Wasted"]!.add(i);
+        for (var key in _behavioralOrder) {
+          if (tag.contains(key)) {
+            _smartAnalysisGroups[key]!.add(i);
+            break;
+          }
         }
       }
     }
@@ -544,6 +551,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
     return '$minutes:$seconds';
   }
 
+  String _formatSeconds(int totalSeconds) {
+    int m = totalSeconds ~/ 60;
+    int s = totalSeconds % 60;
+    return '${m}m ${s}s';
+  }
+
   Color _getSmartColor(String category) {
     switch (category) {
       case "Perfect Attempt": return Colors.green.shade800;
@@ -576,22 +589,44 @@ class _ResultsScreenState extends State<ResultsScreen> {
             _buildScoreCard(),
             const SizedBox(height: 20),
             _buildStatsRow(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 30),
+
+            // 1. # Questions by Result
+            _buildHeader("# Questions by Result"),
             _buildPerformanceDistributionChart(),
-            const SizedBox(height: 24),
-            const Divider(thickness: 2),
-            const SizedBox(height: 24),
-            const Text(
-              "Smart Time Analysis",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
-            ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 30),
+
+            // 2. Time spent by Result
+            _buildHeader("Time spent by Result"),
+            _buildTimeSpentByResultChart(),
+            const SizedBox(height: 30),
+
+            // 3. # Questions by Behavior
+            _buildHeader("# Questions by Behavior"),
             _buildSmartAnalysisChart(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 30),
+
+            // 4. Time spent by Behavior
+            _buildHeader("Time spent by Behavior"),
+            _buildTimeSpentByBehaviorChart(),
+            const SizedBox(height: 30),
+
+            // 5. Categorized Questions
+            _buildHeader("Questions Breakdown"),
             _buildSmartAnalysisList(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Text(
+        title,
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
       ),
     );
   }
@@ -650,6 +685,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  // --- CHART 1: # Questions by Result ---
   Widget _buildPerformanceDistributionChart() {
     return Card(
       elevation: 2,
@@ -657,46 +693,24 @@ class _ResultsScreenState extends State<ResultsScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            const Text('Performance Distribution', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
             SizedBox(
               height: 180,
               child: PieChart(
                 PieChartData(
                   sectionsSpace: 2,
                   centerSpaceRadius: 40,
-                  startDegreeOffset: 270, // Starts at 12 o'clock
+                  startDegreeOffset: 270,
                   sections: [
-                    PieChartSectionData(
-                        value: correctIndices.length.toDouble(),
-                        title: '${correctIndices.length}',
-                        color: Colors.green,
-                        radius: 50,
-                        titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
-                    ),
-                    PieChartSectionData(
-                        value: incorrectIndices.length.toDouble(),
-                        title: '${incorrectIndices.length}',
-                        color: Colors.red,
-                        radius: 50,
-                        titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
-                    ),
-                    PieChartSectionData(
-                        value: skippedIndices.length.toDouble(),
-                        title: '${skippedIndices.length}',
-                        color: Colors.grey.shade300,
-                        radius: 50,
-                        titleStyle: const TextStyle(color: Colors.black54, fontWeight: FontWeight.bold)
-                    ),
+                    _buildSection(correctIndices.length.toDouble(), '${correctIndices.length}', Colors.green),
+                    _buildSection(incorrectIndices.length.toDouble(), '${incorrectIndices.length}', Colors.red),
+                    _buildSection(skippedIndices.length.toDouble(), '${skippedIndices.length}', Colors.grey.shade300, textColor: Colors.black54),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 20),
             Wrap(
-              spacing: 16,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
+              spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
               children: [
                 _buildLegendItem(Colors.green, 'Correct'),
                 _buildLegendItem(Colors.red, 'Incorrect'),
@@ -709,14 +723,106 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _buildSmartAnalysisChart() {
-    final activeCategories = _smartAnalysisGroups.entries.where((e) => e.value.isNotEmpty).toList();
+  // --- CHART 2: Time Spent by Result ---
+  Widget _buildTimeSpentByResultChart() {
+    final Map<String, int> timeMap = {"CORRECT": 0, "INCORRECT": 0, "SKIPPED": 0};
+    for (var resp in widget.result.responses.values) {
+      String status = (resp.status == "REVIEW") ? "SKIPPED" : resp.status;
+      timeMap[status] = (timeMap[status] ?? 0) + resp.timeSpent;
+    }
+    final total = timeMap.values.fold(0, (sum, item) => sum + item);
 
-    if (activeCategories.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(20),
-        child: Center(child: Text("Not enough data for smart analysis.")),
-      );
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            SizedBox(
+              height: 180,
+              child: total == 0 ? const Center(child: Text("No time data recorded")) : PieChart(
+                PieChartData(
+                  sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
+                  sections: [
+                    _buildTimeSection(timeMap["CORRECT"]!, total, Colors.green),
+                    _buildTimeSection(timeMap["INCORRECT"]!, total, Colors.red),
+                    _buildTimeSection(timeMap["SKIPPED"]!, total, Colors.grey.shade300, textColor: Colors.black54),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
+              children: [
+                _buildLegendItem(Colors.green, 'Correct (${_formatSeconds(timeMap["CORRECT"]!)})'),
+                _buildLegendItem(Colors.red, 'Incorrect (${_formatSeconds(timeMap["INCORRECT"]!)})'),
+                _buildLegendItem(Colors.grey.shade300, 'Skipped (${_formatSeconds(timeMap["SKIPPED"]!)})'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- CHART 3: # Questions by Behavior ---
+  Widget _buildSmartAnalysisChart() {
+    List<PieChartSectionData> sections = [];
+    for (var key in _behavioralOrder) {
+      final count = _smartAnalysisGroups[key]!.length;
+      if (count > 0) {
+        sections.add(_buildSection(count.toDouble(), '$count', _getSmartColor(key)));
+      }
+    }
+
+    if (sections.isEmpty) return const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text("Not enough behavioral data"))));
+
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            SizedBox(
+              height: 180,
+              child: PieChart(
+                PieChartData(
+                  sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
+                  sections: sections,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
+              children: _behavioralOrder
+                  .where((key) => _smartAnalysisGroups[key]!.isNotEmpty)
+                  .map((key) => _buildLegendItem(_getSmartColor(key), key))
+                  .toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- CHART 4: Time Spent by Behavior ---
+  Widget _buildTimeSpentByBehaviorChart() {
+    Map<String, int> timeMap = {};
+    for (var resp in widget.result.responses.values) {
+      String tag = resp.smartTimeAnalysis.split(' (').first.trim();
+      if (tag.isNotEmpty) timeMap[tag] = (timeMap[tag] ?? 0) + resp.timeSpent;
+    }
+
+    final total = timeMap.values.fold(0, (sum, item) => sum + item);
+    List<PieChartSectionData> sections = [];
+
+    for (var key in _behavioralOrder) {
+      final time = timeMap[key] ?? 0;
+      if (time > 0) {
+        sections.add(_buildTimeSection(time, total, _getSmartColor(key)));
+      }
     }
 
     return Card(
@@ -726,33 +832,21 @@ class _ResultsScreenState extends State<ResultsScreen> {
         child: Column(
           children: [
             SizedBox(
-              height: 200,
-              child: PieChart(
+              height: 180,
+              child: total == 0 ? const Center(child: Text("No time data recorded")) : PieChart(
                 PieChartData(
-                  sectionsSpace: 2,
-                  centerSpaceRadius: 40,
-                  startDegreeOffset: 270, // Starts at 12 o'clock
-                  sections: activeCategories.map((entry) {
-                    final color = _getSmartColor(entry.key);
-                    return PieChartSectionData(
-                      value: entry.value.length.toDouble(),
-                      title: '${entry.value.length}',
-                      color: color,
-                      radius: 60,
-                      titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                    );
-                  }).toList(),
+                  sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
+                  sections: sections,
                 ),
               ),
             ),
             const SizedBox(height: 20),
             Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: activeCategories.map((entry) {
-                return _buildLegendItem(_getSmartColor(entry.key), entry.key);
-              }).toList(),
+              spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
+              children: _behavioralOrder
+                  .where((key) => (timeMap[key] ?? 0) > 0)
+                  .map((key) => _buildLegendItem(_getSmartColor(key), '$key (${_formatSeconds(timeMap[key] ?? 0)})'))
+                  .toList(),
             ),
           ],
         ),
@@ -760,38 +854,42 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  // --- CHART HELPERS ---
+  PieChartSectionData _buildSection(double value, String title, Color color, {Color textColor = Colors.white}) {
+    return PieChartSectionData(
+      value: value, title: title, color: color, radius: 50,
+      titleStyle: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+    );
+  }
+
+  PieChartSectionData _buildTimeSection(int value, int total, Color color, {Color textColor = Colors.white}) {
+    final percent = total > 0 ? (value / total * 100).toStringAsFixed(0) : '0';
+    return PieChartSectionData(
+      value: value.toDouble(), title: '$percent%', color: color, radius: 50,
+      titleStyle: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12),
+    );
+  }
+
   Widget _buildLegendItem(Color color, String text) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 6),
-        Text(text, style: const TextStyle(fontSize: 12)),
+        Text(text, style: const TextStyle(fontSize: 11)),
       ],
     );
   }
 
+  // --- LIST BREAKDOWN ---
   Widget _buildSmartAnalysisList() {
-    final orderedKeys = [
-      "Perfect Attempt",
-      "Overtime Correct",
-      "Careless Mistake",
-      "Wasted Attempt",
-      "Good Skip",
-      "Time Wasted"
-    ];
-
     return Column(
-      children: orderedKeys.map((key) {
+      children: _behavioralOrder.map((key) {
         final indices = _smartAnalysisGroups[key] ?? [];
         if (indices.isEmpty) return const SizedBox.shrink();
-
         final color = _getSmartColor(key);
-        final description = _categoryDescriptions[key] ?? "";
-
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
-          elevation: 2,
           child: Padding(
             padding: const EdgeInsets.all(12.0),
             child: Column(
@@ -799,66 +897,26 @@ class _ResultsScreenState extends State<ResultsScreen> {
               children: [
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-                      child: Icon(Icons.label, size: 16, color: color),
-                    ),
+                    Icon(Icons.label, size: 16, color: color),
                     const SizedBox(width: 8),
-                    Text(
-                      key,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
+                    Text(key, style: const TextStyle(fontWeight: FontWeight.bold)),
                     const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        "${indices.length}",
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
-                    ),
+                    CircleAvatar(radius: 10, backgroundColor: color, child: Text("${indices.length}", style: const TextStyle(color: Colors.white, fontSize: 10))),
                   ],
                 ),
                 const SizedBox(height: 8),
-                // Coaching full text
-                Text(
-                  description,
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontStyle: FontStyle.italic),
-                ),
+                Text(_categoryDescriptions[key] ?? "", style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontStyle: FontStyle.italic)),
                 const SizedBox(height: 12),
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: indices.map((index) {
-                    return GestureDetector(
-                      onTap: () => _showSolutionSheet(index),
-                      child: Container(
-                        width: 45,
-                        height: 35,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                            color: Colors.white,
-                            border: Border.all(color: color.withOpacity(0.5)),
-                            borderRadius: BorderRadius.circular(8),
-                            boxShadow: [
-                              BoxShadow(color: color.withOpacity(0.05), blurRadius: 2, offset: const Offset(0, 1))
-                            ]
-                        ),
-                        child: Text(
-                          'Q${index + 1}',
-                          style: TextStyle(
-                            color: color,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
+                  spacing: 8, runSpacing: 8,
+                  children: indices.map((idx) => GestureDetector(
+                    onTap: () => _showSolutionSheet(idx),
+                    child: Container(
+                      width: 40, height: 30, alignment: Alignment.center,
+                      decoration: BoxDecoration(border: Border.all(color: color), borderRadius: BorderRadius.circular(4)),
+                      child: Text("Q${idx + 1}", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+                    ),
+                  )).toList(),
                 ),
               ],
             ),
@@ -1449,10 +1507,12 @@ class AuthWrapper extends StatelessWidget {
 ================================================================================
 FILE: lib/features/auth/screens/login_screen.dart
 ================================================================================
-import 'package:firebase_auth/firebase_auth.dart'; // Added import
+// lib/features/auth/screens/login_screen.dart
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/services/auth_service.dart';
-import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart'; // Added import
+import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart';
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback showRegisterScreen;
@@ -1466,31 +1526,79 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
+  // UI States
   bool _isLoading = false;
+  bool _isPasswordVisible = false;
 
   Future<void> _signIn() async {
+    // 1. Dismiss Keyboard immediately
+    FocusScope.of(context).unfocus();
+
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
 
-      // 1. Capture Result
-      UserCredential? cred = await AuthService().signInWithEmailAndPassword(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
-      );
+      try {
+        // 2. Attempt Login
+        UserCredential? cred = await AuthService().signInWithEmailAndPassword(
+          _emailController.text.trim(),
+          _passwordController.text.trim(),
+        );
 
-      if (mounted) {
-        setState(() => _isLoading = false);
-
-        // 2. FORCE NAVIGATION
-        if (cred != null && cred.user != null) {
+        if (mounted && cred != null && cred.user != null) {
+          // Success Navigation
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
               builder: (_) => AuthWrapper(firebaseUser: cred.user!),
             ),
           );
         }
+      } on FirebaseAuthException catch (e) {
+        // 3. Handle Firebase Errors nicely
+        String message = "Login failed. Please try again.";
+        if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+          message = "No account found with these credentials.";
+        } else if (e.code == 'wrong-password') {
+          message = "Incorrect password. Please try again.";
+        } else if (e.code == 'invalid-email') {
+          message = "The email address is badly formatted.";
+        } else if (e.code == 'too-many-requests') {
+          message = "Too many failed attempts. Try again later.";
+        }
+        _showSnackBar(message, isError: true);
+      } catch (e) {
+        // 4. Handle Generic Errors
+        _showSnackBar("An unexpected error occurred: $e", isError: true);
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
     }
+  }
+
+  Future<void> _signInGoogle() async {
+    setState(() => _isLoading = true);
+    try {
+      UserCredential? cred = await AuthService().signInWithGoogle();
+      if (mounted && cred != null && cred.user != null) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => AuthWrapper(firebaseUser: cred.user!)),
+        );
+      }
+    } catch (e) {
+      _showSnackBar("Google Sign-In failed. Please try again.", isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade600 : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -1502,62 +1610,125 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.deepPurple[50],
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('StudySmart', style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
-                const SizedBox(height: 50),
-                TextFormField(
-                  controller: _emailController,
-                  decoration: const InputDecoration(labelText: 'Email'),
-                  validator: (value) => value!.isEmpty ? 'Please enter an email' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _passwordController,
-                  decoration: const InputDecoration(labelText: 'Password'),
-                  obscureText: true,
-                  validator: (value) => value!.isEmpty ? 'Please enter a password' : null,
-                ),
-                const SizedBox(height: 20),
-                if (_isLoading)
-                  const CircularProgressIndicator()
-                else
-                  ElevatedButton(
-                    onPressed: _signIn,
-                    style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-                    child: const Text('Sign In'),
+    // "Tap to Dismiss" Keyboard wrapper
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        backgroundColor: Colors.deepPurple[50],
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.school_rounded, size: 80, color: Colors.deepPurple),
+                  const SizedBox(height: 16),
+                  const Text('StudySmart',
+                      style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurple)),
+                  const SizedBox(height: 8),
+                  Text('Welcome back! Please login to continue.',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 16)),
+                  const SizedBox(height: 40),
+
+                  // EMAIL FIELD
+                  TextFormField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) return 'Please enter an email';
+                      if (!value.contains('@') || !value.contains('.')) return 'Please enter a valid email';
+                      return null;
+                    },
                   ),
-                const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  icon: Image.asset('assets/google_logo.png', height: 24.0),
-                  label: const Text('Sign in with Google', style: TextStyle(fontSize: 16)),
-                  style: ElevatedButton.styleFrom(
-                      foregroundColor: Colors.black, backgroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)),
-                  onPressed: () async {
-                    // Manual nav for Google Sign In too
-                    UserCredential? cred = await AuthService().signInWithGoogle();
-                    if (cred != null && cred.user != null && mounted) {
-                      Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(
-                          builder: (_) => AuthWrapper(firebaseUser: cred.user!),
+                  const SizedBox(height: 16),
+
+                  // PASSWORD FIELD (With Eye Icon)
+                  TextFormField(
+                    controller: _passwordController,
+                    obscureText: !_isPasswordVisible,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          color: Colors.grey,
                         ),
-                      );
-                    }
-                  },
-                ),
-                TextButton(
-                  onPressed: widget.showRegisterScreen,
-                  child: const Text('Not a member? Register now'),
-                ),
-              ],
+                        onPressed: () => setState(() => _isPasswordVisible = !_isPasswordVisible),
+                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    validator: (value) => value!.isEmpty ? 'Please enter a password' : null,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // LOGIN BUTTON
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _signIn,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 55),
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 2,
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                    )
+                        : const Text('Sign In', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // GOOGLE BUTTON
+                  ElevatedButton.icon(
+                    icon: Image.asset('assets/google_logo.png', height: 24.0),
+                    label: const Text('Sign in with Google', style: TextStyle(fontSize: 16)),
+                    style: ElevatedButton.styleFrom(
+                      foregroundColor: Colors.black87,
+                      backgroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 55),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey.shade300)
+                      ),
+                      elevation: 0,
+                    ),
+                    onPressed: _isLoading ? null : _signInGoogle,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // TOGGLE LINK
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text("Not a member? ", style: TextStyle(color: Colors.grey[700])),
+                      GestureDetector(
+                        onTap: widget.showRegisterScreen,
+                        child: const Text('Register now',
+                            style: TextStyle(
+                                color: Colors.deepPurple, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1874,14 +2045,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 ================================================================================
 FILE: lib/features/auth/screens/register_screen.dart
 ================================================================================
-import 'package:firebase_auth/firebase_auth.dart'; // Added this import
+// lib/features/auth/screens/register_screen.dart
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/services/auth_service.dart';
-import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart'; // Added this import
+import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart';
 
 class RegisterScreen extends StatefulWidget {
   final VoidCallback showLoginScreen;
   const RegisterScreen({super.key, required this.showLoginScreen});
+
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
@@ -1891,32 +2065,57 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _displayNameController = TextEditingController();
+
+  // UI States
   bool _isLoading = false;
+  bool _isPasswordVisible = false;
 
   Future<void> _signUp() async {
+    FocusScope.of(context).unfocus();
+
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
 
-      // 1. Capture the result
-      UserCredential? cred = await AuthService().signUpWithEmailAndPassword(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
-        _displayNameController.text.trim(),
-      );
+      try {
+        UserCredential? cred = await AuthService().signUpWithEmailAndPassword(
+          _emailController.text.trim(),
+          _passwordController.text.trim(),
+          _displayNameController.text.trim(),
+        );
 
-      if (mounted) {
-        setState(() => _isLoading = false);
-
-        // 2. FORCE NAVIGATION if successful
-        if (cred != null && cred.user != null) {
+        if (mounted && cred != null && cred.user != null) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
               builder: (_) => AuthWrapper(firebaseUser: cred.user!),
             ),
           );
         }
+      } on FirebaseAuthException catch (e) {
+        String message = "Registration failed.";
+        if (e.code == 'weak-password') {
+          message = "The password provided is too weak.";
+        } else if (e.code == 'email-already-in-use') {
+          message = "The account already exists for that email.";
+        } else if (e.code == 'invalid-email') {
+          message = "The email address is invalid.";
+        }
+        _showSnackBar(message, isError: true);
+      } catch (e) {
+        _showSnackBar("An error occurred: $e", isError: true);
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
     }
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade600 : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -1929,47 +2128,126 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Register')),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                TextFormField(
-                  controller: _displayNameController,
-                  decoration: const InputDecoration(labelText: 'Full Name'),
-                  validator: (value) => value!.isEmpty ? 'Please enter your name' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _emailController,
-                  decoration: const InputDecoration(labelText: 'Email'),
-                  validator: (value) => value!.isEmpty ? 'Please enter an email' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _passwordController,
-                  decoration: const InputDecoration(labelText: 'Password'),
-                  obscureText: true,
-                  validator: (value) => value!.length < 6 ? 'Password must be at least 6 characters' : null,
-                ),
-                const SizedBox(height: 20),
-                if (_isLoading)
-                  const CircularProgressIndicator()
-                else
-                  ElevatedButton(
-                    onPressed: _signUp,
-                    child: const Text('Sign Up'),
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        backgroundColor: Colors.deepPurple[50],
+        appBar: AppBar(
+          title: const Text('Create Account'),
+          backgroundColor: Colors.deepPurple[50],
+          elevation: 0,
+        ),
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Get Started',
+                      style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurple)),
+                  const SizedBox(height: 8),
+                  Text('Create your account to start learning.',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 16)),
+                  const SizedBox(height: 30),
+
+                  // NAME FIELD
+                  TextFormField(
+                    controller: _displayNameController,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: InputDecoration(
+                      labelText: 'Full Name',
+                      prefixIcon: const Icon(Icons.person_outline),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    validator: (value) => value!.isEmpty ? 'Please enter your name' : null,
                   ),
-                TextButton(
-                  onPressed: widget.showLoginScreen,
-                  child: const Text('Already have an account? Login'),
-                ),
-              ],
+                  const SizedBox(height: 16),
+
+                  // EMAIL FIELD
+                  TextFormField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) return 'Please enter an email';
+                      if (!value.contains('@') || !value.contains('.')) return 'Please enter a valid email';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+
+                  // PASSWORD FIELD
+                  TextFormField(
+                    controller: _passwordController,
+                    obscureText: !_isPasswordVisible,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () => setState(() => _isPasswordVisible = !_isPasswordVisible),
+                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    validator: (value) => (value != null && value.length < 6)
+                        ? 'Password must be at least 6 characters'
+                        : null,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // SIGN UP BUTTON
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _signUp,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 55),
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 2,
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                    )
+                        : const Text('Sign Up', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // TOGGLE LINK
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text("Already have an account? ", style: TextStyle(color: Colors.grey[700])),
+                      GestureDetector(
+                        onTap: widget.showLoginScreen,
+                        child: const Text('Login',
+                            style: TextStyle(
+                                color: Colors.deepPurple, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -2186,17 +2464,30 @@ FILE: lib/features/home/screens/home_screen.dart
 ================================================================================
 // lib/features/home/screens/home_screen.dart
 
+import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
+// MODELS
+import 'package:study_smart_qc/models/user_model.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
+
+// SCREENS
 import 'package:study_smart_qc/features/auth/screens/auth_page.dart';
 import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart';
 import 'package:study_smart_qc/features/student/widgets/student_assignments_list.dart';
 import 'package:study_smart_qc/features/analytics/screens/analysis_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_curation_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_history_screen.dart';
-import 'package:study_smart_qc/models/user_model.dart';
+import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
+
+// SERVICES
 import 'package:study_smart_qc/services/auth_service.dart';
 import 'package:study_smart_qc/services/onboarding_service.dart';
+import 'package:study_smart_qc/services/local_session_service.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
 import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -2211,10 +2502,16 @@ class _HomeScreenState extends State<HomeScreen> {
   UserModel? _userModel;
   bool _isLoading = true;
 
+  // --- RESUME SESSION STATE ---
+  final LocalSessionService _localSessionService = LocalSessionService();
+  bool _hasPendingSession = false;
+  Map<String, dynamic>? _pendingSessionData;
+
   @override
   void initState() {
     super.initState();
     _fetchUserData();
+    _checkPendingSession();
   }
 
   Future<void> _fetchUserData() async {
@@ -2226,6 +2523,211 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
   }
+
+  // Helper to extract pending code safely
+  String? get _pendingAssignmentCode {
+    if (!_hasPendingSession || _pendingSessionData == null) return null;
+    return _pendingSessionData!['meta']['assignmentCode'];
+  }
+
+  // ---------------------------------------------------------------------------
+  //  RESUME LOGIC START
+  // ---------------------------------------------------------------------------
+
+  Future<void> _checkPendingSession() async {
+    final hasSession = await _localSessionService.hasPendingSession();
+    if (hasSession) {
+      final data = await _localSessionService.getSessionData();
+      setState(() {
+        _hasPendingSession = true;
+        _pendingSessionData = data;
+      });
+      if (mounted) _showResumeDialog();
+    }
+  }
+
+  void _showResumeDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Resume Test?"),
+        content: const Text(
+            "You have an unfinished test session saved on this device. Would you like to continue?"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _handleSubmitPending();
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.grey),
+            child: const Text("No, Submit"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _handleResumePending();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+            child: const Text("Yes, Resume"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleResumePending() async {
+    if (_pendingSessionData == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final meta = _pendingSessionData!['meta'];
+      final timestamps = _pendingSessionData!['timestamps'];
+      final state = _pendingSessionData!['state'];
+
+      final String mode = meta['mode'] ?? 'Test';
+      final String assignmentCode = meta['assignmentCode'];
+      final int savedTimer = timestamps['quitTimeTimerValue'];
+      final String quitTimestamp = timestamps['quitTimeTimestamp'];
+
+      // A. RECONCILE TIMER
+      final newTime = _localSessionService.calculateResumeTime(
+        mode: mode,
+        savedTimerValue: savedTimer,
+        savedTimestampIso: quitTimestamp,
+      );
+
+      // B. CHECK EXPIRY
+      if (newTime == null) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Time expired while you were away. Submitting test..."),
+          backgroundColor: Colors.red,
+        ));
+        _handleSubmitPending();
+        return;
+      }
+
+      // C. FETCH QUESTIONS
+      List<Question> questions = [];
+      List<String> qIds = [];
+
+      final curationQuery = await FirebaseFirestore.instance
+          .collection('questions_curation')
+          .where('assignmentCode', isEqualTo: assignmentCode)
+          .limit(1)
+          .get();
+
+      if (curationQuery.docs.isNotEmpty) {
+        final data = curationQuery.docs.first.data();
+        qIds = List<String>.from(data['questionIds'] ?? []);
+      } else {
+        final testQuery = await FirebaseFirestore.instance
+            .collection('tests')
+            .where('assignmentCode', isEqualTo: assignmentCode)
+            .limit(1)
+            .get();
+
+        if(testQuery.docs.isNotEmpty) {
+          qIds = List<String>.from(testQuery.docs.first.data()['questionIds'] ?? []);
+        }
+      }
+
+      if (qIds.isNotEmpty) {
+        questions = await TestOrchestrationService().getQuestionsByIds(qIds);
+      }
+
+      if (questions.isEmpty) {
+        throw Exception("Could not retrieve questions for Code: $assignmentCode");
+      }
+
+      // D. PARSE RESPONSES
+      final responseMap = _localSessionService.parseResponses(
+          Map<String, dynamic>.from(state['responses'])
+      );
+
+      // E. NAVIGATE TO TEST SCREEN
+      if (mounted) {
+        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TestScreen(
+              sourceId: curationQuery.docs.isNotEmpty ? curationQuery.docs.first.id : '',
+              assignmentCode: assignmentCode,
+              questions: questions,
+              timeLimitInMinutes: 0,
+              testMode: mode == 'Test' ? TestMode.test : TestMode.practice,
+              resumedTimerSeconds: newTime,
+              resumedPageIndex: state['currentQuestionIndex'],
+              resumedResponses: responseMap,
+            ),
+          ),
+        ).then((_) {
+          _checkPendingSession();
+          _fetchUserData(); // Refresh to check if they submitted
+        });
+      }
+
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      print("Resume Error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error resuming session: $e")),
+      );
+    }
+  }
+
+  Future<void> _handleSubmitPending() async {
+    if (_pendingSessionData == null) return;
+
+    final meta = _pendingSessionData!['meta'];
+    final state = _pendingSessionData!['state'];
+    final metaMode = meta['mode'] ?? 'Test';
+
+    final responseMap = _localSessionService.parseResponses(
+        Map<String, dynamic>.from(state['responses'])
+    );
+
+    int correct = 0;
+    int incorrect = 0;
+    responseMap.forEach((k, v) {
+      if(v.status == 'CORRECT') correct++;
+      if(v.status == 'INCORRECT') incorrect++;
+    });
+    final score = (correct * 4) - incorrect;
+
+    await TestOrchestrationService().submitAttempt(
+      sourceId: meta['testId'] ?? '',
+      assignmentCode: meta['assignmentCode'],
+      mode: metaMode,
+      questions: [],
+      score: score,
+      timeTakenSeconds: 0,
+      responses: responseMap,
+    );
+
+    await _localSessionService.clearSession();
+
+    setState(() {
+      _hasPendingSession = false;
+      _pendingSessionData = null;
+    });
+
+    if (mounted) {
+      _fetchUserData(); // Refresh user data to get the new submission code
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Test submitted successfully.")));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  //  UI BUILD
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -2242,7 +2744,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // --- TEACHER DASHBOARD (Main Screen) ---
+    // --- TEACHER DASHBOARD ---
     if (_userModel!.role == 'teacher') {
       return Scaffold(
         appBar: AppBar(title: const Text("Teacher Dashboard")),
@@ -2252,6 +2754,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // --- STUDENT DASHBOARD ---
+    // Prepare common params for lists
+    final List<String> submitted = _userModel!.assignmentCodesSubmitted;
+    final String? resumeCode = _pendingAssignmentCode;
+    final VoidCallback navToAnalysis = () => setState(() => _currentTabIndex = 2);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_getAppBarTitle()),
@@ -2262,17 +2769,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
       body: IndexedStack(
         index: _currentTabIndex,
-        children: const [
+        children: [
           // Tab 0: Assignments (General / Practice)
-          StudentAssignmentsList(isStrict: false),
+          StudentAssignmentsList(
+            isStrict: false,
+            submittedCodes: submitted,
+            resumableAssignmentCode: resumeCode,
+            onResumeTap: _handleResumePending,
+            onViewAnalysisTap: navToAnalysis,
+          ),
+
           // Tab 1: Tests (Strict / Timed)
-          StudentAssignmentsList(isStrict: true),
+          // Removed the duplicate 'Resume Card' - now handled inside the list
+          StudentAssignmentsList(
+            isStrict: true,
+            submittedCodes: submitted,
+            resumableAssignmentCode: resumeCode,
+            onResumeTap: _handleResumePending,
+            onViewAnalysisTap: navToAnalysis,
+          ),
+
           // Tab 2: Analysis
-          AnalysisScreen(),
+          const AnalysisScreen(),
         ],
       ),
-
-      // [REMOVED] Floating Action Button (Create Test / Enter Code) removed as requested
 
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentTabIndex,
@@ -2326,7 +2846,6 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: const BoxDecoration(color: Colors.deepPurple),
           ),
 
-          // --- Student ID Display (Only for Students) ---
           if (!isTeacher && _userModel?.studentId != null) ...[
             ListTile(
               leading: const Icon(Icons.badge_outlined),
@@ -2337,7 +2856,6 @@ class _HomeScreenState extends State<HomeScreen> {
             const Divider(),
           ],
 
-          // --- TEACHER TOOLS SECTION ---
           if (isTeacher) ...[
             const Padding(
               padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
@@ -2423,9 +2941,21 @@ import 'package:study_smart_qc/services/test_orchestration_service.dart';
 class StudentAssignmentsList extends StatelessWidget {
   final bool isStrict;
 
+  // --- Resume Capabilities ---
+  final String? resumableAssignmentCode;
+  final VoidCallback? onResumeTap;
+
+  // --- NEW: Submitted Capabilities ---
+  final List<String> submittedCodes;
+  final VoidCallback? onViewAnalysisTap;
+
   const StudentAssignmentsList({
     super.key,
     required this.isStrict,
+    this.resumableAssignmentCode,
+    this.onResumeTap,
+    this.submittedCodes = const [], // Default empty
+    this.onViewAnalysisTap,
   });
 
   @override
@@ -2472,7 +3002,103 @@ class StudentAssignmentsList extends StatelessWidget {
           itemBuilder: (context, index) {
             final data = filteredDocs[index].data() as Map<String, dynamic>;
             final docId = filteredDocs[index].id;
-            return _buildAssignmentCard(context, data, docId);
+
+            // --- STATUS CHECKS ---
+            final String currentCode = data['assignmentCode'] ?? '----';
+
+            final bool isResumable = (resumableAssignmentCode != null &&
+                resumableAssignmentCode == currentCode);
+
+            final bool isSubmitted = submittedCodes.contains(currentCode);
+
+            // Wrap in Column for extra buttons (Resume / View Analysis)
+            return Column(
+              children: [
+                _buildAssignmentCard(context, data, docId, isResumable, isSubmitted),
+
+                // CASE 1: RESUMABLE (Show Purple Resume Button)
+                if (isResumable && !isSubmitted)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple.shade50,
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(12),
+                        bottomRight: Radius.circular(12),
+                      ),
+                      border: Border.all(color: Colors.deepPurple.shade200),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Unfinished Session Found",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.deepPurple,
+                            fontSize: 13,
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: onResumeTap,
+                          icon: const Icon(Icons.restore, size: 16),
+                          label: const Text("Resume"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.deepPurple,
+                            foregroundColor: Colors.white,
+                            visualDensity: VisualDensity.compact,
+                            textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+
+                // CASE 2: SUBMITTED (Show Green/Teal View Analysis Button)
+                else if (isSubmitted)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(12),
+                        bottomRight: Radius.circular(12),
+                      ),
+                      border: Border.all(color: Colors.teal.shade200),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Completed",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.teal,
+                            fontSize: 13,
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: onViewAnalysisTap,
+                          icon: const Icon(Icons.analytics, size: 16),
+                          label: const Text("View Analysis"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal,
+                            foregroundColor: Colors.white,
+                            visualDensity: VisualDensity.compact,
+                            textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+
+                // CASE 3: STANDARD (Just spacing)
+                else
+                  const SizedBox(height: 12),
+              ],
+            );
           },
         );
       },
@@ -2499,7 +3125,7 @@ class StudentAssignmentsList extends StatelessWidget {
     );
   }
 
-  Widget _buildAssignmentCard(BuildContext context, Map<String, dynamic> data, String docId) {
+  Widget _buildAssignmentCard(BuildContext context, Map<String, dynamic> data, String docId, bool isResumable, bool isSubmitted) {
     final Timestamp? ts = data['createdAt'];
     final dateStr = ts != null
         ? DateFormat('MMM d, yyyy').format(ts.toDate())
@@ -2514,13 +3140,49 @@ class StudentAssignmentsList extends StatelessWidget {
         ? "${storedTime}m"
         : "${questionCount * 2}m (Est)";
 
+    // Determine visual style based on status
+    Color codeBgColor;
+    Color codeTextColor;
+    Color borderColor;
+
+    if (isSubmitted) {
+      codeBgColor = Colors.teal.shade50;
+      codeTextColor = Colors.teal.shade900;
+      borderColor = Colors.teal.shade300;
+    } else if (isStrict) {
+      codeBgColor = Colors.red.shade50;
+      codeTextColor = Colors.red.shade900;
+      borderColor = Colors.red.shade200;
+    } else {
+      codeBgColor = Colors.deepPurple.shade50;
+      codeTextColor = Colors.deepPurple.shade900;
+      borderColor = Colors.deepPurple.shade200;
+    }
+
     return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: (isResumable || isSubmitted) ? 4 : 2,
+      margin: EdgeInsets.zero, // Margin handled by parent Column
+      shape: RoundedRectangleBorder(
+        borderRadius: (isResumable || isSubmitted)
+            ? const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12))
+            : BorderRadius.circular(12),
+        side: (isResumable)
+            ? BorderSide(color: Colors.deepPurple.shade300, width: 1.5)
+            : BorderSide.none,
+      ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _showModeSelectionDialog(context, docId, data),
+        borderRadius: (isResumable || isSubmitted)
+            ? const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12))
+            : BorderRadius.circular(12),
+        onTap: () {
+          if (isSubmitted) {
+            // If submitted, tapping card also goes to Analysis
+            if (onViewAnalysisTap != null) onViewAnalysisTap!();
+          } else {
+            // Otherwise show mode selection
+            _showModeSelectionDialog(context, docId, data);
+          }
+        },
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -2533,19 +3195,16 @@ class StudentAssignmentsList extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      // Keep red for strict, purple for normal, but always show code
-                      color: isStrict ? Colors.red.shade50 : Colors.deepPurple.shade50,
+                      color: codeBgColor,
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                          color: isStrict ? Colors.red.shade200 : Colors.deepPurple.shade200
-                      ),
+                      border: Border.all(color: borderColor),
                     ),
                     child: Text(
-                      "CODE: $code", // Always visible now
+                      "CODE: $code",
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
-                          color: isStrict ? Colors.red.shade900 : Colors.deepPurple.shade900
+                          color: codeTextColor
                       ),
                     ),
                   ),
@@ -2561,7 +3220,7 @@ class StudentAssignmentsList extends StatelessWidget {
               ),
               const SizedBox(height: 5),
 
-              // Details Row (Cleaned up: Removed Subject)
+              // Details Row
               Row(
                 children: [
                   Icon(Icons.quiz, size: 14, color: Colors.grey.shade600),
@@ -2577,6 +3236,12 @@ class StudentAssignmentsList extends StatelessWidget {
                     timeDisplay,
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                   ),
+                  if (isSubmitted) ...[
+                    const Spacer(),
+                    const Icon(Icons.check_circle, size: 18, color: Colors.teal),
+                    const SizedBox(width: 4),
+                    Text("Done", style: TextStyle(color: Colors.teal.shade700, fontWeight: FontWeight.bold, fontSize: 12)),
+                  ]
                 ],
               ),
             ],
@@ -2587,11 +3252,10 @@ class StudentAssignmentsList extends StatelessWidget {
   }
 
   void _showModeSelectionDialog(BuildContext context, String docId, Map<String, dynamic> data) {
+    // ... [Same as before] ...
     final questionIds = List<String>.from(data['questionIds'] ?? []);
     final String code = data['assignmentCode'] ?? '----';
     final bool isStrictAssignment = data['onlySingleAttempt'] ?? false;
-
-    // --- EXTRACT TIME LIMIT ---
     final int timeLimit = data['timeLimitMinutes'] ?? (questionIds.length * 2);
 
     showDialog(
@@ -2635,7 +3299,6 @@ class StudentAssignmentsList extends StatelessWidget {
             ],
           ),
           actions: [
-            // Only show Practice if NOT strict
             if (!isStrictAssignment)
               OutlinedButton.icon(
                 icon: const Icon(Icons.school_outlined),
@@ -2672,6 +3335,7 @@ class StudentAssignmentsList extends StatelessWidget {
       int timeLimit
       ) async {
 
+    // ... [Same as before] ...
     showDialog(
         context: context,
         barrierDismissible: false,
@@ -3446,12 +4110,22 @@ FILE: lib/features/teacher/screens/teacher_filter_screen.dart
 ================================================================================
 // lib/features/teacher/screens/teacher_filter_screen.dart
 
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
+
+// --- Helper Model to store parsed Syllabus Data ---
+class SyllabusChapter {
+  final String id;
+  final String name;
+  final Map<String, String> topics; // key: id, value: display name
+
+  SyllabusChapter({required this.id, required this.name, required this.topics});
+}
 
 class TeacherFilterScreen extends StatefulWidget {
   final String audienceType;
@@ -3467,40 +4141,39 @@ class TeacherFilterScreen extends StatefulWidget {
   State<TeacherFilterScreen> createState() => _TeacherFilterScreenState();
 }
 
-class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTickerProviderStateMixin {
+class _TeacherFilterScreenState extends State<TeacherFilterScreen>
+    with SingleTickerProviderStateMixin {
   final TeacherService _teacherService = TeacherService();
   late TabController _tabController;
 
-  // --- Data & Filters ---
-  bool _isLoadingSyllabus = true;
-  Map<String, dynamic>? _syllabusData;
-  List<String> _subjects = [];
+  // --- 1. DYNAMIC DATA STATE ---
+  bool _isLoadingFilters = true;
+  List<String> _examsList = [];
+  List<String> _subjectsList = [];
 
+  // Cache: Subject (lowercase) -> List of parsed Chapters
+  final Map<String, List<SyllabusChapter>> _syllabusCache = {};
+
+  // --- 2. FILTER STATE ---
+  String? _selectedExam;
   String? _selectedSubject;
   final Set<String> _selectedChapters = {};
   final Set<String> _selectedTopics = {};
-  String? _smartFilter;
+  bool _isPyqOnly = false;
 
-  // --- Search & Pagination State ---
+  // --- 3. SEARCH STATE ---
   bool _isSearching = false;
-  bool _isLoadingMore = false;
   List<Question> _searchResults = [];
-  DocumentSnapshot? _lastDocument; // Pagination Cursor
-  bool _hasMoreData = true;
+  int _totalMatchCount = 0; // <--- ADDED: To store total count from DB
 
-  // --- Selection State (The Cart) ---
-  // We use a Map to keep the full object, allowing us to display them in the 'Selected' tab
-  // even if they disappear from the search results after a new fetch.
+  // --- 4. SELECTION STATE (The Cart) ---
   final Map<String, Question> _selectedQuestions = {};
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _fetchSyllabus();
-    if (widget.audienceType == 'Particular Student') {
-      _smartFilter = 'New Questions';
-    }
+    _fetchFilterData();
   }
 
   @override
@@ -3509,80 +4182,174 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
     super.dispose();
   }
 
-  Future<void> _fetchSyllabus() async {
+  // --- DATA FETCHING & PARSING (Kept same as previous working version) ---
+  Future<void> _fetchFilterData() async {
     try {
-      final doc = await FirebaseFirestore.instance.collection('static_data').doc('syllabus').get();
-      if (doc.exists) {
-        final data = doc.data()!;
-        setState(() {
-          _syllabusData = data['subjects'];
-          _subjects = _syllabusData?.keys.toList() ?? [];
-        });
+      final firestore = FirebaseFirestore.instance;
+      final optionsDoc = await firestore.collection('static_data').doc('option_sets').get();
+      if (optionsDoc.exists) {
+        final data = optionsDoc.data()!;
+        _examsList = List<String>.from(data['exams_list'] ?? []);
+        _subjectsList = List<String>.from(data['subjects_list'] ?? []);
       }
+
+      final syllabusDoc = await firestore.collection('static_data').doc('syllabus').get();
+      if (syllabusDoc.exists) {
+        final data = syllabusDoc.data()!;
+        if (data.containsKey('subjects') && data['subjects'] is Map) {
+          final subjectsMap = data['subjects'] as Map<String, dynamic>;
+          subjectsMap.forEach((subjectKey, subjectVal) {
+            if (subjectVal is Map && subjectVal.containsKey('chapters')) {
+              final chaptersMap = subjectVal['chapters'] as Map<String, dynamic>;
+              List<SyllabusChapter> parsedChapters = [];
+              chaptersMap.forEach((chapKey, chapVal) {
+                if (chapVal is Map) {
+                  String name = chapVal['name'] ?? chapKey;
+                  Map<String, String> topics = {};
+                  if (chapVal.containsKey('topics') && chapVal['topics'] is Map) {
+                    final topicRaw = chapVal['topics'] as Map<String, dynamic>;
+                    topicRaw.forEach((tKey, tVal) {
+                      topics[tKey] = tVal.toString();
+                    });
+                  }
+                  parsedChapters.add(SyllabusChapter(id: chapKey, name: name, topics: topics));
+                }
+              });
+              parsedChapters.sort((a, b) => a.name.compareTo(b.name));
+              _syllabusCache[subjectKey.toLowerCase()] = parsedChapters;
+            }
+          });
+        }
+      }
+      setState(() { _isLoadingFilters = false; });
     } catch (e) {
-      debugPrint("Error loading syllabus: $e");
-    } finally {
-      if (mounted) setState(() => _isLoadingSyllabus = false);
+      debugPrint("Error loading filters: $e");
+      setState(() { _isLoadingFilters = false; });
     }
   }
 
-  // --- ACTIONS ---
+  // --- CASCADING GETTERS ---
+  String _normalizeSubject(String? subject) {
+    if (subject == null) return "";
+    return subject.toLowerCase().trim();
+  }
 
-  Future<void> _performSearch({bool isLoadMore = false}) async {
-    if (_selectedSubject == null && widget.audienceType != 'Particular Student') {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a Subject")));
+  List<String> get _currentChaptersList {
+    if (_selectedSubject == null) return [];
+    String key = _normalizeSubject(_selectedSubject);
+    final chapters = _syllabusCache[key] ?? [];
+    return chapters.map((c) => c.name).toList();
+  }
+
+  List<String> get _currentTopicsList {
+    if (_selectedChapters.isEmpty || _selectedSubject == null) return [];
+    String key = _normalizeSubject(_selectedSubject);
+    final allChapters = _syllabusCache[key] ?? [];
+    final selectedChaps = allChapters.where((c) => _selectedChapters.contains(c.name));
+    List<String> topics = [];
+    for (var chap in selectedChaps) {
+      topics.addAll(chap.topics.values);
+    }
+    return topics.toSet().toList()..sort();
+  }
+
+  void _resetFiltersBelow(String level) {
+    setState(() {
+      if (level == 'Exam') {
+        _selectedSubject = null;
+        _selectedChapters.clear();
+        _selectedTopics.clear();
+      } else if (level == 'Subject') {
+        _selectedChapters.clear();
+        _selectedTopics.clear();
+      } else if (level == 'Chapter') {
+        _selectedTopics.clear();
+      }
+    });
+  }
+
+  // --- SEARCH LOGIC (UPDATED WITH COUNT) ---
+  String _generateRandomId() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rnd = Random();
+    return String.fromCharCodes(Iterable.generate(20, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
+  }
+
+  Future<void> _performSearch() async {
+    if (_selectedExam == null || _selectedSubject == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select Exam and Subject")));
       return;
     }
 
     setState(() {
-      if (isLoadMore) {
-        _isLoadingMore = true;
-      } else {
-        _isSearching = true;
-        _searchResults = [];
-        _lastDocument = null;
-        _hasMoreData = true;
-      }
+      _isSearching = true;
+      _searchResults = [];
+      _totalMatchCount = 0; // Reset count
     });
 
     try {
-      final paginatedResult = await _teacherService.fetchQuestionsPaged(
-        audienceType: widget.audienceType,
-        studentId: widget.studentId,
-        smartFilter: _smartFilter,
-        subject: _selectedSubject,
-        chapterIds: _selectedChapters.isNotEmpty ? _selectedChapters.toList() : null,
-        topicIds: _selectedTopics.isNotEmpty ? _selectedTopics.toList() : null,
-        limit: 20, // Strict limit of 20
-        startAfter: _lastDocument,
-      );
+      Query query = FirebaseFirestore.instance.collection('questions');
 
-      final newQuestions = paginatedResult.questions;
+      // 1. Build Base Query (Exact Matching)
+      query = query.where('Exam', isEqualTo: _selectedExam);
+      query = query.where('Subject', isEqualTo: _selectedSubject);
 
-      // Randomize Client-Side
-      newQuestions.shuffle();
+      if (_selectedChapters.isNotEmpty && _selectedChapters.length <= 10) {
+        query = query.where('Chapter', whereIn: _selectedChapters.toList());
+      }
+      if (_selectedTopics.isNotEmpty && _selectedTopics.length <= 10) {
+        query = query.where('Topic', whereIn: _selectedTopics.toList());
+      }
+      if (_isPyqOnly) {
+        query = query.where('PYQ', isEqualTo: "Yes");
+      }
+
+      // --- ADDED: Fetch Total Count ---
+      // We run this separately to get the total number of documents matching filters
+      AggregateQuerySnapshot countSnapshot = await query.count().get();
+      int totalCount = countSnapshot.count ?? 0;
+      // --------------------------------
+
+      // 2. Randomization Logic
+      String randomAnchor = _generateRandomId();
+      Query randomQuery = query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(50);
+
+      QuerySnapshot snapshot = await randomQuery.get();
+      if (snapshot.docs.isEmpty) {
+        // Fallback to start if random index hit the end
+        snapshot = await query.limit(50).get();
+      }
+
+      List<Question> fetched = snapshot.docs
+          .map((doc) => Question.fromFirestore(doc))
+          .toList();
+
+      // 3. Client-side filtering (if > 10 items selected)
+      if (_selectedChapters.length > 10) {
+        fetched = fetched.where((q) => _selectedChapters.contains(q.chapter)).toList();
+        // Note: If filtering client-side, the 'totalCount' from server might be higher
+        // than actual local matches, but it's the best approximation without expensive reads.
+      }
+      if (_selectedTopics.length > 10) {
+        fetched = fetched.where((q) => _selectedTopics.contains(q.topic)).toList();
+      }
+
+      fetched.shuffle();
+      if (fetched.length > 20) fetched = fetched.sublist(0, 20);
 
       setState(() {
-        if (isLoadMore) {
-          _searchResults.addAll(newQuestions);
-        } else {
-          _searchResults = newQuestions;
-        }
-
-        _lastDocument = paginatedResult.lastDoc;
-
-        // If we got fewer than limit, we likely reached the end
-        if (newQuestions.length < 20) {
-          _hasMoreData = false;
-        }
+        _searchResults = fetched;
+        _totalMatchCount = totalCount; // Update State
       });
 
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      debugPrint("Search Error: $e");
+      String msg = "Error fetching data.";
+      if (e.toString().contains("failed-precondition")) msg = "Missing Index. Check debug console.";
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       setState(() {
         _isSearching = false;
-        _isLoadingMore = false;
       });
     }
   }
@@ -3597,14 +4364,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
     });
   }
 
+  // --- ASSIGNMENT LOGIC (Kept same) ---
   Future<void> _onAssign() async {
     if (_selectedQuestions.isEmpty) return;
     final teacher = FirebaseAuth.instance.currentUser;
     if (teacher == null) return;
 
     final titleCtrl = TextEditingController(text: "Homework - ${DateTime.now().toString().split(' ')[0]}");
-    final defaultTime = _selectedQuestions.length * 2;
-    final timeCtrl = TextEditingController(text: defaultTime.toString());
+    final timeCtrl = TextEditingController(text: "${_selectedQuestions.length * 2}");
     bool isSingleAttempt = false;
 
     final confirm = await showDialog<bool>(
@@ -3619,29 +4386,16 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
                 children: [
                   Text("Assigning ${_selectedQuestions.length} questions."),
                   const SizedBox(height: 15),
-                  TextField(
-                      controller: titleCtrl,
-                      decoration: const InputDecoration(labelText: "Assignment Title", border: OutlineInputBorder())
-                  ),
+                  TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: "Assignment Title", border: OutlineInputBorder())),
                   const SizedBox(height: 15),
-                  TextField(
-                    controller: timeCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: "Time Limit (Minutes)", border: OutlineInputBorder(), suffixText: "min"),
-                  ),
-                  const SizedBox(height: 15),
-                  Row(
-                    children: [
-                      SizedBox(
-                        height: 24, width: 24,
-                        child: Checkbox(
-                          value: isSingleAttempt,
-                          onChanged: (val) => setDialogState(() => isSingleAttempt = val ?? false),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      const Expanded(child: Text("Strict Mode (Single Attempt)")),
-                    ],
+                  TextField(controller: timeCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Time Limit (Min)", border: OutlineInputBorder())),
+                  const SizedBox(height: 10),
+                  CheckboxListTile(
+                    title: const Text("Strict Mode (Single Attempt)"),
+                    value: isSingleAttempt,
+                    onChanged: (val) => setDialogState(() => isSingleAttempt = val ?? false),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ],
               ),
@@ -3658,11 +4412,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
     if (confirm != true) return;
 
     try {
-      if (widget.audienceType != 'Particular Student') {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Batch assignment coming soon!")));
-        return;
-      }
-
       int? customTime = int.tryParse(timeCtrl.text.trim());
       await _teacherService.assignQuestionsToStudent(
         studentId: widget.studentId!,
@@ -3676,38 +4425,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Assigned Successfully!")));
-        Navigator.pop(context); // Close screen
+        Navigator.pop(context);
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
     }
   }
 
-  // --- UI HELPERS ---
-  List<String> get _availableChapters {
-    if (_selectedSubject == null || _syllabusData == null) return [];
-    final chaptersMap = _syllabusData![_selectedSubject]['chapters'] as Map<String, dynamic>?;
-    return chaptersMap?.keys.toList() ?? [];
-  }
-
-  List<String> get _availableTopics {
-    if (_selectedSubject == null || _selectedChapters.isEmpty || _syllabusData == null) return [];
-    List<String> topics = [];
-    final chaptersMap = _syllabusData![_selectedSubject]['chapters'];
-    for (var chapId in _selectedChapters) {
-      final chapData = chaptersMap[chapId];
-      if (chapData != null && chapData['topics'] != null) {
-        final topicMap = chapData['topics'] as Map<String, dynamic>;
-        topics.addAll(topicMap.keys);
-      }
-    }
-    return topics;
-  }
-
-  String _formatName(String id) {
-    return id.split('_').map((str) => str.isNotEmpty ? str[0].toUpperCase() + str.substring(1) : '').join(' ');
-  }
-
+  // --- UI COMPONENTS ---
   void _showMultiSelectDialog({required String title, required List<String> items, required Set<String> selectedItems, required Function(Set<String>) onConfirm}) {
     showDialog(
       context: context,
@@ -3720,7 +4445,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
             return Dialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Container(
-                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.6),
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
@@ -3738,7 +4463,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
                           final item = filteredItems[index];
                           final isSelected = localSelected.contains(item);
                           return CheckboxListTile(
-                            title: Text(_formatName(item)),
+                            title: Text(item),
                             value: isSelected,
                             activeColor: Colors.deepPurple,
                             onChanged: (val) => setDialogState(() { val == true ? localSelected.add(item) : localSelected.remove(item); }),
@@ -3747,13 +4472,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
                       ),
                     ),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        Text("${localSelected.length} Selected", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                        const SizedBox(width: 8),
                         ElevatedButton(
                           onPressed: () { onConfirm(localSelected); Navigator.pop(context); },
                           child: const Text("Done"),
-                        )
+                        ),
                       ],
                     )
                   ],
@@ -3765,8 +4491,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
       },
     );
   }
-
-  // --- BUILD METHOD ---
 
   @override
   Widget build(BuildContext context) {
@@ -3786,13 +4510,12 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
           ],
         ),
       ),
-      body: TabBarView(
+      body: _isLoadingFilters
+          ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(), SizedBox(height: 10), Text("Loading Syllabus...")]))
+          : TabBarView(
         controller: _tabController,
         children: [
-          // TAB 1: FILTERS & RESULTS
           _buildSearchTab(),
-
-          // TAB 2: SELECTED LIST
           _buildSelectedTab(),
         ],
       ),
@@ -3805,39 +4528,40 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- FILTERS SECTION ---
           _buildFilters(),
 
-          const Divider(height: 30),
+          const SizedBox(height: 20),
 
-          // --- SEARCH BUTTON ---
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               icon: const Icon(Icons.search),
-              label: const Text("Search Questions"),
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14)
-              ),
-              onPressed: () => _performSearch(isLoadMore: false),
+              label: const Text("Search & Shuffle"),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
+              onPressed: _performSearch,
             ),
           ),
 
-          const SizedBox(height: 20),
+          const Divider(height: 40),
 
-          // --- RESULTS LIST ---
           if (_isSearching)
             const Center(child: CircularProgressIndicator())
-          else if (_searchResults.isEmpty && _lastDocument == null) // Initial empty state
-            const Center(child: Text("Use filters to find questions.", style: TextStyle(color: Colors.grey)))
+          else if (_searchResults.isEmpty && _totalMatchCount == 0)
+          // Only show 'No questions' if we haven't searched yet or truly found nothing
+            const Center(child: Text("Adjust filters and click Search.", style: TextStyle(color: Colors.grey)))
           else
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Showing ${_searchResults.length} Results", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                // --- ADDED: Display Total Count ---
+                Text(
+                    "Showing ${_searchResults.length} of $_totalMatchCount Results (Randomized)",
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16)
+                ),
                 const SizedBox(height: 10),
+                if (_searchResults.isEmpty)
+                  const Padding(padding: EdgeInsets.all(8.0), child: Text("No items fetched. Try searching again.", style: TextStyle(color: Colors.red))),
+
                 ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -3845,45 +4569,24 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
                   itemBuilder: (context, index) {
                     final q = _searchResults[index];
                     final isSelected = _selectedQuestions.containsKey(q.id);
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Checkbox(
-                            value: isSelected,
-                            onChanged: (val) => _toggleSelection(q),
-                          ),
+                    return Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Checkbox(value: isSelected, onChanged: (val) => _toggleSelection(q)),
+                            Expanded(
+                              child: QuestionPreviewCard(question: q),
+                            ),
+                          ],
                         ),
-                        Expanded(child: QuestionPreviewCard(question: q)),
-                      ],
+                      ),
                     );
                   },
                 ),
-
-                // --- LOAD MORE BUTTON ---
-                if (_hasMoreData)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: _isLoadingMore
-                          ? const CircularProgressIndicator()
-                          : FloatingActionButton.extended(
-                        heroTag: "loadMore",
-                        onPressed: () => _performSearch(isLoadMore: true),
-                        label: const Text("Load Next 20"),
-                        icon: const Icon(Icons.refresh),
-                        backgroundColor: Colors.deepPurple.shade100,
-                        foregroundColor: Colors.deepPurple,
-                      ),
-                    ),
-                  ),
-
-                if (!_hasMoreData && _searchResults.isNotEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(20.0),
-                    child: Center(child: Text("No more questions matching criteria.", style: TextStyle(color: Colors.grey))),
-                  ),
               ],
             ),
         ],
@@ -3893,116 +4596,129 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
 
   Widget _buildSelectedTab() {
     if (_selectedQuestions.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.shopping_cart_outlined, size: 60, color: Colors.grey),
-            SizedBox(height: 10),
-            Text("No questions selected yet.", style: TextStyle(color: Colors.grey)),
-            Text("Go to Search Results to add questions.", style: TextStyle(color: Colors.grey, fontSize: 12)),
-          ],
-        ),
-      );
+      return const Center(child: Text("No questions selected."));
     }
 
-    final list = _selectedQuestions.values.toList();
+    // Convert map values to list for display
+    final selectedList = _selectedQuestions.values.toList();
 
     return Stack(
       children: [
         ListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100), // Space for fab
-          itemCount: list.length,
+          // Add padding at bottom so the list isn't hidden behind the Assign button
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+          itemCount: selectedList.length,
           itemBuilder: (context, index) {
-            final q = list[index];
-            return Stack(
-              children: [
-                QuestionPreviewCard(question: q),
-                Positioned(
-                  top: 0, right: 0,
-                  child: IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _toggleSelection(q),
-                  ),
+            final q = selectedList[index];
+
+            return Card(
+              elevation: 2,
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Checkbox is always checked here. Unchecking it removes from list.
+
+                    Expanded(
+                      child: QuestionPreviewCard(question: q),
+                    ),
+                    // Optional: Keep a delete icon for explicit removal if preferred,
+                    // but the checkbox does the same thing.
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _toggleSelection(q),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             );
           },
         ),
+
+        // Assign Button (Floating at bottom)
         Positioned(
-          bottom: 20, left: 20, right: 20,
+          bottom: 20,
+          left: 20,
+          right: 20,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              elevation: 5,
+              elevation: 4,
             ),
             onPressed: _onAssign,
-            child: Text("Assign ${list.length} Questions", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            child: Text(
+                "Assign ${_selectedQuestions.length} Questions",
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
+            ),
           ),
         ),
       ],
     );
   }
 
+
   Widget _buildFilters() {
-    // Reusing your existing efficient filter UI logic
-    final inputDecoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));
+    final decoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));
 
     return Column(
       children: [
-        if (_isLoadingSyllabus) const LinearProgressIndicator(),
-
-        // Subject Dropdown
+        DropdownButtonFormField<String>(
+          value: _selectedExam,
+          hint: const Text("Select Exam"),
+          items: _examsList.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+          onChanged: (val) => setState(() { _selectedExam = val; _resetFiltersBelow('Exam'); }),
+          decoration: decoration.copyWith(labelText: "Exam"),
+        ),
+        const SizedBox(height: 10),
         DropdownButtonFormField<String>(
           value: _selectedSubject,
           hint: const Text("Select Subject"),
-          items: _subjects.map((s) => DropdownMenuItem(value: s, child: Text(_formatName(s)))).toList(),
-          onChanged: (val) => setState(() { _selectedSubject = val; _selectedChapters.clear(); _selectedTopics.clear(); }),
-          decoration: inputDecoration.copyWith(labelText: "Subject"),
+          items: _subjectsList.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+          onChanged: (val) => setState(() { _selectedSubject = val; _resetFiltersBelow('Subject'); }),
+          decoration: decoration.copyWith(labelText: "Subject"),
         ),
-        const SizedBox(height: 15),
-
-        // Chapter Multi-Select
+        const SizedBox(height: 10),
         InkWell(
-          onTap: _selectedSubject == null ? null : () => _showMultiSelectDialog(
+          onTap: _selectedSubject == null || _currentChaptersList.isEmpty
+              ? null
+              : () => _showMultiSelectDialog(
             title: "Select Chapters",
-            items: _availableChapters,
+            items: _currentChaptersList,
             selectedItems: _selectedChapters,
-            onConfirm: (newSet) => setState(() { _selectedChapters.clear(); _selectedChapters.addAll(newSet); _selectedTopics.clear(); }),
+            onConfirm: (set) => setState(() { _selectedChapters.clear(); _selectedChapters.addAll(set); _resetFiltersBelow('Chapter'); }),
           ),
           child: InputDecorator(
-            decoration: inputDecoration.copyWith(labelText: "Chapters", enabled: _selectedSubject != null, suffixIcon: const Icon(Icons.arrow_drop_down)),
-            child: Text(_selectedChapters.isEmpty ? "All Chapters" : "${_selectedChapters.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
+            decoration: decoration.copyWith(labelText: "Chapters", suffixIcon: const Icon(Icons.arrow_drop_down)),
+            child: Text(_selectedChapters.isEmpty ? "All" : "${_selectedChapters.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
         ),
-        const SizedBox(height: 15),
-
-        // Topic Multi-Select
+        const SizedBox(height: 10),
         InkWell(
-          onTap: _selectedChapters.isEmpty ? null : () => _showMultiSelectDialog(
+          onTap: _selectedChapters.isEmpty || _currentTopicsList.isEmpty
+              ? null
+              : () => _showMultiSelectDialog(
             title: "Select Topics",
-            items: _availableTopics,
+            items: _currentTopicsList,
             selectedItems: _selectedTopics,
-            onConfirm: (newSet) => setState(() { _selectedTopics.clear(); _selectedTopics.addAll(newSet); }),
+            onConfirm: (set) => setState(() { _selectedTopics.clear(); _selectedTopics.addAll(set); }),
           ),
           child: InputDecorator(
-            decoration: inputDecoration.copyWith(labelText: "Topics", enabled: _selectedChapters.isNotEmpty, suffixIcon: const Icon(Icons.arrow_drop_down)),
-            child: Text(_selectedTopics.isEmpty ? "All Topics" : "${_selectedTopics.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
+            decoration: decoration.copyWith(labelText: "Topics", suffixIcon: const Icon(Icons.arrow_drop_down)),
+            child: Text(_selectedTopics.isEmpty ? "All" : "${_selectedTopics.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
         ),
-
-        // Smart Filters
-        if (widget.audienceType == 'Particular Student') ...[
-          const SizedBox(height: 15),
-          DropdownButtonFormField<String>(
-            value: _smartFilter,
-            items: ['New Questions', 'Incorrect', 'Unattempted', 'Skipped', 'Correct'].map((f) => DropdownMenuItem(value: f, child: Text(f))).toList(),
-            onChanged: (val) => setState(() => _smartFilter = val),
-            decoration: inputDecoration.copyWith(labelText: "Student Status"),
-          ),
-        ],
+        const SizedBox(height: 10),
+        CheckboxListTile(
+          title: const Text("Previous Year Questions (PYQ) Only"),
+          value: _isPyqOnly,
+          onChanged: (val) => setState(() => _isPyqOnly = val ?? false),
+          contentPadding: EdgeInsets.zero,
+          activeColor: Colors.deepPurple,
+        ),
       ],
     );
   }
@@ -4953,6 +5669,7 @@ import 'package:study_smart_qc/models/nta_test_models.dart';
 // 2. IMPORT SCREENS & SERVICES
 import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/services/local_session_service.dart';
 import 'package:study_smart_qc/widgets/expandable_image.dart';
 import 'package:study_smart_qc/widgets/question_input_widget.dart';
 
@@ -4963,6 +5680,11 @@ class TestScreen extends StatefulWidget {
   final int timeLimitInMinutes;
   final TestMode testMode;
 
+  // --- RESUME CAPABILITIES ---
+  final int? resumedTimerSeconds;
+  final int? resumedPageIndex;
+  final Map<String, ResponseObject>? resumedResponses;
+
   const TestScreen({
     super.key,
     required this.questions,
@@ -4970,51 +5692,165 @@ class TestScreen extends StatefulWidget {
     this.sourceId = '',
     this.assignmentCode = 'PRAC',
     this.testMode = TestMode.test,
+    this.resumedTimerSeconds,
+    this.resumedPageIndex,
+    this.resumedResponses,
   });
 
   @override
   State<TestScreen> createState() => _TestScreenState();
 }
 
-class _TestScreenState extends State<TestScreen> {
+class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   late final PageController _pageController;
   late final Timer _timer;
   late Duration _overallTimeCounter;
   bool _isPaused = false;
 
-  // State Maps
   final Map<int, AnswerState> _answerStates = {};
   final Map<int, int> _visitCounts = {};
   final Map<int, Stopwatch> _timeTrackers = {};
+  final Map<int, int> _accumulatedTime = {}; // Loaded from disk
 
   int _currentPage = 0;
   bool _isAnswerChecked = false;
 
+  final LocalSessionService _localSessionService = LocalSessionService();
+
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    WidgetsBinding.instance.addObserver(this);
 
-    // 1. Timer Setup
-    if (widget.testMode == TestMode.test) {
-      _overallTimeCounter = Duration(minutes: widget.timeLimitInMinutes);
+    _currentPage = widget.resumedPageIndex ?? 0;
+    _pageController = PageController(initialPage: _currentPage);
+
+    // Timer Setup
+    if (widget.resumedTimerSeconds != null) {
+      _overallTimeCounter = Duration(seconds: widget.resumedTimerSeconds!);
     } else {
-      _overallTimeCounter = Duration.zero;
+      if (widget.testMode == TestMode.test) {
+        _overallTimeCounter = Duration(minutes: widget.timeLimitInMinutes);
+      } else {
+        _overallTimeCounter = Duration.zero;
+      }
     }
 
-    // 2. Initialize Questions
+    // Initialize Questions
     for (int i = 0; i < widget.questions.length; i++) {
-      _answerStates[i] = AnswerState(status: AnswerStatus.notVisited);
+      final question = widget.questions[i];
       _visitCounts[i] = 0;
       _timeTrackers[i] = Stopwatch();
+      _accumulatedTime[i] = 0;
+
+      AnswerState newState = AnswerState(status: AnswerStatus.notVisited);
+
+      if (widget.resumedResponses != null &&
+          widget.resumedResponses!.containsKey(question.id)) {
+
+        final savedResponse = widget.resumedResponses![question.id]!;
+        newState.userAnswer = savedResponse.selectedOption;
+        _accumulatedTime[i] = savedResponse.timeSpent;
+
+        switch (savedResponse.status) {
+          case 'REVIEW':
+            newState.status = AnswerStatus.markedForReview;
+            break;
+          case 'REVIEW_ANSWERED':
+            newState.status = AnswerStatus.answeredAndMarked;
+            break;
+          case 'ANSWERED':
+          case 'CORRECT':
+          case 'INCORRECT':
+            newState.status = AnswerStatus.answered;
+            break;
+          case 'SKIPPED':
+            newState.status = AnswerStatus.notAnswered;
+            break;
+          default:
+            if (savedResponse.selectedOption != null) {
+              newState.status = AnswerStatus.answered;
+            }
+        }
+        _visitCounts[i] = savedResponse.visitCount;
+      }
+      _answerStates[i] = newState;
     }
 
-    // Initialize first page
-    _onPageChanged(0, fromInit: true);
+    _onPageChanged(_currentPage, fromInit: true);
     _startTimer();
   }
 
-  // --- TIMER LOGIC ---
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _triggerLocalSave();
+    }
+  }
+
+  Future<void> _triggerLocalSave() async {
+    Map<String, ResponseObject> currentResponses = _buildResponseMap();
+    await _localSessionService.saveSession(
+      assignmentCode: widget.assignmentCode,
+      mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
+      testId: widget.sourceId,
+      totalQuestions: widget.questions.length,
+      currentTimerValue: _overallTimeCounter.inSeconds,
+      currentQuestionIndex: _currentPage,
+      responses: currentResponses,
+    );
+  }
+
+  Map<String, ResponseObject> _buildResponseMap() {
+    Map<String, ResponseObject> responses = {};
+    for (int i = 0; i < widget.questions.length; i++) {
+      final question = widget.questions[i];
+      final state = _answerStates[i]!;
+
+      final int totalTimeSpent = (_accumulatedTime[i] ?? 0) + (_timeTrackers[i]?.elapsed.inSeconds ?? 0);
+
+      String statusString = 'SKIPPED';
+      if (state.status == AnswerStatus.answered) {
+        final isCorrect = _checkEquality(state.userAnswer, question.correctAnswer);
+        statusString = isCorrect ? 'CORRECT' : 'INCORRECT';
+      } else if (state.status == AnswerStatus.answeredAndMarked) {
+        statusString = 'REVIEW_ANSWERED';
+      } else if (state.status == AnswerStatus.markedForReview) {
+        statusString = 'REVIEW';
+      } else if (state.status == AnswerStatus.notAnswered) {
+        statusString = 'SKIPPED';
+      }
+
+      responses[question.id] = ResponseObject(
+        status: statusString,
+        selectedOption: state.userAnswer,
+        correctOption: question.correctAnswer.toString(),
+        timeSpent: totalTimeSpent,
+        visitCount: _visitCounts[i] ?? 0,
+        q_no: i + 1,
+        exam: question.exam,
+        subject: question.subject,
+        chapter: question.chapter,
+        topic: question.topic,
+        topicL2: question.topicL2,
+        chapterId: question.chapterId,
+        topicId: question.topicId,
+        topicL2Id: question.topicL2Id,
+        pyq: question.isPyq ? 'Yes' : 'No',
+        difficultyTag: question.difficulty,
+      );
+    }
+    return responses;
+  }
+
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_isPaused) return;
@@ -5039,44 +5875,39 @@ class _TestScreenState extends State<TestScreen> {
     if (!fromInit && _timeTrackers.containsKey(_currentPage)) {
       _timeTrackers[_currentPage]!.stop();
     }
-
     setState(() {
       _currentPage = page;
       _isAnswerChecked = false;
       _visitCounts[page] = (_visitCounts[page] ?? 0) + 1;
-
       if (_answerStates[page]?.status == AnswerStatus.notVisited) {
         _answerStates[page]?.status = AnswerStatus.notAnswered;
       }
     });
-
     if (_timeTrackers.containsKey(page)) {
       _timeTrackers[page]!.start();
     }
+    if(!fromInit) _triggerLocalSave();
   }
 
-  // Internal toggle helper
   void _togglePauseState() {
     setState(() => _isPaused = !_isPaused);
     if (_isPaused) {
       _timeTrackers[_currentPage]?.stop();
+      _triggerLocalSave();
     } else {
       _timeTrackers[_currentPage]?.start();
     }
   }
 
-  // UI Dialog for Pause
   void _showPauseDialog() {
-    _togglePauseState(); // Pause the timer
-
+    _togglePauseState();
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => PopScope(
         canPop: false,
         child: AlertDialog(
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
           title: Row(
             children: const [
               Icon(Icons.pause_circle_filled, color: Colors.orange, size: 28),
@@ -5094,15 +5925,14 @@ class _TestScreenState extends State<TestScreen> {
               child: ElevatedButton(
                 onPressed: () {
                   Navigator.pop(ctx);
-                  _togglePauseState(); // Resume timer
+                  _togglePauseState();
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.deepPurple,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 child: const Text('Resume',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -5111,32 +5941,18 @@ class _TestScreenState extends State<TestScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _timer.cancel();
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  // --- HELPER: COMPARE ANSWERS (Handles Lists & Maps) ---
   bool _checkEquality(dynamic userAns, dynamic correctAns) {
     if (userAns == null || correctAns == null) return false;
-
-    // 1. Simple String/Number comparison
     if (userAns is String || userAns is num) {
       return userAns.toString().trim().toLowerCase() ==
           correctAns.toString().trim().toLowerCase();
     }
-
-    // 2. List Comparison (Multi-Correct) - Order doesn't matter
     if (userAns is List && correctAns is List) {
       if (userAns.length != correctAns.length) return false;
       final userSet = userAns.map((e) => e.toString()).toSet();
       final correctSet = correctAns.map((e) => e.toString()).toSet();
       return userSet.containsAll(correctSet);
     }
-
-    // 3. Map Comparison (Matrix)
     if (userAns is Map && correctAns is Map) {
       if (userAns.length != correctAns.length) return false;
       for (var key in userAns.keys) {
@@ -5145,22 +5961,16 @@ class _TestScreenState extends State<TestScreen> {
       }
       return true;
     }
-
     return userAns == correctAns;
   }
-
-  // --- ACTION HANDLERS ---
 
   void _checkAnswer() {
     final state = _answerStates[_currentPage]!;
     bool isEmpty = false;
     if (state.userAnswer == null) isEmpty = true;
-    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
-      isEmpty = true;
-    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
-      isEmpty = true;
-    if (state.userAnswer is Map && (state.userAnswer as Map).isEmpty)
-      isEmpty = true;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty) isEmpty = true;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty) isEmpty = true;
+    if (state.userAnswer is Map && (state.userAnswer as Map).isEmpty) isEmpty = true;
 
     if (isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -5170,6 +5980,7 @@ class _TestScreenState extends State<TestScreen> {
     setState(() {
       _isAnswerChecked = true;
     });
+    _triggerLocalSave();
   }
 
   void _showSolution() {
@@ -5183,18 +5994,14 @@ class _TestScreenState extends State<TestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Solution",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text("Solution", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Divider(),
             const SizedBox(height: 10),
             Text("Correct Answer: ${q.correctAnswer}",
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, color: Colors.green)),
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
             const SizedBox(height: 10),
             if (q.solutionUrl != null)
-              Expanded(
-                  child:
-                  Center(child: ExpandableImage(imageUrl: q.solutionUrl!)))
+              Expanded(child: Center(child: ExpandableImage(imageUrl: q.solutionUrl!)))
             else
               const Text("No image solution available."),
           ],
@@ -5206,34 +6013,29 @@ class _TestScreenState extends State<TestScreen> {
   void _handleSaveAndNext() {
     final state = _answerStates[_currentPage]!;
     bool hasAnswer = state.userAnswer != null;
-    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
-      hasAnswer = false;
-    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
-      hasAnswer = false;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty) hasAnswer = false;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty) hasAnswer = false;
 
     if (hasAnswer) {
       setState(() => state.status = AnswerStatus.answered);
     } else {
       setState(() => state.status = AnswerStatus.notAnswered);
     }
-    _moveToNextPage();
+    _triggerLocalSave().then((_) => _moveToNextPage());
   }
 
   void _handleSaveAndMarkForReview() {
     final state = _answerStates[_currentPage]!;
     bool hasAnswer = state.userAnswer != null;
-    if (state.userAnswer is String && (state.userAnswer as String).isEmpty)
-      hasAnswer = false;
-    if (state.userAnswer is List && (state.userAnswer as List).isEmpty)
-      hasAnswer = false;
+    if (state.userAnswer is String && (state.userAnswer as String).isEmpty) hasAnswer = false;
+    if (state.userAnswer is List && (state.userAnswer as List).isEmpty) hasAnswer = false;
 
     if (hasAnswer) {
       setState(() => state.status = AnswerStatus.answeredAndMarked);
-      _moveToNextPage();
+      _triggerLocalSave().then((_) => _moveToNextPage());
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Please select an answer to Save & Mark for Review")),
+        const SnackBar(content: Text("Please select an answer to Save & Mark for Review")),
       );
     }
   }
@@ -5242,7 +6044,7 @@ class _TestScreenState extends State<TestScreen> {
     setState(() {
       _answerStates[_currentPage]!.status = AnswerStatus.markedForReview;
     });
-    _moveToNextPage();
+    _triggerLocalSave().then((_) => _moveToNextPage());
   }
 
   void _handleClearResponse() {
@@ -5251,6 +6053,7 @@ class _TestScreenState extends State<TestScreen> {
       _answerStates[_currentPage]!.status = AnswerStatus.notAnswered;
       _isAnswerChecked = false;
     });
+    _triggerLocalSave();
   }
 
   void _moveToNextPage() {
@@ -5259,69 +6062,26 @@ class _TestScreenState extends State<TestScreen> {
           duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content:
-            Text("You are on the last question. Click Submit to finish.")),
+        const SnackBar(content: Text("You are on the last question. Click Submit to finish.")),
       );
     }
   }
 
   // =================================================================
-  //  CORE SUBMISSION LOGIC (Updated for Smart Analysis Integration)
+  //  CORE SUBMISSION LOGIC (UPDATED)
   // =================================================================
   void _handleSubmit() async {
-    // 1. Stop Timers
     _timer.cancel();
     _timeTrackers.values.forEach((sw) => sw.stop());
 
-    // 2. Show Loading Indicator (Critical for UX during async processing)
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
-    // 3. Prepare Local Data (Basic data needed for submission)
-    Map<String, ResponseObject> initialResponses = {};
-    for (int i = 0; i < widget.questions.length; i++) {
-      final question = widget.questions[i];
-      final state = _answerStates[i]!;
-      String finalStatus = 'SKIPPED';
+    Map<String, ResponseObject> initialResponses = _buildResponseMap();
 
-      if (state.status == AnswerStatus.answered || state.status == AnswerStatus.answeredAndMarked) {
-        final isCorrect = _checkEquality(state.userAnswer, question.correctAnswer);
-        finalStatus = isCorrect ? 'CORRECT' : 'INCORRECT';
-      } else if (state.status == AnswerStatus.markedForReview) {
-        finalStatus = 'REVIEW';
-      }
-
-      // Metadata populated from Question model
-      initialResponses[question.id] = ResponseObject(
-        status: finalStatus,
-        selectedOption: state.userAnswer.toString(),
-        correctOption: question.correctAnswer.toString(),
-        timeSpent: _timeTrackers[i]!.elapsed.inSeconds,
-        visitCount: _visitCounts[i] ?? 0,
-        q_no: i + 1,
-
-        // Metadata
-        exam: question.exam,
-        subject: question.subject,
-        chapter: question.chapter,
-        topic: question.topic,
-        topicL2: question.topicL2,
-
-        // IDs
-        chapterId: question.chapterId,
-        topicId: question.topicId,
-        topicL2Id: question.topicL2Id,
-
-        pyq: question.isPyq ? 'Yes' : 'No',
-        difficultyTag: question.difficulty,
-      );
-    }
-
-    // 4. Calculate final stats
     final score = (initialResponses.values.where((r) => r.status == 'CORRECT').length * 4) -
         (initialResponses.values.where((r) => r.status == 'INCORRECT').length * 1);
 
@@ -5329,8 +6089,12 @@ class _TestScreenState extends State<TestScreen> {
         ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter).inSeconds
         : _overallTimeCounter.inSeconds;
 
-    // 5. CALL SERVICE & AWAIT ENRICHED RESULT
-    // The service returns the AttemptModel containing the generated smartTimeAnalysisTags
+    // --- NEW: Determine Limit to Save ---
+    // If Practice, we save null (no limit). If Test, we save the limit.
+    final int? limitToSave = widget.testMode == TestMode.test
+        ? widget.timeLimitInMinutes
+        : null;
+
     final enrichedAttempt = await TestOrchestrationService().submitAttempt(
       sourceId: widget.sourceId,
       assignmentCode: widget.assignmentCode,
@@ -5339,22 +6103,24 @@ class _TestScreenState extends State<TestScreen> {
       score: score,
       timeTakenSeconds: finalTime,
       responses: initialResponses,
+
+      // Pass the Limit
+      timeLimitMinutes: limitToSave,
     );
 
-    // 6. Navigate to Results
     if (mounted) {
-      // Remove Loading Indicator
       Navigator.pop(context);
 
       if (enrichedAttempt != null) {
-        // Construct Result using the ENRICHED responses (containing the calculated smart tags)
+        await _localSessionService.clearSession();
+
         final result = TestResult(
           attemptId: enrichedAttempt.id,
           questions: widget.questions,
           answerStates: _answerStates,
           timeTaken: Duration(seconds: finalTime),
           totalMarks: widget.questions.length * 4,
-          responses: enrichedAttempt.responses, // <--- KEY: Using service data with tags
+          responses: enrichedAttempt.responses,
         );
 
         Navigator.of(context).pushReplacement(
@@ -5362,28 +6128,28 @@ class _TestScreenState extends State<TestScreen> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Error saving attempt. Please check internet connection."))
+            const SnackBar(content: Text("Error uploading. Progress saved locally. Check internet."))
         );
       }
     }
   }
 
-  // --- CONFIRMATION DIALOGS ---
   Future<bool> _onWillPop() async {
     final shouldPop = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Quit Test?'),
-        content: const Text(
-            'If you quit now, your progress will be lost. Are you sure?'),
+        content: const Text('If you quit now, your progress will be saved locally. You can resume later.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('No, Resume')),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
+            onPressed: () {
+              _triggerLocalSave().then((_) => Navigator.pop(ctx, true));
+            },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Yes, Quit'),
+            child: const Text('Yes, Quit (Save & Exit)'),
           ),
         ],
       ),
@@ -5398,8 +6164,7 @@ class _TestScreenState extends State<TestScreen> {
         title: const Text('Submit Test'),
         content: const Text('Are you sure you want to finish the test?'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -5411,8 +6176,6 @@ class _TestScreenState extends State<TestScreen> {
       ),
     );
   }
-
-  // --- UI BUILDERS ---
 
   @override
   Widget build(BuildContext context) {
@@ -5430,8 +6193,6 @@ class _TestScreenState extends State<TestScreen> {
           backgroundColor: Colors.deepPurple,
           foregroundColor: Colors.white,
           centerTitle: true,
-
-          // 1. CLOSE BUTTON (Top-Left)
           automaticallyImplyLeading: false,
           leading: IconButton(
             icon: const Icon(Icons.close, color: Colors.white),
@@ -5442,27 +6203,17 @@ class _TestScreenState extends State<TestScreen> {
               }
             },
           ),
-
-          // 2. CENTER TITLE (Timer Pill)
           title: _buildOverallTimerWidget(),
-
-          // 3. ACTIONS (Pause + Submit)
           actions: [
-            // Pause Button: ONLY if in Practice Mode
             if (widget.testMode == TestMode.practice)
               IconButton(
                 onPressed: _showPauseDialog,
-                icon:
-                const Icon(Icons.pause_circle_filled, color: Colors.white),
+                icon: const Icon(Icons.pause_circle_filled, color: Colors.white),
                 tooltip: "Pause",
               ),
-
-            // Submit Button
             TextButton(
               onPressed: _showSubmitConfirmationDialog,
-              child: const Text('Submit',
-                  style: TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.bold)),
+              child: const Text('Submit', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(width: 8),
           ],
@@ -5471,11 +6222,9 @@ class _TestScreenState extends State<TestScreen> {
           children: [
             _buildNTAQuestionPalette(),
             const Divider(height: 1),
-
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
-                // Disable swiping when paused
                 physics: _isPaused
                     ? const NeverScrollableScrollPhysics()
                     : const AlwaysScrollableScrollPhysics(),
@@ -5491,21 +6240,17 @@ class _TestScreenState extends State<TestScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Q.${index + 1}',
-                                style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold)),
+                            Text('Q.${index + 1}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             _buildQuestionTimerWidget(index),
                           ],
                         ),
                         const SizedBox(height: 10),
-
                         if (q.imageUrl.isNotEmpty)
                           Align(
                             alignment: Alignment.centerLeft,
                             child: ExpandableImage(imageUrl: q.imageUrl),
                           ),
                         const SizedBox(height: 20),
-
                         QuestionInputWidget(
                           question: q,
                           currentAnswer: _answerStates[index]?.userAnswer,
@@ -5520,9 +6265,7 @@ class _TestScreenState extends State<TestScreen> {
                             }
                           },
                         ),
-
-                        if (widget.testMode == TestMode.practice &&
-                            _isAnswerChecked)
+                        if (widget.testMode == TestMode.practice && _isAnswerChecked)
                           _buildFeedbackUI(q),
                       ],
                     ),
@@ -5551,17 +6294,16 @@ class _TestScreenState extends State<TestScreen> {
       ),
       child: Text(
         "$hours:$minutes:$seconds",
-        style: const TextStyle(
-            fontSize: 16,
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2),
+        style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2),
       ),
     );
   }
 
   Widget _buildQuestionTimerWidget(int index) {
-    final duration = _timeTrackers[index]?.elapsed ?? Duration.zero;
+    final currentElapsed = _timeTrackers[index]?.elapsed.inSeconds ?? 0;
+    final totalSeconds = (_accumulatedTime[index] ?? 0) + currentElapsed;
+    final duration = Duration(seconds: totalSeconds);
+
     String twoDigits(int n) => n.toString().padLeft(2, "0");
     final minutes = twoDigits(duration.inMinutes.remainder(60));
     final seconds = twoDigits(duration.inSeconds.remainder(60));
@@ -5580,10 +6322,7 @@ class _TestScreenState extends State<TestScreen> {
           const SizedBox(width: 5),
           Text(
             "$minutes:$seconds",
-            style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
           ),
         ],
       ),
@@ -5662,9 +6401,7 @@ class _TestScreenState extends State<TestScreen> {
                       child: Text(
                         "${index + 1}",
                         style: TextStyle(
-                          color: (color == Colors.white)
-                              ? Colors.black
-                              : Colors.white,
+                          color: (color == Colors.white) ? Colors.black : Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -5681,9 +6418,7 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   Widget _buildFeedbackUI(Question q) {
-    final isCorrect =
-    _checkEquality(_answerStates[_currentPage]?.userAnswer, q.correctAnswer);
-
+    final isCorrect = _checkEquality(_answerStates[_currentPage]?.userAnswer, q.correctAnswer);
     return Container(
       margin: const EdgeInsets.only(top: 20),
       padding: const EdgeInsets.all(12),
@@ -5696,18 +6431,13 @@ class _TestScreenState extends State<TestScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(isCorrect ? Icons.check_circle : Icons.cancel,
-                color: isCorrect ? Colors.green : Colors.red),
+            Icon(isCorrect ? Icons.check_circle : Icons.cancel, color: isCorrect ? Colors.green : Colors.red),
             const SizedBox(width: 10),
             Text(isCorrect ? "Correct!" : "Incorrect",
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: isCorrect ? Colors.green : Colors.red)),
+                style: TextStyle(fontWeight: FontWeight.bold, color: isCorrect ? Colors.green : Colors.red)),
           ]),
           const SizedBox(height: 10),
-          ElevatedButton(
-              onPressed: _showSolution,
-              child: const Text("View Full Solution")),
+          ElevatedButton(onPressed: _showSolution, child: const Text("View Full Solution")),
         ],
       ),
     );
@@ -5717,10 +6447,7 @@ class _TestScreenState extends State<TestScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(color: Colors.white, boxShadow: [
-        BoxShadow(
-            color: Colors.grey.shade200,
-            blurRadius: 4,
-            offset: const Offset(0, -2))
+        BoxShadow(color: Colors.grey.shade200, blurRadius: 4, offset: const Offset(0, -2))
       ]),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -5755,8 +6482,7 @@ class _TestScreenState extends State<TestScreen> {
                   ),
                   child: const Text("Save & Mark Review",
                       textAlign: TextAlign.center,
-                      style:
-                      TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(width: 12),
@@ -5772,8 +6498,7 @@ class _TestScreenState extends State<TestScreen> {
                   ),
                   child: const Text("Mark Review & Next",
                       textAlign: TextAlign.center,
-                      style:
-                      TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -5789,8 +6514,7 @@ class _TestScreenState extends State<TestScreen> {
                     foregroundColor: Colors.red,
                     side: const BorderSide(color: Colors.red),
                   ),
-                  child: const Text("Clear",
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: const Text("Clear", style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(width: 12),
@@ -5802,8 +6526,7 @@ class _TestScreenState extends State<TestScreen> {
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  child: const Text("Save & Next",
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: const Text("Save & Next", style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -5891,7 +6614,6 @@ class AttemptItemModel {
 FILE: lib/models/attempt_model.dart
 ================================================================================
 // lib/models/attempt_model.dart
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ResponseObject {
@@ -5916,8 +6638,7 @@ class ResponseObject {
   final String? topicId;
   final String? topicL2Id;
 
-  // *** NEW: Smart Time Analysis Tag for this specific question ***
-  // e.g., "Perfect Attempt", "Wasted Attempt", etc.
+  // Smart Time Analysis Tag
   final String smartTimeAnalysis;
 
   final String pyq;
@@ -5941,12 +6662,15 @@ class ResponseObject {
     this.chapterId,
     this.topicId,
     this.topicL2Id,
-    this.smartTimeAnalysis = '', // Default to empty
+    this.smartTimeAnalysis = '',
     this.pyq = '',
     this.difficultyTag = '',
     this.mistakeCategory,
     this.mistakeNote,
   });
+
+  Map<String, dynamic> toJson() => toMap();
+  factory ResponseObject.fromJson(Map<String, dynamic> json) => ResponseObject.fromMap(json);
 
   factory ResponseObject.fromMap(Map<String, dynamic> map) {
     return ResponseObject(
@@ -5964,10 +6688,7 @@ class ResponseObject {
       chapterId: map['chapterId'] as String?,
       topicId: map['topicId'] as String?,
       topicL2Id: map['topicL2Id'] as String?,
-
-      // Map the new field safely
       smartTimeAnalysis: map['smartTimeAnalysis'] ?? '',
-
       pyq: map['pyq'] ?? '',
       difficultyTag: map['difficultyTag'] ?? '',
       mistakeCategory: map['mistakeCategory'],
@@ -5991,10 +6712,7 @@ class ResponseObject {
       'chapterId': chapterId,
       'topicId': topicId,
       'topicL2Id': topicL2Id,
-
-      // Write the new field
       'smartTimeAnalysis': smartTimeAnalysis,
-
       'pyq': pyq,
       'difficultyTag': difficultyTag,
       'mistakeCategory': mistakeCategory,
@@ -6021,8 +6739,12 @@ class AttemptModel {
 
   final int timeTakenSeconds;
 
-  // *** NEW: Aggregate counts for the 6 analysis types ***
+  // NEW FIELD: Matches Firestore Schema
+  final int? timeLimitMinutes;
+
   final Map<String, int> smartTimeAnalysisCounts;
+  final Map<String, int> secondsBreakdownHighLevel;
+  final Map<String, int> secondsBreakdownSmartTimeAnalysis;
 
   final Map<String, ResponseObject> responses;
 
@@ -6041,8 +6763,11 @@ class AttemptModel {
     required this.incorrectCount,
     required this.skippedCount,
     required this.timeTakenSeconds,
-    required this.smartTimeAnalysisCounts, // Required now
+    this.timeLimitMinutes, // Nullable
+    required this.smartTimeAnalysisCounts,
     required this.responses,
+    this.secondsBreakdownHighLevel = const {},
+    this.secondsBreakdownSmartTimeAnalysis = const {},
   });
 
   factory AttemptModel.fromFirestore(DocumentSnapshot doc) {
@@ -6058,7 +6783,6 @@ class AttemptModel {
         ? Timestamp.fromDate(DateTime.parse(rawCompletedAt))
         : rawCompletedAt ?? Timestamp.now();
 
-    // Parse Responses
     Map<String, ResponseObject> parsedResponses = {};
     if (data['responses'] is Map) {
       (data['responses'] as Map).forEach((key, value) {
@@ -6069,12 +6793,15 @@ class AttemptModel {
       });
     }
 
-    // Parse Smart Time Analysis Counts
-    Map<String, int> parsedAnalysisCounts = {};
-    if (data['smartTimeAnalysisCounts'] is Map) {
-      (data['smartTimeAnalysisCounts'] as Map).forEach((key, value) {
-        parsedAnalysisCounts[key.toString()] = (value as num).toInt();
-      });
+    // Helper for maps
+    Map<String, int> parseIntMap(dynamic mapData) {
+      Map<String, int> result = {};
+      if (mapData is Map) {
+        mapData.forEach((key, value) {
+          result[key.toString()] = (value as num).toInt();
+        });
+      }
+      return result;
     }
 
     return AttemptModel(
@@ -6093,10 +6820,13 @@ class AttemptModel {
       skippedCount: data['skipped_count'] ?? 0,
       timeTakenSeconds: data['timeTakenSeconds'] ?? 0,
 
-      // Assign the parsed map
-      smartTimeAnalysisCounts: parsedAnalysisCounts,
+      // Load New Field
+      timeLimitMinutes: data['timeLimitMinutes'],
 
+      smartTimeAnalysisCounts: parseIntMap(data['smartTimeAnalysisCounts']),
       responses: parsedResponses,
+      secondsBreakdownHighLevel: parseIntMap(data['secondsBreakdownHighLevel']),
+      secondsBreakdownSmartTimeAnalysis: parseIntMap(data['secondsBreakdownSmartTimeAnalysis']),
     );
   }
 
@@ -6116,9 +6846,12 @@ class AttemptModel {
       'skipped_count': skippedCount,
       'timeTakenSeconds': timeTakenSeconds,
 
-      // Save the analysis counts
-      'smartTimeAnalysisCounts': smartTimeAnalysisCounts,
+      // Save New Field
+      'timeLimitMinutes': timeLimitMinutes,
 
+      'smartTimeAnalysisCounts': smartTimeAnalysisCounts,
+      'secondsBreakdownHighLevel': secondsBreakdownHighLevel,
+      'secondsBreakdownSmartTimeAnalysis': secondsBreakdownSmartTimeAnalysis,
       'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
     };
   }
@@ -6353,6 +7086,8 @@ enum PerformanceCategory {
 ================================================================================
 FILE: lib/models/test_model.dart
 ================================================================================
+
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class TestConfig {
@@ -6477,6 +7212,8 @@ class TestResult {
 ================================================================================
 FILE: lib/models/user_model.dart
 ================================================================================
+// lib/models/user_model.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class UserStats {
@@ -6515,6 +7252,9 @@ class UserModel {
   final List<String> testIDsattempted;
   final Timestamp createdAt;
 
+  // --- NEW FIELD FOR TRACKING SUBMISSIONS ---
+  final List<String> assignmentCodesSubmitted;
+
   // --- NEW ONBOARDING FIELDS ---
   final String role; // 'student' or 'teacher'
   final bool onboardingCompleted;
@@ -6536,8 +7276,9 @@ class UserModel {
     required this.stats,
     required this.testIDsattempted,
     required this.createdAt,
-    this.role = 'student', // Default to student
-    this.onboardingCompleted = false, // Default to false
+    this.assignmentCodesSubmitted = const [], // Default empty
+    this.role = 'student',
+    this.onboardingCompleted = false,
     this.studentId,
     this.targetExam,
     this.currentClass,
@@ -6557,7 +7298,10 @@ class UserModel {
       testIDsattempted: List<String>.from(data['testIDsattempted'] ?? []),
       createdAt: data['createdAt'] ?? Timestamp.now(),
 
-      // Map New Fields
+      // Map New Submission Tracking Field
+      assignmentCodesSubmitted: List<String>.from(data['assignmentCodesSubmitted'] ?? []),
+
+      // Map Onboarding Fields
       role: data['role'] ?? 'student',
       onboardingCompleted: data['onboardingCompleted'] ?? false,
       studentId: data['studentId'],
@@ -6581,7 +7325,10 @@ class UserModel {
       'testIDsattempted': testIDsattempted,
       'createdAt': createdAt,
 
-      // Save New Fields
+      // Save New Submission Tracking Field
+      'assignmentCodesSubmitted': assignmentCodesSubmitted,
+
+      // Save Onboarding Fields
       'role': role,
       'onboardingCompleted': onboardingCompleted,
       'studentId': studentId,
@@ -6661,7 +7408,8 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
 ================================================================================
 FILE: lib/services/auth_service.dart
 ================================================================================
-//lib/services/auth_service.dart
+// lib/services/auth_service.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -6672,8 +7420,7 @@ class AuthService {
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // --- FIX 1: Non-blocking Stream ---
-  // We removed asyncMap. The UI will now receive updates instantly.
+  // Stream for auth changes
   Stream<User?> get userStream {
     return _auth.authStateChanges();
   }
@@ -6684,7 +7431,6 @@ class AuthService {
       }) async {
     final userRef = _firestore.collection('users').doc(user.uid);
     final doc = await userRef.get();
-
     if (!doc.exists) {
       final newUser = UserModel(
         uid: user.uid,
@@ -6701,53 +7447,39 @@ class AuthService {
     }
   }
 
+  // UPDATED: Now rethrows exceptions so UI can handle them
   Future<UserCredential?> signInWithGoogle() async {
-    try {
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) return null;
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      final OAuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
+    // Let errors bubble up to be caught by the UI
+    final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) return null; // User canceled
 
-      // --- FIX 2: Ensure Document Exists for Google Users ---
-      UserCredential userCredential = await _auth.signInWithCredential(credential);
-      if (userCredential.user != null) {
-        // We manually check/create the doc here since we removed it from the stream
-        await _createUserDocumentIfNotExist(userCredential.user!);
-      }
-      return userCredential;
+    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+    final OAuthCredential credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
 
-    } catch (e) {
-      print("Error during Google Sign-In: $e");
-      return null;
+    UserCredential userCredential = await _auth.signInWithCredential(credential);
+    if (userCredential.user != null) {
+      await _createUserDocumentIfNotExist(userCredential.user!);
     }
+    return userCredential;
   }
 
+  // UPDATED: Removed try-catch to allow specific error handling in UI
   Future<UserCredential?> signInWithEmailAndPassword(String email, String password) async {
-    try {
-      return await _auth.signInWithEmailAndPassword(email: email, password: password);
-    } on FirebaseAuthException catch (e) {
-      print("Error: ${e.message}");
-      return null;
-    }
+    return await _auth.signInWithEmailAndPassword(email: email, password: password);
   }
 
+  // UPDATED: Removed try-catch to allow specific error handling in UI
   Future<UserCredential?> signUpWithEmailAndPassword(String email, String password, String displayName) async {
-    try {
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(email: email, password: password);
-      User? user = userCredential.user;
-      if (user != null) {
-        await user.updateDisplayName(displayName);
-        // This was already correct, it creates the doc explicitly
-        await _createUserDocumentIfNotExist(user, displayName: displayName);
-      }
-      return userCredential;
-    } on FirebaseAuthException catch (e) {
-      print("Error: ${e.message}");
-      return null;
+    UserCredential userCredential = await _auth.createUserWithEmailAndPassword(email: email, password: password);
+    User? user = userCredential.user;
+    if (user != null) {
+      await user.updateDisplayName(displayName);
+      await _createUserDocumentIfNotExist(user, displayName: displayName);
     }
+    return userCredential;
   }
 
   Future<void> signOut() async {
@@ -6815,6 +7547,134 @@ class CustomTestService {
   }
 }
 
+
+================================================================================
+FILE: lib/services/local_session_service.dart
+================================================================================
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:study_smart_qc/models/attempt_model.dart';
+
+class LocalSessionService {
+  static const String _sessionKey = 'current_active_session';
+
+  // ===========================================================================
+  // 1. SAVE SESSION (The Black Box Recorder)
+  // ===========================================================================
+  /// Call this on every user interaction (Next, Answer, Mark Review) and Lifecycle Pause.
+  Future<void> saveSession({
+    required String assignmentCode,
+    required String mode, // Expects 'Test' or 'Practice' (Title Case)
+    required String testId,
+    required int totalQuestions,
+    required int currentTimerValue, // Seconds remaining (Test) or elapsed (Practice)
+    required int currentQuestionIndex,
+    required Map<String, ResponseObject> responses,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Serialize Responses using the new .toJson() method
+    final serializedResponses = responses.map(
+          (key, value) => MapEntry(key, value.toJson()),
+    );
+
+    final sessionData = {
+      "testSessionPending": "Session pending",
+      "meta": {
+        "assignmentCode": assignmentCode,
+        "mode": mode,
+        "testId": testId,
+        "totalQuestions": totalQuestions
+      },
+      "timestamps": {
+        "quitTimeTimestamp": DateTime.now().toIso8601String(),
+        "quitTimeTimerValue": currentTimerValue
+      },
+      "state": {
+        "currentQuestionIndex": currentQuestionIndex,
+        "responses": serializedResponses
+      }
+    };
+
+    await prefs.setString(_sessionKey, jsonEncode(sessionData));
+  }
+
+  // ===========================================================================
+  // 2. CHECK & FETCH (The Gatekeeper)
+  // ===========================================================================
+
+  /// Checks if a valid pending session exists.
+  Future<bool> hasPendingSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!prefs.containsKey(_sessionKey)) return false;
+
+    final jsonString = prefs.getString(_sessionKey);
+    if (jsonString == null) return false;
+
+    try {
+      final data = jsonDecode(jsonString);
+      return data['testSessionPending'] == "Session pending";
+    } catch (e) {
+      return false; // Corrupt data
+    }
+  }
+
+  /// Retrieves the raw session data.
+  Future<Map<String, dynamic>?> getSessionData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_sessionKey);
+    if (jsonString == null) return null;
+    return jsonDecode(jsonString);
+  }
+
+  // ===========================================================================
+  // 3. TIMER RECONCILIATION (The Anti-Cheat Math)
+  // ===========================================================================
+
+  /// Calculates the correct time to resume from.
+  /// Returns NULL if the test time has expired while away.
+  int? calculateResumeTime({
+    required String mode,
+    required int savedTimerValue,
+    required String savedTimestampIso,
+  }) {
+    // 1. Practice Mode: Effort based. Ignore the gap.
+    if (mode == 'Practice') {
+      return savedTimerValue;
+    }
+
+    // 2. Test Mode: Strict time.
+    final savedTime = DateTime.parse(savedTimestampIso);
+    final now = DateTime.now();
+    final timeGoneSeconds = now.difference(savedTime).inSeconds;
+
+    // We subtract the time they were away from the time they had left.
+    final newRemainingTime = savedTimerValue - timeGoneSeconds;
+
+    if (newRemainingTime <= 0) {
+      return null; // Time Expired!
+    }
+    return newRemainingTime;
+  }
+
+  // ===========================================================================
+  // 4. HELPERS
+  // ===========================================================================
+
+  /// Helper to convert the JSON map back into your ResponseObject Map
+  Map<String, ResponseObject> parseResponses(Map<String, dynamic> jsonMap) {
+    // The jsonMap from storage is Map<String, dynamic> where value is the JSON of ResponseObject
+    return jsonMap.map(
+          (key, value) => MapEntry(key, ResponseObject.fromJson(value)),
+    );
+  }
+
+  /// Clears the session from disk (Call after successful submission).
+  Future<void> clearSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_sessionKey);
+  }
+}
 
 ================================================================================
 FILE: lib/services/onboarding_service.dart
@@ -7254,6 +8114,9 @@ class TestOrchestrationService {
     required num score,
     required int timeTakenSeconds,
     required Map<String, ResponseObject> responses,
+
+    // NEW PARAMETER: Consistent with Firestore schema & UI Model
+    int? timeLimitMinutes,
   }) async {
     if (_userId == null) return null;
 
@@ -7295,6 +8158,17 @@ class TestOrchestrationService {
       "Time Wasted": 0
     };
 
+    // *** ADDITIVE: New Time Breakdown Accumulators ***
+    Map<String, int> highLevelTime = {"CORRECT": 0, "INCORRECT": 0, "SKIPPED": 0};
+    Map<String, int> smartTimeBreakdown = {
+      "Perfect Attempt": 0,
+      "Overtime Correct": 0,
+      "Careless Mistake": 0,
+      "Wasted Attempt": 0,
+      "Good Skip": 0,
+      "Time Wasted": 0
+    };
+
     int correctCount = 0;
     int incorrectCount = 0;
     int skippedCount = 0;
@@ -7314,6 +8188,9 @@ class TestOrchestrationService {
         skippedCount++;
       }
 
+      // *** ADDITIVE: Accumulate High-Level Time ***
+      highLevelTime[status] = (highLevelTime[status] ?? 0) + timeSpent;
+
       // Generate the analysis tag
       String smartTag = _generateSmartTag(
         status: status,
@@ -7328,6 +8205,9 @@ class TestOrchestrationService {
       if (smartTag.isNotEmpty) {
         String shortKey = smartTag.split(' (').first.trim();
         analysisCounts[shortKey] = (analysisCounts[shortKey] ?? 0) + 1;
+
+        // *** ADDITIVE: Accumulate Smart Analysis Time ***
+        smartTimeBreakdown[shortKey] = (smartTimeBreakdown[shortKey] ?? 0) + timeSpent;
       }
 
       final enrichedResponse = ResponseObject(
@@ -7373,7 +8253,14 @@ class TestOrchestrationService {
       incorrectCount: incorrectCount,
       skippedCount: skippedCount,
       timeTakenSeconds: timeTakenSeconds,
+
+      // PASS NEW FIELD
+      timeLimitMinutes: timeLimitMinutes,
+
       smartTimeAnalysisCounts: analysisCounts,
+      // *** ADDITIVE: Assign New Time Breakdown Maps ***
+      secondsBreakdownHighLevel: highLevelTime,
+      secondsBreakdownSmartTimeAnalysis: smartTimeBreakdown,
       responses: enrichedResponses,
     );
     batch.set(attemptRef, newAttempt.toFirestore());
@@ -7455,7 +8342,19 @@ class TestOrchestrationService {
       }
     }
 
+    // ==========================================================
+    // NEW LOGIC: Update User's Submitted List (MOVED BEFORE COMMIT)
+    // ==========================================================
+    if (assignmentCode.isNotEmpty && assignmentCode != 'PRAC') {
+      final userRef = _firestore.collection('users').doc(_userId);
+      // Atomic update: Adds the code to the list only if it doesn't exist
+      batch.update(userRef, {
+        'assignmentCodesSubmitted': FieldValue.arrayUnion([assignmentCode])
+      });
+    }
+
     await batch.commit();
+
     return newAttempt;
   }
 
@@ -8898,4 +9797,47 @@ class _TestConfigurationBottomSheetState
   }
 }
 
+
+================================================================================
+FILE: lib/widgets/timer_hms.dart
+================================================================================
+import 'package:flutter/material.dart';
+
+class Timer_HMS extends StatelessWidget {
+  final Duration duration;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+
+  const Timer_HMS({
+    super.key,
+    required this.duration,
+    this.style,
+    this.textAlign,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+
+    final int hours = duration.inHours;
+    final int minutes = duration.inMinutes.remainder(60);
+    final int seconds = duration.inSeconds.remainder(60);
+
+    String formattedTime;
+
+    if (hours > 0) {
+      // Format: HH:MM:SS
+      formattedTime = "${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(seconds)}";
+    } else {
+      // Format: MM:SS (Hours are hidden)
+      formattedTime = "${twoDigits(minutes)}:${twoDigits(seconds)}";
+    }
+
+    return Text(
+      formattedTime,
+      style: style,
+      textAlign: textAlign,
+    );
+  }
+}
 

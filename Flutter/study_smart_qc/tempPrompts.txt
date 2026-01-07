@@ -1,0 +1,16 @@
+Ok. This is fine. We need to work on the test taking side
+
+
+
+The current problem
+
+1. If a user hits back, we ask for confimation but if they quit, the session goes unrecorded, we need to build a mechanism to save a local copy of their attempt along with key data (assignmentCode, mode, responses, quitTimeTimestamp, quitTimeTimerValue and a local flag variable TestSessionPending (text) which defaults to 'No pending session', but we set it to 'Session pending' if they quit)
+
+2. If the student reopens the app, we should show a pop-up 'You have an ongoing Session, do you want to continue - If they select yes, we again set TestSessionPending to  'No pending session' and send them to test taking screen where they can resume the test, if they select no, we can simply submit the test with whatever responses were recorded locally
+
+3. Timer behavior - in practice mode, its count-up timer so we can simply resume from there
+
+but in practice mode we should calculate the timeElapsed based on quitTimeTimestamp and currentTimestamp and give them only the remaining time (if any time is remaining, else submit) (e.g., if a student quits when 5 mins were left and comes back after 1 minute, we must start count-down timer from 4mins, but if they come after 5mins, we should simply submit (showing snack bar test time over))
+
+
+

@@ -1,11 +1,21 @@
 // lib/features/teacher/screens/teacher_filter_screen.dart
 
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
+
+// --- Helper Model to store parsed Syllabus Data ---
+class SyllabusChapter {
+  final String id;
+  final String name;
+  final Map<String, String> topics; // key: id, value: display name
+
+  SyllabusChapter({required this.id, required this.name, required this.topics});
+}
 
 class TeacherFilterScreen extends StatefulWidget {
   final String audienceType;
@@ -21,40 +31,39 @@ class TeacherFilterScreen extends StatefulWidget {
   State<TeacherFilterScreen> createState() => _TeacherFilterScreenState();
 }
 
-class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTickerProviderStateMixin {
+class _TeacherFilterScreenState extends State<TeacherFilterScreen>
+    with SingleTickerProviderStateMixin {
   final TeacherService _teacherService = TeacherService();
   late TabController _tabController;
 
-  // --- Data & Filters ---
-  bool _isLoadingSyllabus = true;
-  Map<String, dynamic>? _syllabusData;
-  List<String> _subjects = [];
+  // --- 1. DYNAMIC DATA STATE ---
+  bool _isLoadingFilters = true;
+  List<String> _examsList = [];
+  List<String> _subjectsList = [];
 
+  // Cache: Subject (lowercase) -> List of parsed Chapters
+  final Map<String, List<SyllabusChapter>> _syllabusCache = {};
+
+  // --- 2. FILTER STATE ---
+  String? _selectedExam;
   String? _selectedSubject;
   final Set<String> _selectedChapters = {};
   final Set<String> _selectedTopics = {};
-  String? _smartFilter;
+  bool _isPyqOnly = false;
 
-  // --- Search & Pagination State ---
+  // --- 3. SEARCH STATE ---
   bool _isSearching = false;
-  bool _isLoadingMore = false;
   List<Question> _searchResults = [];
-  DocumentSnapshot? _lastDocument; // Pagination Cursor
-  bool _hasMoreData = true;
+  int _totalMatchCount = 0; // <--- ADDED: To store total count from DB
 
-  // --- Selection State (The Cart) ---
-  // We use a Map to keep the full object, allowing us to display them in the 'Selected' tab
-  // even if they disappear from the search results after a new fetch.
+  // --- 4. SELECTION STATE (The Cart) ---
   final Map<String, Question> _selectedQuestions = {};
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _fetchSyllabus();
-    if (widget.audienceType == 'Particular Student') {
-      _smartFilter = 'New Questions';
-    }
+    _fetchFilterData();
   }
 
   @override
@@ -63,80 +72,174 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
     super.dispose();
   }
 
-  Future<void> _fetchSyllabus() async {
+  // --- DATA FETCHING & PARSING (Kept same as previous working version) ---
+  Future<void> _fetchFilterData() async {
     try {
-      final doc = await FirebaseFirestore.instance.collection('static_data').doc('syllabus').get();
-      if (doc.exists) {
-        final data = doc.data()!;
-        setState(() {
-          _syllabusData = data['subjects'];
-          _subjects = _syllabusData?.keys.toList() ?? [];
-        });
+      final firestore = FirebaseFirestore.instance;
+      final optionsDoc = await firestore.collection('static_data').doc('option_sets').get();
+      if (optionsDoc.exists) {
+        final data = optionsDoc.data()!;
+        _examsList = List<String>.from(data['exams_list'] ?? []);
+        _subjectsList = List<String>.from(data['subjects_list'] ?? []);
       }
+
+      final syllabusDoc = await firestore.collection('static_data').doc('syllabus').get();
+      if (syllabusDoc.exists) {
+        final data = syllabusDoc.data()!;
+        if (data.containsKey('subjects') && data['subjects'] is Map) {
+          final subjectsMap = data['subjects'] as Map<String, dynamic>;
+          subjectsMap.forEach((subjectKey, subjectVal) {
+            if (subjectVal is Map && subjectVal.containsKey('chapters')) {
+              final chaptersMap = subjectVal['chapters'] as Map<String, dynamic>;
+              List<SyllabusChapter> parsedChapters = [];
+              chaptersMap.forEach((chapKey, chapVal) {
+                if (chapVal is Map) {
+                  String name = chapVal['name'] ?? chapKey;
+                  Map<String, String> topics = {};
+                  if (chapVal.containsKey('topics') && chapVal['topics'] is Map) {
+                    final topicRaw = chapVal['topics'] as Map<String, dynamic>;
+                    topicRaw.forEach((tKey, tVal) {
+                      topics[tKey] = tVal.toString();
+                    });
+                  }
+                  parsedChapters.add(SyllabusChapter(id: chapKey, name: name, topics: topics));
+                }
+              });
+              parsedChapters.sort((a, b) => a.name.compareTo(b.name));
+              _syllabusCache[subjectKey.toLowerCase()] = parsedChapters;
+            }
+          });
+        }
+      }
+      setState(() { _isLoadingFilters = false; });
     } catch (e) {
-      debugPrint("Error loading syllabus: $e");
-    } finally {
-      if (mounted) setState(() => _isLoadingSyllabus = false);
+      debugPrint("Error loading filters: $e");
+      setState(() { _isLoadingFilters = false; });
     }
   }
 
-  // --- ACTIONS ---
+  // --- CASCADING GETTERS ---
+  String _normalizeSubject(String? subject) {
+    if (subject == null) return "";
+    return subject.toLowerCase().trim();
+  }
 
-  Future<void> _performSearch({bool isLoadMore = false}) async {
-    if (_selectedSubject == null && widget.audienceType != 'Particular Student') {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a Subject")));
+  List<String> get _currentChaptersList {
+    if (_selectedSubject == null) return [];
+    String key = _normalizeSubject(_selectedSubject);
+    final chapters = _syllabusCache[key] ?? [];
+    return chapters.map((c) => c.name).toList();
+  }
+
+  List<String> get _currentTopicsList {
+    if (_selectedChapters.isEmpty || _selectedSubject == null) return [];
+    String key = _normalizeSubject(_selectedSubject);
+    final allChapters = _syllabusCache[key] ?? [];
+    final selectedChaps = allChapters.where((c) => _selectedChapters.contains(c.name));
+    List<String> topics = [];
+    for (var chap in selectedChaps) {
+      topics.addAll(chap.topics.values);
+    }
+    return topics.toSet().toList()..sort();
+  }
+
+  void _resetFiltersBelow(String level) {
+    setState(() {
+      if (level == 'Exam') {
+        _selectedSubject = null;
+        _selectedChapters.clear();
+        _selectedTopics.clear();
+      } else if (level == 'Subject') {
+        _selectedChapters.clear();
+        _selectedTopics.clear();
+      } else if (level == 'Chapter') {
+        _selectedTopics.clear();
+      }
+    });
+  }
+
+  // --- SEARCH LOGIC (UPDATED WITH COUNT) ---
+  String _generateRandomId() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rnd = Random();
+    return String.fromCharCodes(Iterable.generate(20, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
+  }
+
+  Future<void> _performSearch() async {
+    if (_selectedExam == null || _selectedSubject == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select Exam and Subject")));
       return;
     }
 
     setState(() {
-      if (isLoadMore) {
-        _isLoadingMore = true;
-      } else {
-        _isSearching = true;
-        _searchResults = [];
-        _lastDocument = null;
-        _hasMoreData = true;
-      }
+      _isSearching = true;
+      _searchResults = [];
+      _totalMatchCount = 0; // Reset count
     });
 
     try {
-      final paginatedResult = await _teacherService.fetchQuestionsPaged(
-        audienceType: widget.audienceType,
-        studentId: widget.studentId,
-        smartFilter: _smartFilter,
-        subject: _selectedSubject,
-        chapterIds: _selectedChapters.isNotEmpty ? _selectedChapters.toList() : null,
-        topicIds: _selectedTopics.isNotEmpty ? _selectedTopics.toList() : null,
-        limit: 20, // Strict limit of 20
-        startAfter: _lastDocument,
-      );
+      Query query = FirebaseFirestore.instance.collection('questions');
 
-      final newQuestions = paginatedResult.questions;
+      // 1. Build Base Query (Exact Matching)
+      query = query.where('Exam', isEqualTo: _selectedExam);
+      query = query.where('Subject', isEqualTo: _selectedSubject);
 
-      // Randomize Client-Side
-      newQuestions.shuffle();
+      if (_selectedChapters.isNotEmpty && _selectedChapters.length <= 10) {
+        query = query.where('Chapter', whereIn: _selectedChapters.toList());
+      }
+      if (_selectedTopics.isNotEmpty && _selectedTopics.length <= 10) {
+        query = query.where('Topic', whereIn: _selectedTopics.toList());
+      }
+      if (_isPyqOnly) {
+        query = query.where('PYQ', isEqualTo: "Yes");
+      }
+
+      // --- ADDED: Fetch Total Count ---
+      // We run this separately to get the total number of documents matching filters
+      AggregateQuerySnapshot countSnapshot = await query.count().get();
+      int totalCount = countSnapshot.count ?? 0;
+      // --------------------------------
+
+      // 2. Randomization Logic
+      String randomAnchor = _generateRandomId();
+      Query randomQuery = query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(50);
+
+      QuerySnapshot snapshot = await randomQuery.get();
+      if (snapshot.docs.isEmpty) {
+        // Fallback to start if random index hit the end
+        snapshot = await query.limit(50).get();
+      }
+
+      List<Question> fetched = snapshot.docs
+          .map((doc) => Question.fromFirestore(doc))
+          .toList();
+
+      // 3. Client-side filtering (if > 10 items selected)
+      if (_selectedChapters.length > 10) {
+        fetched = fetched.where((q) => _selectedChapters.contains(q.chapter)).toList();
+        // Note: If filtering client-side, the 'totalCount' from server might be higher
+        // than actual local matches, but it's the best approximation without expensive reads.
+      }
+      if (_selectedTopics.length > 10) {
+        fetched = fetched.where((q) => _selectedTopics.contains(q.topic)).toList();
+      }
+
+      fetched.shuffle();
+      if (fetched.length > 20) fetched = fetched.sublist(0, 20);
 
       setState(() {
-        if (isLoadMore) {
-          _searchResults.addAll(newQuestions);
-        } else {
-          _searchResults = newQuestions;
-        }
-
-        _lastDocument = paginatedResult.lastDoc;
-
-        // If we got fewer than limit, we likely reached the end
-        if (newQuestions.length < 20) {
-          _hasMoreData = false;
-        }
+        _searchResults = fetched;
+        _totalMatchCount = totalCount; // Update State
       });
 
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      debugPrint("Search Error: $e");
+      String msg = "Error fetching data.";
+      if (e.toString().contains("failed-precondition")) msg = "Missing Index. Check debug console.";
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       setState(() {
         _isSearching = false;
-        _isLoadingMore = false;
       });
     }
   }
@@ -151,14 +254,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
     });
   }
 
+  // --- ASSIGNMENT LOGIC (Kept same) ---
   Future<void> _onAssign() async {
     if (_selectedQuestions.isEmpty) return;
     final teacher = FirebaseAuth.instance.currentUser;
     if (teacher == null) return;
 
     final titleCtrl = TextEditingController(text: "Homework - ${DateTime.now().toString().split(' ')[0]}");
-    final defaultTime = _selectedQuestions.length * 2;
-    final timeCtrl = TextEditingController(text: defaultTime.toString());
+    final timeCtrl = TextEditingController(text: "${_selectedQuestions.length * 2}");
     bool isSingleAttempt = false;
 
     final confirm = await showDialog<bool>(
@@ -173,29 +276,16 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
                 children: [
                   Text("Assigning ${_selectedQuestions.length} questions."),
                   const SizedBox(height: 15),
-                  TextField(
-                      controller: titleCtrl,
-                      decoration: const InputDecoration(labelText: "Assignment Title", border: OutlineInputBorder())
-                  ),
+                  TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: "Assignment Title", border: OutlineInputBorder())),
                   const SizedBox(height: 15),
-                  TextField(
-                    controller: timeCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: "Time Limit (Minutes)", border: OutlineInputBorder(), suffixText: "min"),
-                  ),
-                  const SizedBox(height: 15),
-                  Row(
-                    children: [
-                      SizedBox(
-                        height: 24, width: 24,
-                        child: Checkbox(
-                          value: isSingleAttempt,
-                          onChanged: (val) => setDialogState(() => isSingleAttempt = val ?? false),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      const Expanded(child: Text("Strict Mode (Single Attempt)")),
-                    ],
+                  TextField(controller: timeCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Time Limit (Min)", border: OutlineInputBorder())),
+                  const SizedBox(height: 10),
+                  CheckboxListTile(
+                    title: const Text("Strict Mode (Single Attempt)"),
+                    value: isSingleAttempt,
+                    onChanged: (val) => setDialogState(() => isSingleAttempt = val ?? false),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ],
               ),
@@ -212,11 +302,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
     if (confirm != true) return;
 
     try {
-      if (widget.audienceType != 'Particular Student') {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Batch assignment coming soon!")));
-        return;
-      }
-
       int? customTime = int.tryParse(timeCtrl.text.trim());
       await _teacherService.assignQuestionsToStudent(
         studentId: widget.studentId!,
@@ -230,38 +315,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Assigned Successfully!")));
-        Navigator.pop(context); // Close screen
+        Navigator.pop(context);
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
     }
   }
 
-  // --- UI HELPERS ---
-  List<String> get _availableChapters {
-    if (_selectedSubject == null || _syllabusData == null) return [];
-    final chaptersMap = _syllabusData![_selectedSubject]['chapters'] as Map<String, dynamic>?;
-    return chaptersMap?.keys.toList() ?? [];
-  }
-
-  List<String> get _availableTopics {
-    if (_selectedSubject == null || _selectedChapters.isEmpty || _syllabusData == null) return [];
-    List<String> topics = [];
-    final chaptersMap = _syllabusData![_selectedSubject]['chapters'];
-    for (var chapId in _selectedChapters) {
-      final chapData = chaptersMap[chapId];
-      if (chapData != null && chapData['topics'] != null) {
-        final topicMap = chapData['topics'] as Map<String, dynamic>;
-        topics.addAll(topicMap.keys);
-      }
-    }
-    return topics;
-  }
-
-  String _formatName(String id) {
-    return id.split('_').map((str) => str.isNotEmpty ? str[0].toUpperCase() + str.substring(1) : '').join(' ');
-  }
-
+  // --- UI COMPONENTS ---
   void _showMultiSelectDialog({required String title, required List<String> items, required Set<String> selectedItems, required Function(Set<String>) onConfirm}) {
     showDialog(
       context: context,
@@ -274,7 +335,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
             return Dialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Container(
-                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.6),
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
@@ -292,7 +353,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
                           final item = filteredItems[index];
                           final isSelected = localSelected.contains(item);
                           return CheckboxListTile(
-                            title: Text(_formatName(item)),
+                            title: Text(item),
                             value: isSelected,
                             activeColor: Colors.deepPurple,
                             onChanged: (val) => setDialogState(() { val == true ? localSelected.add(item) : localSelected.remove(item); }),
@@ -301,13 +362,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
                       ),
                     ),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        Text("${localSelected.length} Selected", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                        const SizedBox(width: 8),
                         ElevatedButton(
                           onPressed: () { onConfirm(localSelected); Navigator.pop(context); },
                           child: const Text("Done"),
-                        )
+                        ),
                       ],
                     )
                   ],
@@ -319,8 +381,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
       },
     );
   }
-
-  // --- BUILD METHOD ---
 
   @override
   Widget build(BuildContext context) {
@@ -340,13 +400,12 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
           ],
         ),
       ),
-      body: TabBarView(
+      body: _isLoadingFilters
+          ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(), SizedBox(height: 10), Text("Loading Syllabus...")]))
+          : TabBarView(
         controller: _tabController,
         children: [
-          // TAB 1: FILTERS & RESULTS
           _buildSearchTab(),
-
-          // TAB 2: SELECTED LIST
           _buildSelectedTab(),
         ],
       ),
@@ -359,39 +418,40 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- FILTERS SECTION ---
           _buildFilters(),
 
-          const Divider(height: 30),
+          const SizedBox(height: 20),
 
-          // --- SEARCH BUTTON ---
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               icon: const Icon(Icons.search),
-              label: const Text("Search Questions"),
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14)
-              ),
-              onPressed: () => _performSearch(isLoadMore: false),
+              label: const Text("Search & Shuffle"),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
+              onPressed: _performSearch,
             ),
           ),
 
-          const SizedBox(height: 20),
+          const Divider(height: 40),
 
-          // --- RESULTS LIST ---
           if (_isSearching)
             const Center(child: CircularProgressIndicator())
-          else if (_searchResults.isEmpty && _lastDocument == null) // Initial empty state
-            const Center(child: Text("Use filters to find questions.", style: TextStyle(color: Colors.grey)))
+          else if (_searchResults.isEmpty && _totalMatchCount == 0)
+          // Only show 'No questions' if we haven't searched yet or truly found nothing
+            const Center(child: Text("Adjust filters and click Search.", style: TextStyle(color: Colors.grey)))
           else
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Showing ${_searchResults.length} Results", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                // --- ADDED: Display Total Count ---
+                Text(
+                    "Showing ${_searchResults.length} of $_totalMatchCount Results (Randomized)",
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16)
+                ),
                 const SizedBox(height: 10),
+                if (_searchResults.isEmpty)
+                  const Padding(padding: EdgeInsets.all(8.0), child: Text("No items fetched. Try searching again.", style: TextStyle(color: Colors.red))),
+
                 ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -399,45 +459,24 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
                   itemBuilder: (context, index) {
                     final q = _searchResults[index];
                     final isSelected = _selectedQuestions.containsKey(q.id);
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Checkbox(
-                            value: isSelected,
-                            onChanged: (val) => _toggleSelection(q),
-                          ),
+                    return Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Checkbox(value: isSelected, onChanged: (val) => _toggleSelection(q)),
+                            Expanded(
+                              child: QuestionPreviewCard(question: q),
+                            ),
+                          ],
                         ),
-                        Expanded(child: QuestionPreviewCard(question: q)),
-                      ],
+                      ),
                     );
                   },
                 ),
-
-                // --- LOAD MORE BUTTON ---
-                if (_hasMoreData)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: _isLoadingMore
-                          ? const CircularProgressIndicator()
-                          : FloatingActionButton.extended(
-                        heroTag: "loadMore",
-                        onPressed: () => _performSearch(isLoadMore: true),
-                        label: const Text("Load Next 20"),
-                        icon: const Icon(Icons.refresh),
-                        backgroundColor: Colors.deepPurple.shade100,
-                        foregroundColor: Colors.deepPurple,
-                      ),
-                    ),
-                  ),
-
-                if (!_hasMoreData && _searchResults.isNotEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(20.0),
-                    child: Center(child: Text("No more questions matching criteria.", style: TextStyle(color: Colors.grey))),
-                  ),
               ],
             ),
         ],
@@ -447,116 +486,129 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen> with SingleTi
 
   Widget _buildSelectedTab() {
     if (_selectedQuestions.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.shopping_cart_outlined, size: 60, color: Colors.grey),
-            SizedBox(height: 10),
-            Text("No questions selected yet.", style: TextStyle(color: Colors.grey)),
-            Text("Go to Search Results to add questions.", style: TextStyle(color: Colors.grey, fontSize: 12)),
-          ],
-        ),
-      );
+      return const Center(child: Text("No questions selected."));
     }
 
-    final list = _selectedQuestions.values.toList();
+    // Convert map values to list for display
+    final selectedList = _selectedQuestions.values.toList();
 
     return Stack(
       children: [
         ListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100), // Space for fab
-          itemCount: list.length,
+          // Add padding at bottom so the list isn't hidden behind the Assign button
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+          itemCount: selectedList.length,
           itemBuilder: (context, index) {
-            final q = list[index];
-            return Stack(
-              children: [
-                QuestionPreviewCard(question: q),
-                Positioned(
-                  top: 0, right: 0,
-                  child: IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _toggleSelection(q),
-                  ),
+            final q = selectedList[index];
+
+            return Card(
+              elevation: 2,
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Checkbox is always checked here. Unchecking it removes from list.
+
+                    Expanded(
+                      child: QuestionPreviewCard(question: q),
+                    ),
+                    // Optional: Keep a delete icon for explicit removal if preferred,
+                    // but the checkbox does the same thing.
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _toggleSelection(q),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             );
           },
         ),
+
+        // Assign Button (Floating at bottom)
         Positioned(
-          bottom: 20, left: 20, right: 20,
+          bottom: 20,
+          left: 20,
+          right: 20,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              elevation: 5,
+              elevation: 4,
             ),
             onPressed: _onAssign,
-            child: Text("Assign ${list.length} Questions", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            child: Text(
+                "Assign ${_selectedQuestions.length} Questions",
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
+            ),
           ),
         ),
       ],
     );
   }
 
+
   Widget _buildFilters() {
-    // Reusing your existing efficient filter UI logic
-    final inputDecoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));
+    final decoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));
 
     return Column(
       children: [
-        if (_isLoadingSyllabus) const LinearProgressIndicator(),
-
-        // Subject Dropdown
+        DropdownButtonFormField<String>(
+          value: _selectedExam,
+          hint: const Text("Select Exam"),
+          items: _examsList.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+          onChanged: (val) => setState(() { _selectedExam = val; _resetFiltersBelow('Exam'); }),
+          decoration: decoration.copyWith(labelText: "Exam"),
+        ),
+        const SizedBox(height: 10),
         DropdownButtonFormField<String>(
           value: _selectedSubject,
           hint: const Text("Select Subject"),
-          items: _subjects.map((s) => DropdownMenuItem(value: s, child: Text(_formatName(s)))).toList(),
-          onChanged: (val) => setState(() { _selectedSubject = val; _selectedChapters.clear(); _selectedTopics.clear(); }),
-          decoration: inputDecoration.copyWith(labelText: "Subject"),
+          items: _subjectsList.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+          onChanged: (val) => setState(() { _selectedSubject = val; _resetFiltersBelow('Subject'); }),
+          decoration: decoration.copyWith(labelText: "Subject"),
         ),
-        const SizedBox(height: 15),
-
-        // Chapter Multi-Select
+        const SizedBox(height: 10),
         InkWell(
-          onTap: _selectedSubject == null ? null : () => _showMultiSelectDialog(
+          onTap: _selectedSubject == null || _currentChaptersList.isEmpty
+              ? null
+              : () => _showMultiSelectDialog(
             title: "Select Chapters",
-            items: _availableChapters,
+            items: _currentChaptersList,
             selectedItems: _selectedChapters,
-            onConfirm: (newSet) => setState(() { _selectedChapters.clear(); _selectedChapters.addAll(newSet); _selectedTopics.clear(); }),
+            onConfirm: (set) => setState(() { _selectedChapters.clear(); _selectedChapters.addAll(set); _resetFiltersBelow('Chapter'); }),
           ),
           child: InputDecorator(
-            decoration: inputDecoration.copyWith(labelText: "Chapters", enabled: _selectedSubject != null, suffixIcon: const Icon(Icons.arrow_drop_down)),
-            child: Text(_selectedChapters.isEmpty ? "All Chapters" : "${_selectedChapters.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
+            decoration: decoration.copyWith(labelText: "Chapters", suffixIcon: const Icon(Icons.arrow_drop_down)),
+            child: Text(_selectedChapters.isEmpty ? "All" : "${_selectedChapters.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
         ),
-        const SizedBox(height: 15),
-
-        // Topic Multi-Select
+        const SizedBox(height: 10),
         InkWell(
-          onTap: _selectedChapters.isEmpty ? null : () => _showMultiSelectDialog(
+          onTap: _selectedChapters.isEmpty || _currentTopicsList.isEmpty
+              ? null
+              : () => _showMultiSelectDialog(
             title: "Select Topics",
-            items: _availableTopics,
+            items: _currentTopicsList,
             selectedItems: _selectedTopics,
-            onConfirm: (newSet) => setState(() { _selectedTopics.clear(); _selectedTopics.addAll(newSet); }),
+            onConfirm: (set) => setState(() { _selectedTopics.clear(); _selectedTopics.addAll(set); }),
           ),
           child: InputDecorator(
-            decoration: inputDecoration.copyWith(labelText: "Topics", enabled: _selectedChapters.isNotEmpty, suffixIcon: const Icon(Icons.arrow_drop_down)),
-            child: Text(_selectedTopics.isEmpty ? "All Topics" : "${_selectedTopics.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
+            decoration: decoration.copyWith(labelText: "Topics", suffixIcon: const Icon(Icons.arrow_drop_down)),
+            child: Text(_selectedTopics.isEmpty ? "All" : "${_selectedTopics.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
         ),
-
-        // Smart Filters
-        if (widget.audienceType == 'Particular Student') ...[
-          const SizedBox(height: 15),
-          DropdownButtonFormField<String>(
-            value: _smartFilter,
-            items: ['New Questions', 'Incorrect', 'Unattempted', 'Skipped', 'Correct'].map((f) => DropdownMenuItem(value: f, child: Text(f))).toList(),
-            onChanged: (val) => setState(() => _smartFilter = val),
-            decoration: inputDecoration.copyWith(labelText: "Student Status"),
-          ),
-        ],
+        const SizedBox(height: 10),
+        CheckboxListTile(
+          title: const Text("Previous Year Questions (PYQ) Only"),
+          value: _isPyqOnly,
+          onChanged: (val) => setState(() => _isPyqOnly = val ?? false),
+          contentPadding: EdgeInsets.zero,
+          activeColor: Colors.deepPurple,
+        ),
       ],
     );
   }

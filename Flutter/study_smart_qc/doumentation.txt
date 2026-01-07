@@ -1,3 +1,14 @@
+Behavioral Logic Core ComponentsThe system evaluates three primary variables for every question:Result Status: Was the answer CORRECT, INCORRECT, or SKIPPED?Time Taken: Actual seconds spent on the question (timeSpent).Ideal Thresholds: Dynamic limits fetched from Firestore configuration (/static_data/option_sets) based on the specific Exam_Subject.Threshold CalculationsBefore assigning a tag, the system calculates three thresholds:ThresholdCalculation LogicIdeal TimeThe baseline seconds allowed for that subject (e.g., 120s).Careless ThresholdIdeal Time × factorForCarelessAttempt (default 0.25).Good Skip ThresholdIdeal Time × factorForGoodSkip (default 0.20).Tag Assignment MatrixThe logic follows this decision tree to assign one of the six coaching tags:1. If the result is CORRECT:Perfect Attempt: timeSpent ≤ Ideal Time. You answered correctly and managed your time perfectly within the subject's limit.Overtime Correct: timeSpent > Ideal Time. You reached the correct answer, though you spent a bit more time than the ideal limit.2. If the result is INCORRECT:Careless Mistake: timeSpent < Careless Threshold. You answered very quickly but unfortunately missed this one.Wasted Attempt: timeSpent ≥ Careless Threshold. You spent a lot of time here but didn't quite get the right answer.3. If the result is SKIPPED:Good Skip: timeSpent < Good Skip Threshold. You recognized a tough one early and skipped it quickly to save time.Time Wasted: timeSpent ≥ Good Skip Threshold. You spent quite a while on this before skipping.Aggregate AnalyticsIn addition to the per-question tags, the system saves two aggregate maps in the AttemptModel for high-level dashboarding:smartTimeAnalysisCounts: Total count of questions in each of the 6 categories.secondsBreakdownSmartTimeAnalysis: Total seconds spent in each of the 6 categories.This documentation ensures that as you scale, you can tune the carelessFactor or goodSkipFactor in Firestore to adjust how "strict" or "lenient" the coaching feedback becomes
+
+Perfect Attempt
+Overtime Correct
+Careless Mistake
+Wasted Attempt
+Good Skip
+Time Wasted
+
+
+
 StudySmart Project Documentation (Updated Jan 6, 2026)
 1. System Overview
 StudySmart is a comprehensive NTA-style testing platform that integrates granular time-tracking with "Smart Time Analysis." The system not only scores students but also coaches them on their time management and behavioral patterns during exams.
