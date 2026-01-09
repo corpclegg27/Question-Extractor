@@ -1,0 +1,820 @@
+
+================================================================================
+FILE: lib/models/attempt_item_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class AttemptItemModel {
+  final String userId;
+  final DocumentReference attemptRef; // <--- The Fix: Stores reference to parent
+  final String questionId;
+  final String chapterId;
+  final String topicId;
+  final String status;
+  final int timeSpent;
+  final Timestamp attemptedAt;
+  final String assignmentCode;
+  final String mode;
+  final String? mistakeCategory;
+  final String? mistakeNote;
+
+  AttemptItemModel({
+    required this.userId,
+    required this.attemptRef,
+    required this.questionId,
+    required this.chapterId,
+    required this.topicId,
+    required this.status,
+    required this.timeSpent,
+    required this.attemptedAt,
+    required this.assignmentCode,
+    required this.mode,
+    this.mistakeCategory,
+    this.mistakeNote,
+  });
+
+  factory AttemptItemModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return AttemptItemModel(
+      userId: data['userId'] ?? '',
+      // Safe casting for the reference
+      attemptRef: data['attemptRef'] is DocumentReference
+          ? data['attemptRef']
+          : FirebaseFirestore.instance.collection('attempts').doc('unknown'),
+      questionId: data['questionId'] ?? '',
+      chapterId: data['chapterId'] ?? '',
+      topicId: data['topicId'] ?? '',
+      status: data['status'] ?? 'SKIPPED',
+      timeSpent: data['timeSpent'] ?? 0,
+      attemptedAt: data['attemptedAt'] ?? Timestamp.now(),
+      assignmentCode: data['assignmentCode'] ?? '',
+      mode: data['mode'] ?? 'Test',
+      mistakeCategory: data['mistakeCategory'],
+      mistakeNote: data['mistakeNote'],
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'userId': userId,
+      'attemptRef': attemptRef,
+      'questionId': questionId,
+      'chapterId': chapterId,
+      'topicId': topicId,
+      'status': status,
+      'timeSpent': timeSpent,
+      'attemptedAt': attemptedAt,
+      'assignmentCode': assignmentCode,
+      'mode': mode,
+      'mistakeCategory': mistakeCategory,
+      'mistakeNote': mistakeNote,
+    };
+  }
+}
+
+================================================================================
+FILE: lib/models/attempt_model.dart
+================================================================================
+// lib/models/attempt_model.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class ResponseObject {
+  // ... (No changes to ResponseObject needed, keeping it as is) ...
+  final String status;
+  final dynamic selectedOption;
+  final String correctOption;
+  final int timeSpent;
+  final int visitCount;
+  final int q_no;
+
+  // Context Fields
+  final String exam;
+  final String subject;
+
+  // Tags
+  final String chapter;
+  final String topic;
+  final String topicL2;
+
+  // IDs
+  final String? chapterId;
+  final String? topicId;
+  final String? topicL2Id;
+
+  // Smart Time Analysis Tag
+  final String smartTimeAnalysis;
+
+  final String pyq;
+  final String difficultyTag;
+
+  final String? mistakeCategory;
+  final String? mistakeNote;
+
+  ResponseObject({
+    required this.status,
+    this.selectedOption,
+    required this.correctOption,
+    required this.timeSpent,
+    required this.visitCount,
+    required this.q_no,
+    required this.exam,
+    required this.subject,
+    this.chapter = '',
+    this.topic = '',
+    this.topicL2 = '',
+    this.chapterId,
+    this.topicId,
+    this.topicL2Id,
+    this.smartTimeAnalysis = '',
+    this.pyq = '',
+    this.difficultyTag = '',
+    this.mistakeCategory,
+    this.mistakeNote,
+  });
+
+  Map<String, dynamic> toJson() => toMap();
+  factory ResponseObject.fromJson(Map<String, dynamic> json) => ResponseObject.fromMap(json);
+
+  factory ResponseObject.fromMap(Map<String, dynamic> map) {
+    return ResponseObject(
+      status: map['status'] ?? 'SKIPPED',
+      selectedOption: map['selectedOption'],
+      correctOption: map['correctOption'] ?? '',
+      timeSpent: map['timeSpent'] ?? 0,
+      visitCount: map['visitCount'] ?? 0,
+      q_no: map['q_no'] ?? 0,
+      exam: map['exam'] ?? '',
+      subject: map['subject'] ?? 'Physics',
+      chapter: map['chapter'] ?? '',
+      topic: map['topic'] ?? '',
+      topicL2: map['topicL2'] ?? '',
+      chapterId: map['chapterId'] as String?,
+      topicId: map['topicId'] as String?,
+      topicL2Id: map['topicL2Id'] as String?,
+      smartTimeAnalysis: map['smartTimeAnalysis'] ?? '',
+      pyq: map['pyq'] ?? '',
+      difficultyTag: map['difficultyTag'] ?? '',
+      mistakeCategory: map['mistakeCategory'],
+      mistakeNote: map['mistakeNote'],
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'status': status,
+      'selectedOption': selectedOption,
+      'correctOption': correctOption,
+      'timeSpent': timeSpent,
+      'visitCount': visitCount,
+      'q_no': q_no,
+      'exam': exam,
+      'subject': subject,
+      'chapter': chapter,
+      'topic': topic,
+      'topicL2': topicL2,
+      'chapterId': chapterId,
+      'topicId': topicId,
+      'topicL2Id': topicL2Id,
+      'smartTimeAnalysis': smartTimeAnalysis,
+      'pyq': pyq,
+      'difficultyTag': difficultyTag,
+      'mistakeCategory': mistakeCategory,
+      'mistakeNote': mistakeNote,
+    };
+  }
+}
+
+class AttemptModel {
+  final String id;
+  final String sourceId;
+  final String assignmentCode;
+
+  // Title
+  final String title;
+
+  // NEW FIELD: Only Single Attempt Flag
+  final bool onlySingleAttempt;
+
+  final String mode;
+  final String userId;
+  final Timestamp startedAt;
+  final Timestamp completedAt;
+  final num score;
+  final int totalQuestions;
+  final int maxMarks;
+
+  final int correctCount;
+  final int incorrectCount;
+  final int skippedCount;
+
+  final int timeTakenSeconds;
+
+  final int? timeLimitMinutes;
+
+  final Map<String, int> smartTimeAnalysisCounts;
+  final Map<String, int> secondsBreakdownHighLevel;
+  final Map<String, int> secondsBreakdownSmartTimeAnalysis;
+
+  final Map<String, ResponseObject> responses;
+
+  AttemptModel({
+    required this.id,
+    required this.sourceId,
+    required this.assignmentCode,
+    this.title = 'Test Attempt',
+
+    // Initialize new field (Defaulting to false ensures backward compatibility)
+    this.onlySingleAttempt = false,
+
+    required this.mode,
+    required this.userId,
+    required this.startedAt,
+    required this.completedAt,
+    required this.score,
+    required this.totalQuestions,
+    required this.maxMarks,
+    required this.correctCount,
+    required this.incorrectCount,
+    required this.skippedCount,
+    required this.timeTakenSeconds,
+    this.timeLimitMinutes,
+    required this.smartTimeAnalysisCounts,
+    required this.responses,
+    this.secondsBreakdownHighLevel = const {},
+    this.secondsBreakdownSmartTimeAnalysis = const {},
+  });
+
+  factory AttemptModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    dynamic rawStartedAt = data['startedAt'];
+    Timestamp startedAtTimestamp = (rawStartedAt is String)
+        ? Timestamp.fromDate(DateTime.parse(rawStartedAt))
+        : rawStartedAt ?? Timestamp.now();
+
+    dynamic rawCompletedAt = data['completedAt'];
+    Timestamp completedAtTimestamp = (rawCompletedAt is String)
+        ? Timestamp.fromDate(DateTime.parse(rawCompletedAt))
+        : rawCompletedAt ?? Timestamp.now();
+
+    Map<String, ResponseObject> parsedResponses = {};
+    if (data['responses'] is Map) {
+      (data['responses'] as Map).forEach((key, value) {
+        if (value is Map) {
+          parsedResponses[key] =
+              ResponseObject.fromMap(value as Map<String, dynamic>);
+        }
+      });
+    }
+
+    Map<String, int> parseIntMap(dynamic mapData) {
+      Map<String, int> result = {};
+      if (mapData is Map) {
+        mapData.forEach((key, value) {
+          result[key.toString()] = (value as num).toInt();
+        });
+      }
+      return result;
+    }
+
+    return AttemptModel(
+      id: doc.id,
+      sourceId: data['sourceId'] ?? data['testId'] ?? '',
+      assignmentCode: data['assignmentCode'] ?? '----',
+      title: data['title'] ?? 'Test Attempt',
+
+      // READ NEW FIELD
+      onlySingleAttempt: data['onlySingleAttempt'] ?? false,
+
+      mode: data['mode'] ?? 'Test',
+      userId: data['userId'] ?? '',
+      startedAt: startedAtTimestamp,
+      completedAt: completedAtTimestamp,
+      score: data['score'] ?? 0,
+      totalQuestions: data['total_questions'] ?? 0,
+      maxMarks: data['max_marks'] ?? 0,
+      correctCount: data['correct_count'] ?? 0,
+      incorrectCount: data['incorrect_count'] ?? 0,
+      skippedCount: data['skipped_count'] ?? 0,
+      timeTakenSeconds: data['timeTakenSeconds'] ?? 0,
+      timeLimitMinutes: data['timeLimitMinutes'],
+      smartTimeAnalysisCounts: parseIntMap(data['smartTimeAnalysisCounts']),
+      responses: parsedResponses,
+      secondsBreakdownHighLevel: parseIntMap(data['secondsBreakdownHighLevel']),
+      secondsBreakdownSmartTimeAnalysis: parseIntMap(data['secondsBreakdownSmartTimeAnalysis']),
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'sourceId': sourceId,
+      'assignmentCode': assignmentCode,
+      'title': title,
+
+      // WRITE NEW FIELD
+      'onlySingleAttempt': onlySingleAttempt,
+
+      'mode': mode,
+      'userId': userId,
+      'startedAt': startedAt,
+      'completedAt': completedAt,
+      'score': score,
+      'total_questions': totalQuestions,
+      'max_marks': maxMarks,
+      'correct_count': correctCount,
+      'incorrect_count': incorrectCount,
+      'skipped_count': skippedCount,
+      'timeTakenSeconds': timeTakenSeconds,
+      'timeLimitMinutes': timeLimitMinutes,
+      'smartTimeAnalysisCounts': smartTimeAnalysisCounts,
+      'secondsBreakdownHighLevel': secondsBreakdownHighLevel,
+      'secondsBreakdownSmartTimeAnalysis': secondsBreakdownSmartTimeAnalysis,
+      'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
+    };
+  }
+}
+
+================================================================================
+FILE: lib/models/custom_test_model.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// Represents a test that has been generated and potentially saved.
+class CustomTest {
+  final String id;
+  final String userId;
+  final String testName;
+  final String status; // e.g., 'Not Attempted', 'Attempted'
+  final List<String> questionIds;
+  final int totalQuestions;
+  final int timeLimitInMinutes;
+  final Timestamp createdAt;
+  final List<String> chapterNames;
+
+  CustomTest({
+    required this.id,
+    required this.userId,
+    required this.testName,
+    required this.status,
+    required this.questionIds,
+    required this.totalQuestions,
+    required this.timeLimitInMinutes,
+    required this.createdAt,
+    required this.chapterNames,
+  });
+
+  // Factory to create a CustomTest from a Firestore document.
+  factory CustomTest.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return CustomTest(
+      id: doc.id,
+      userId: data['userId'] ?? '',
+      testName: data['testName'] ?? 'Custom Test',
+      status: data['status'] ?? 'Not Attempted',
+      questionIds: List<String>.from(data['questionIds'] ?? []),
+      totalQuestions: data['totalQuestions'] ?? 0,
+      timeLimitInMinutes: data['timeLimitInMinutes'] ?? 0,
+      createdAt: data['createdAt'] ?? Timestamp.now(),
+      chapterNames: List<String>.from(data['chapterNames'] ?? []),
+    );
+  }
+
+  // Method to convert a CustomTest instance to a map for Firestore.
+  Map<String, dynamic> toFirestore() {
+    return {
+      'userId': userId,
+      'testName': testName,
+      'status': status,
+      'questionIds': questionIds,
+      'totalQuestions': totalQuestions,
+      'timeLimitInMinutes': timeLimitInMinutes,
+      'createdAt': createdAt,
+      'chapterNames': chapterNames,
+    };
+  }
+}
+
+
+================================================================================
+FILE: lib/models/nta_test_models.dart
+================================================================================
+import 'package:flutter/material.dart';
+
+enum AnswerStatus {
+  notVisited,
+  notAnswered, // Visited but skipped
+  answered,
+  markedForReview, // Not answered, but marked
+  answeredAndMarked, // Answered and marked for review
+}
+
+extension AnswerStatusExtension on AnswerStatus {
+  Color get color {
+    switch (this) {
+      case AnswerStatus.answered:
+        return Colors.green;
+      case AnswerStatus.notAnswered:
+        return Colors.red;
+      case AnswerStatus.markedForReview:
+        return Colors.purple;
+      case AnswerStatus.answeredAndMarked:
+        return Colors.blue;
+      case AnswerStatus.notVisited:
+      default:
+        return Colors.grey.shade400;
+    }
+  }
+}
+
+class AnswerState {
+  String? userAnswer;
+  AnswerStatus status;
+
+  AnswerState({this.userAnswer, this.status = AnswerStatus.notVisited});
+}
+
+
+================================================================================
+FILE: lib/models/question_model.dart
+================================================================================
+// lib/models/question_model.dart
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+enum QuestionType {
+  singleCorrect,   // Matches Firestore 'Single Correct'
+  numerical,       // Matches Firestore 'Numerical type'
+  multipleCorrect, // Matches Firestore 'One or more options correct'
+  matrixSingle,    // Matches Firestore 'Single Matrix Match'
+  matrixMulti,     // Matches Firestore 'Multi Matrix Match'
+  unknown          // Safety fallback
+}
+
+class Question {
+  final String id;
+
+  // IDs
+  final String chapterId;
+  final String topicId;
+  final String topicL2Id;
+
+  // Names / Context
+  final String subject;
+  final String chapter;
+  final String topic;
+  final String topicL2;
+
+  // Question Details
+  final QuestionType type;
+  final String imageUrl;
+  final String? solutionUrl;
+  final dynamic correctAnswer;
+  final String difficulty;
+  final String exam; // Matches 'Exam' field
+  final bool isPyq;
+  final int questionNo;
+
+  Question({
+    required this.id,
+    required this.chapterId,
+    required this.topicId,
+    required this.topicL2Id,
+    required this.subject,
+    required this.chapter,
+    required this.topic,
+    required this.topicL2,
+    required this.type,
+    required this.imageUrl,
+    this.solutionUrl,
+    required this.correctAnswer,
+    required this.difficulty,
+    required this.exam,
+    required this.isPyq,
+    required this.questionNo,
+  });
+
+  factory Question.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    return Question(
+      id: doc.id,
+      // IDs
+      chapterId: data['chapterId'] ?? '',
+      topicId: data['topicId'] ?? '', // Default if missing in doc
+      topicL2Id: data['topicL2Id'] ?? '',
+
+      // Names
+      subject: data['Subject'] ?? 'Physics',
+      chapter: data['Chapter'] ?? '',
+      topic: data['Topic'] ?? '',
+      topicL2: data['Topic_L2'] ?? '',
+
+      // Details
+      type: _mapStringToType(data['Question type']),
+      imageUrl: data['image_url'] ?? '',
+      solutionUrl: data['solution_url'],
+      correctAnswer: data['Correct Answer'],
+      difficulty: data['Difficulty_tag'] ?? 'Medium',
+      exam: data['Exam'] ?? '',
+      isPyq: (data['PYQ'] ?? '') == 'Yes',
+      questionNo: data['Question No.'] is int
+          ? data['Question No.']
+          : int.tryParse(data['Question No.']?.toString() ?? '0') ?? 0,
+    );
+  }
+
+  // Helper to convert Firestore String -> Enum
+  static QuestionType _mapStringToType(String? typeString) {
+    switch (typeString) {
+      case 'Single Correct':
+        return QuestionType.singleCorrect;
+      case 'Numerical type':
+        return QuestionType.numerical;
+      case 'One or more options correct':
+        return QuestionType.multipleCorrect;
+      case 'Single Matrix Match':
+        return QuestionType.matrixSingle;
+      case 'Multi Matrix Match':
+        return QuestionType.matrixMulti;
+      default:
+        return QuestionType.unknown;
+    }
+  }
+}
+
+================================================================================
+FILE: lib/models/test_enums.dart
+================================================================================
+// lib/models/test_enums.dart
+enum TestMode {
+  test,      // Timer counts down, no feedback, auto-submit
+  practice,  // Timer counts up (or hidden), instant feedback, solution access, pause allowed
+}
+
+enum PerformanceCategory {
+  mastery,      // Correct & Fast (Ideal)
+  needsSpeed,   // Correct & Slow (Knowledge is there, speed is not)
+  rushed,       // Incorrect & Fast (Likely a silly mistake or guess)
+  struggle,     // Incorrect & Slow (Conceptual gap)
+  skipped,      // Not attempted
+  notVisited    // Didn't reach
+}
+
+================================================================================
+FILE: lib/models/test_model.dart
+================================================================================
+
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class TestConfig {
+  final int durationSeconds;
+  final int totalQuestions;
+
+  TestConfig({
+    required this.durationSeconds,
+    required this.totalQuestions,
+  });
+
+  factory TestConfig.fromMap(Map<String, dynamic> map) {
+    return TestConfig(
+      durationSeconds: map['durationSeconds'] ?? 0,
+      totalQuestions: map['totalQuestions'] ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'durationSeconds': durationSeconds,
+      'totalQuestions': totalQuestions,
+    };
+  }
+}
+
+class TestModel {
+  final String id;
+  final String createdBy;
+  final Timestamp createdAt;
+  final String status;
+  final String testName;
+  final TestConfig config;
+  final List<String> questionIds;
+  final List<String> chapters;
+  final String? shareCode; // New field
+  final List<String> uidsAttemptedTests; // New field
+
+  TestModel({
+    required this.id,
+    required this.createdBy,
+    required this.createdAt,
+    required this.status,
+    required this.testName,
+    required this.config,
+    required this.questionIds,
+    required this.chapters,
+    this.shareCode,
+    required this.uidsAttemptedTests,
+  });
+
+  factory TestModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    dynamic rawTimestamp = data['createdAt'];
+    Timestamp createdAtTimestamp;
+    if (rawTimestamp is String) {
+      createdAtTimestamp = Timestamp.fromDate(DateTime.parse(rawTimestamp));
+    } else if (rawTimestamp is Timestamp) {
+      createdAtTimestamp = rawTimestamp;
+    } else {
+      createdAtTimestamp = Timestamp.now();
+    }
+
+    return TestModel(
+      id: doc.id,
+      createdBy: data['createdBy'] ?? '',
+      createdAt: createdAtTimestamp,
+      status: data['status'] ?? 'GENERATED',
+      testName: data['testName'] ?? 'Unnamed Test',
+      config: TestConfig.fromMap(data['config'] ?? {}),
+      questionIds: List<String>.from(data['questionIds'] ?? []),
+      chapters: List<String>.from(data['chapters'] ?? []),
+      shareCode: data['shareCode'],
+      uidsAttemptedTests: List<String>.from(data['uidsAttemptedTests'] ?? []),
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'createdBy': createdBy,
+      'createdAt': createdAt,
+      'status': status,
+      'testName': testName,
+      'config': config.toMap(),
+      'questionIds': questionIds,
+      'chapters': chapters,
+      'shareCode': shareCode,
+      'uidsAttemptedTests': uidsAttemptedTests,
+    };
+  }
+}
+
+
+================================================================================
+FILE: lib/models/test_result.dart
+================================================================================
+// lib/models/test_result.dart
+
+import 'package:study_smart_qc/models/attempt_model.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+
+class TestResult {
+  final String attemptId; // Added: Unique ID of the attempt session
+  final List<Question> questions;
+  final Map<int, AnswerState> answerStates;
+  final Duration timeTaken;
+  final int totalMarks;
+  final Map<String, ResponseObject> responses;
+
+  TestResult({
+    required this.attemptId, // Added
+    required this.questions,
+    required this.answerStates,
+    required this.timeTaken,
+    required this.totalMarks,
+    required this.responses,
+  });
+}
+
+================================================================================
+FILE: lib/models/user_model.dart
+================================================================================
+// lib/models/user_model.dart
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class UserStats {
+  final int testsTaken;
+  final int questionsSolved;
+  final double averageAccuracy;
+
+  UserStats({
+    this.testsTaken = 0,
+    this.questionsSolved = 0,
+    this.averageAccuracy = 0.0,
+  });
+
+  factory UserStats.fromMap(Map<String, dynamic> map) {
+    return UserStats(
+      testsTaken: map['testsTaken'] ?? 0,
+      questionsSolved: map['questionsSolved'] ?? 0,
+      averageAccuracy: (map['averageAccuracy'] ?? 0.0).toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'testsTaken': testsTaken,
+      'questionsSolved': questionsSolved,
+      'averageAccuracy': averageAccuracy,
+    };
+  }
+}
+
+class UserModel {
+  final String uid;
+  final String email;
+  final String displayName;
+  final UserStats stats;
+  final List<String> testIDsattempted;
+  final Timestamp createdAt;
+
+  // --- NEW FIELD FOR TRACKING SUBMISSIONS ---
+  final List<String> assignmentCodesSubmitted;
+
+  // --- NEW ONBOARDING FIELDS ---
+  final String role; // 'student' or 'teacher'
+  final bool onboardingCompleted;
+
+  // Student Specific
+  final int? studentId;
+  final String? targetExam;
+  final String? currentClass;
+  final int? targetYear;
+
+  // Teacher Specific
+  final List<String>? teachingExams;
+  final List<String>? teachingSubjects;
+
+  UserModel({
+    required this.uid,
+    required this.email,
+    required this.displayName,
+    required this.stats,
+    required this.testIDsattempted,
+    required this.createdAt,
+    this.assignmentCodesSubmitted = const [], // Default empty
+    this.role = 'student',
+    this.onboardingCompleted = false,
+    this.studentId,
+    this.targetExam,
+    this.currentClass,
+    this.targetYear,
+    this.teachingExams,
+    this.teachingSubjects,
+  });
+
+  factory UserModel.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    return UserModel(
+      uid: doc.id,
+      email: data['email'] ?? '',
+      displayName: data['displayName'] ?? '',
+      stats: UserStats.fromMap(data['stats'] ?? {}),
+      testIDsattempted: List<String>.from(data['testIDsattempted'] ?? []),
+      createdAt: data['createdAt'] ?? Timestamp.now(),
+
+      // Map New Submission Tracking Field
+      assignmentCodesSubmitted: List<String>.from(data['assignmentCodesSubmitted'] ?? []),
+
+      // Map Onboarding Fields
+      role: data['role'] ?? 'student',
+      onboardingCompleted: data['onboardingCompleted'] ?? false,
+      studentId: data['studentId'],
+      targetExam: data['targetExam'],
+      currentClass: data['currentClass'],
+      targetYear: data['targetYear'],
+      teachingExams: data['teachingExams'] != null
+          ? List<String>.from(data['teachingExams'])
+          : null,
+      teachingSubjects: data['teachingSubjects'] != null
+          ? List<String>.from(data['teachingSubjects'])
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'email': email,
+      'displayName': displayName,
+      'stats': stats.toMap(),
+      'testIDsattempted': testIDsattempted,
+      'createdAt': createdAt,
+
+      // Save New Submission Tracking Field
+      'assignmentCodesSubmitted': assignmentCodesSubmitted,
+
+      // Save Onboarding Fields
+      'role': role,
+      'onboardingCompleted': onboardingCompleted,
+      'studentId': studentId,
+      'targetExam': targetExam,
+      'currentClass': currentClass,
+      'targetYear': targetYear,
+      'teachingExams': teachingExams,
+      'teachingSubjects': teachingSubjects,
+    };
+  }
+}
+

@@ -1,10 +1,11 @@
 import subprocess
 import sys
+import os
 
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "MVP Release: Integrated Smart Time Analysis Engine, Coaching UI, and Dynamic Firestore Config"
+COMMIT_MESSAGE = "MVP Release: Included OCR Models and updated logic"
 # ==========================================
 
 def run_command(command, step_name):
@@ -19,11 +20,13 @@ def run_command(command, step_name):
         )
         print(f"✅ Success.")
         if result.stdout:
+            # Print first few lines of output for verification
             lines = result.stdout.strip().splitlines()
             if lines:
                 print(f"   Output: {lines[0]}...")
             
     except subprocess.CalledProcessError as e:
+        # Ignore "nothing to commit" errors, but stop on others
         if "nothing to commit" in e.stdout.lower() or "nothing to commit" in e.stderr.lower():
             print("⚠️  Nothing to commit (Working tree clean).")
             return
@@ -36,12 +39,18 @@ if __name__ == "__main__":
     print(f"🚀 Starting Git Push Sequence")
     print(f"📝 Message: '{COMMIT_MESSAGE}'")
 
-    # 1. Check Status (Debugging step to see what Git sees)
+    # 1. Check Status
     run_command("git status", "Checking repository status")
 
-    # 2. Stage all changes
-    # Forced add to ensure untracked files in subdirectories are caught
-    run_command("git add --all", "Staging all files (including new folders)")
+    # 2. Stage all standard changes
+    run_command("git add --all", "Staging all standard files")
+
+    # 2.5 FORCE ADD MODELS
+    # The '-f' flag overrides .gitignore
+    if os.path.exists("models"):
+        run_command("git add -f models/", "⚠️ Force adding 'models' folder (overriding .gitignore)")
+    else:
+        print("\n⚠️ 'models' folder not found, skipping force add.")
 
     # 3. Commit changes
     run_command(f'git commit -m "{COMMIT_MESSAGE}"', "Committing to local repo")

@@ -1,263 +1,193 @@
 import 'package:flutter/material.dart';
-import '../models/question_model.dart';
+// CRITICAL IMPORTS
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_enums.dart'; // <--- ADD THIS
 
 class QuestionInputWidget extends StatefulWidget {
   final Question question;
   final dynamic currentAnswer;
-  final Function(dynamic) onAnswerChanged;
+  final ValueChanged<dynamic> onAnswerChanged;
 
   const QuestionInputWidget({
-    Key? key,
+    super.key,
     required this.question,
     required this.currentAnswer,
     required this.onAnswerChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<QuestionInputWidget> createState() => _QuestionInputWidgetState();
 }
 
 class _QuestionInputWidgetState extends State<QuestionInputWidget> {
-  late TextEditingController _textController;
-
-  @override
-  void initState() {
-    super.initState();
-    _textController = TextEditingController();
-  }
-
-  @override
-  void didUpdateWidget(QuestionInputWidget oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Refresh text field if the question changes or answer is externally reset
-    if (widget.question.id != oldWidget.question.id || widget.currentAnswer == null) {
-      _textController.text = widget.currentAnswer?.toString() ?? '';
-    }
-  }
-
-  @override
-  void dispose() {
-    _textController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     switch (widget.question.type) {
       case QuestionType.singleCorrect:
-        return _buildSingleCorrectUI();
+        return _buildSingleCorrect();
       case QuestionType.numerical:
-        return _buildNumericalUI();
+        return _buildNumerical();
       case QuestionType.multipleCorrect:
-        return _buildMultiCorrectUI();
+        return _buildMultipleCorrect();
       case QuestionType.matrixSingle:
+        return _buildMatrixMatch(isMulti: false);
       case QuestionType.matrixMulti:
-        return _buildMatrixUI();
+        return _buildMatrixMatch(isMulti: true);
       default:
         return const Center(child: Text("Unknown Question Type"));
     }
   }
 
-  // =========================================================
-  // TYPE 1: SINGLE CORRECT (Radio Tiles)
-  // =========================================================
-  Widget _buildSingleCorrectUI() {
-    final options = ['A', 'B', 'C', 'D'];
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: options.map((option) {
-        final isSelected = widget.currentAnswer == option;
-        return Expanded(
-          child: GestureDetector(
-            onTap: () => widget.onAnswerChanged(option),
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                color: isSelected ? Colors.blue : Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                    color: isSelected ? Colors.blue : Colors.grey.shade300
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  option,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.black,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ),
+  // --- 1. Single Correct (Radio) ---
+  Widget _buildSingleCorrect() {
+    final List<String> options = ['A', 'B', 'C', 'D'];
+    return Column(
+      children: options.map((opt) {
+        return RadioListTile<String>(
+          title: Text("Option $opt"),
+          value: opt,
+          groupValue: widget.currentAnswer?.toString(),
+          onChanged: (val) => widget.onAnswerChanged(val),
+          activeColor: Colors.deepPurple,
         );
       }).toList(),
     );
   }
 
-  // =========================================================
-  // TYPE 2: NUMERICAL (Text Field)
-  // =========================================================
-  Widget _buildNumericalUI() {
-    return TextField(
-      controller: _textController,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: const InputDecoration(
-        border: OutlineInputBorder(),
-        hintText: 'Enter numerical answer (e.g. 5.5)',
+  // --- 2. Numerical (TextField) ---
+  Widget _buildNumerical() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: TextField(
+        controller:
+            TextEditingController(text: widget.currentAnswer?.toString() ?? '')
+              ..selection = TextSelection.fromPosition(
+                TextPosition(
+                  offset: (widget.currentAnswer?.toString() ?? '').length,
+                ),
+              ),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(
+          border: OutlineInputBorder(),
+          labelText: "Enter Numerical Answer",
+          hintText: "e.g. 5 or 2.5",
+        ),
+        onChanged: (val) => widget.onAnswerChanged(val),
       ),
-      onChanged: (val) => widget.onAnswerChanged(val),
     );
   }
 
-  // =========================================================
-  // TYPE 3: MULTIPLE CORRECT (Checkboxes)
-  // =========================================================
-  Widget _buildMultiCorrectUI() {
-    final options = ['A', 'B', 'C', 'D'];
-    final List<dynamic> currentSelection = (widget.currentAnswer is List)
-        ? widget.currentAnswer
-        : [];
-
-    return Row(
-      children: options.map((option) {
-        final isSelected = currentSelection.contains(option);
-        return Expanded(
-          child: GestureDetector(
-            onTap: () {
-              List<dynamic> newSel = List.from(currentSelection);
-              if (isSelected) {
-                newSel.remove(option);
-              } else {
-                newSel.add(option);
-              }
-              widget.onAnswerChanged(newSel);
-            },
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                color: isSelected ? Colors.green.shade100 : Colors.white,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                    color: isSelected ? Colors.green : Colors.grey.shade300,
-                    width: 2
-                ),
-              ),
-              child: Center(child: Text(option)),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  // =========================================================
-  // TYPE 4: MATRIX MATCH (The Grid)
-  // =========================================================
-  Widget _buildMatrixUI() {
-    // Standard JEE Matrix setup
-    final rows = ['A', 'B', 'C', 'D'];
-    final cols = ['P', 'Q', 'R', 'S', 'T'];
-
-    // Safe Cast: Ensure answer is a Map. If null/wrong type, start empty.
-    Map<String, List<String>> matrixAns = {};
-    if (widget.currentAnswer is Map) {
-      (widget.currentAnswer as Map).forEach((key, value) {
-        if (value is List) {
-          matrixAns[key.toString()] = List<String>.from(value);
-        }
-      });
+  // --- 3. Multiple Correct (Checkbox) ---
+  Widget _buildMultipleCorrect() {
+    final List<String> options = ['A', 'B', 'C', 'D'];
+    List<String> selected = [];
+    if (widget.currentAnswer is List) {
+      selected = List<String>.from(widget.currentAnswer);
+    } else if (widget.currentAnswer is String) {
+      // Fallback if data is malformed
+      selected = [widget.currentAnswer];
     }
 
     return Column(
-      children: [
-        // 1. Header Row (Labels P, Q, R, S, T)
-        Row(
-          children: [
-            const SizedBox(width: 40), // Empty space for row labels column
-            ...cols.map((col) => Expanded(
-              child: Center(
-                child: Text(col, style: const TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            )),
-          ],
+      children: options.map((opt) {
+        final isSelected = selected.contains(opt);
+        return CheckboxListTile(
+          title: Text("Option $opt"),
+          value: isSelected,
+          onChanged: (bool? checked) {
+            final newSelection = List<String>.from(selected);
+            if (checked == true) {
+              newSelection.add(opt);
+            } else {
+              newSelection.remove(opt);
+            }
+            newSelection.sort(); // Keep consistent order
+            widget.onAnswerChanged(newSelection);
+          },
+          activeColor: Colors.deepPurple,
+        );
+      }).toList(),
+    );
+  }
+
+  // --- 4. Matrix Match (Grid of Radio/Checkbox) ---
+  Widget _buildMatrixMatch({required bool isMulti}) {
+    // Rows: A, B, C, D
+    // Cols: p, q, r, s, t
+    final rows = ['A', 'B', 'C', 'D'];
+    final cols = ['p', 'q', 'r', 's', 't'];
+
+    // Structure: Map<String, List<String>>  e.g. {'A': ['p'], 'B': ['q', 'r']}
+    Map<String, List<String>> matrixState = {};
+    if (widget.currentAnswer is Map) {
+      matrixState = Map<String, List<String>>.from(
+        (widget.currentAnswer as Map).map(
+          (k, v) => MapEntry(k.toString(), List<String>.from(v ?? [])),
         ),
-        const Divider(),
+      );
+    }
 
-        // 2. The Data Rows (A, B, C, D)
-        ...rows.map((rowLabel) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            child: Row(
-              children: [
-                // Row Label
-                SizedBox(
-                  width: 40,
-                  child: Center(
-                    child: Text(
-                      rowLabel,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                  ),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columns: [
+          const DataColumn(label: Text('')), // Corner
+          ...cols.map((c) => DataColumn(label: Text(c))),
+        ],
+        rows: rows.map((rowKey) {
+          return DataRow(
+            cells: [
+              DataCell(
+                Text(
+                  rowKey,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
+              ), // Row Header
+              ...cols.map((colKey) {
+                final currentSelections = matrixState[rowKey] ?? [];
+                final isSelected = currentSelections.contains(colKey);
 
-                // The Interactive Bubbles
-                ...cols.map((colLabel) {
-                  final rowSelections = matrixAns[rowLabel] ?? [];
-                  final isSelected = rowSelections.contains(colLabel);
+                return DataCell(
+                  isMulti
+                      ? Checkbox(
+                          value: isSelected,
+                          onChanged: (val) {
+                            final newRowSelections = List<String>.from(
+                              currentSelections,
+                            );
+                            if (val == true) {
+                              newRowSelections.add(colKey);
+                            } else {
+                              newRowSelections.remove(colKey);
+                            }
+                            newRowSelections.sort();
 
-                  return Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        // Create a copy of the current row's selection to modify
-                        List<String> newRowSel = List.from(rowSelections);
-
-                        if (widget.question.type == QuestionType.matrixSingle) {
-                          // LOGIC: Single Matrix (One choice per row)
-                          newRowSel.clear();
-                          if (!isSelected) {
-                            newRowSel.add(colLabel);
-                          }
-                        } else {
-                          // LOGIC: Multi Matrix (Multiple choices per row)
-                          if (isSelected) {
-                            newRowSel.remove(colLabel);
-                          } else {
-                            newRowSel.add(colLabel);
-                          }
-                        }
-
-                        // Update the Main Map
-                        Map<String, List<String>> newMatrixAns = Map.from(matrixAns);
-                        newMatrixAns[rowLabel] = newRowSel;
-
-                        // Send back to Controller
-                        widget.onAnswerChanged(newMatrixAns);
-                      },
-                      child: Container(
-                        height: 36, // Tap target size
-                        margin: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: isSelected ? Colors.deepPurple : Colors.grey.shade100,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                              color: isSelected ? Colors.deepPurple : Colors.grey.shade400
-                          ),
+                            final newState = Map<String, List<String>>.from(
+                              matrixState,
+                            );
+                            newState[rowKey] = newRowSelections;
+                            widget.onAnswerChanged(newState);
+                          },
+                        )
+                      : Radio<String>(
+                          value: colKey,
+                          groupValue: currentSelections.isNotEmpty
+                              ? currentSelections.first
+                              : null,
+                          onChanged: (val) {
+                            final newState = Map<String, List<String>>.from(
+                              matrixState,
+                            );
+                            newState[rowKey] = [val!]; // Single select per row
+                            widget.onAnswerChanged(newState);
+                          },
                         ),
-                        child: isSelected
-                            ? const Icon(Icons.check, size: 20, color: Colors.white)
-                            : null,
-                      ),
-                    ),
-                  );
-                }),
-              ],
-            ),
+                );
+              }),
+            ],
           );
         }).toList(),
-      ],
+      ),
     );
   }
 }
