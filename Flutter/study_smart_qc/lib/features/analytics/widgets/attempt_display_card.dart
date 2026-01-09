@@ -22,142 +22,257 @@ class AttemptDisplayCard extends StatelessWidget {
     return "${m}m ${s}s";
   }
 
-  @override
-  Widget build(BuildContext context) {
-    // 1. Data Prep
-    final date = attempt.completedAt.toDate();
-    final dateStr = DateFormat('d MMM yy, h:mm a').format(date);
-
-    // Time Logic
-    String timeDisplay = _formatDurationClean(attempt.timeTakenSeconds);
-    if (attempt.timeLimitMinutes != null && attempt.timeLimitMinutes! > 0) {
-      timeDisplay += " / ${attempt.timeLimitMinutes}m";
+  /// Returns a record containing the [BarColor] and a darker [TextColor]
+  ({Color bar, Color text}) _getDynamicColors(double score, double max) {
+    // 1. Handle Negative (Red)
+    if (score < 0) {
+      return (bar: const Color(0xFFD32F2F), text: const Color(0xFFB71C1C));
     }
 
-    // Score Logic
-    final double max = attempt.maxMarks.toDouble();
+    // 2. Handle Zero divide
+    if (max == 0) {
+      return (bar: Colors.grey, text: Colors.grey.shade700);
+    }
+
+    final double percentage = (score / max).clamp(0.0, 1.0);
+
+    // 3. Define Spectrum (Orange -> Amber -> Green -> Dark Green)
+    // We break the 0.0 to 1.0 range into segments for cleaner colors
+
+    Color color;
+
+    if (percentage < 0.4) {
+      // 0% to 40%: Deep Orange to Amber (Low Score)
+      // Normalizing percentage to 0.0-1.0 range for this segment
+      final t = percentage / 0.4;
+      color = Color.lerp(Colors.deepOrange, Colors.orange, t)!;
+
+    } else if (percentage < 0.75) {
+      // 40% to 75%: Amber to Light Green (Average Score)
+      final t = (percentage - 0.4) / 0.35;
+      color = Color.lerp(Colors.orange, Colors.lightGreen.shade600, t)!;
+
+    } else {
+      // 75% to 100%: Green to Dark Emerald (High Score)
+      final t = (percentage - 0.75) / 0.25;
+      color = Color.lerp(Colors.green, const Color(0xFF1B5E20), t)!;
+    }
+
+    // To ensure text is readable, we darken the bar color slightly for text
+    final HSLColor hsl = HSLColor.fromColor(color);
+    final Color textColor = hsl.withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0)).toColor();
+
+    return (bar: color, text: textColor);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // --- Data Prep ---
+    final date = attempt.completedAt.toDate();
+    final dateStr = DateFormat('d MMM, h:mm a').format(date);
+
+    final int timeTakenSec = attempt.timeTakenSeconds;
+    final int timeLimitMin = attempt.timeLimitMinutes ?? 0;
+    final int timeLimitSec = timeLimitMin * 60;
+
+    String timeDisplay = _formatDurationClean(timeTakenSec);
+    if (timeLimitMin > 0) timeDisplay += " / ${timeLimitMin}m";
+
+    // Percentages
+    double timePercentage = (timeLimitSec > 0)
+        ? (timeTakenSec / timeLimitSec).clamp(0.0, 1.0)
+        : 0.0;
+
+    final double maxScore = attempt.maxMarks.toDouble();
     final double score = attempt.score.toDouble();
     final bool isPositive = score >= 0;
 
-    // Percentage Calculation
-    // If Positive: 15/20 = 0.75
-    // If Negative: |-5|/20 = 0.25 (Visually shows magnitude of 'damage')
-    // We clamp it to 1.0 just in case of bonus marks or errors
-    double percentage = (max == 0) ? 0 : (score.abs() / max).clamp(0.0, 1.0);
+    double scorePercentage = (maxScore == 0)
+        ? 0
+        : (score.abs() / maxScore).clamp(0.0, 1.0);
 
-    // Colors
-    final Color primaryColor = isPositive ? Colors.green : Colors.red;
-    final Color trackColor = Colors.grey.shade200;
+    // --- Dynamic Colors ---
+    final themeColors = _getDynamicColors(score, maxScore);
+    final Color statusColor = themeColors.bar;
+    final Color statusTextColor = themeColors.text;
+
+    final Color timeColor = const Color(0xFFFF9800); // Consistent Orange for Time
+    final Color trackColor = Colors.grey.shade100;
 
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
         decoration: BoxDecoration(
-          color: const Color(0xFFF9F7FB),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade300, width: 1.5),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2)),
+            BoxShadow(
+              color: const Color(0xFF2D2F45).withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // --- TITLE ROW ---
-            Text(
-              attempt.title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 8),
-
-            // --- METADATA ROW (Code + Date) ---
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // --- 1. DYNAMIC COLORED STRIP ---
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFDED6F5),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    "CODE: ${attempt.assignmentCode}",
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF4A148C)),
+                  width: 6,
+                  color: statusColor, // Uses the gradient color
+                ),
+
+                // --- 2. MAIN CONTENT ---
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Header
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF3E5F5),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                "CODE: ${attempt.assignmentCode}",
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF7B1FA2),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              dateStr,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Title
+                        Text(
+                          attempt.title,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF2D2D2D),
+                            height: 1.2,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Stats: Time
+                        if (timeLimitSec > 0) ...[
+                          _buildStatRow(
+                            icon: Icons.access_time_rounded,
+                            label: "Time Taken",
+                            value: timeDisplay,
+                            color: timeColor,
+                            percent: timePercentage,
+                            trackColor: trackColor,
+                          ),
+                          const SizedBox(height: 16),
+                        ] else ...[
+                          Row(
+                            children: [
+                              Icon(Icons.access_time_rounded, size: 16, color: Colors.grey.shade600),
+                              const SizedBox(width: 6),
+                              Text(timeDisplay, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+
+                        // Stats: Score (With Dynamic Colors)
+                        _buildStatRow(
+                          icon: isPositive ? Icons.analytics_outlined : Icons.warning_amber_rounded,
+                          label: isPositive ? "Score" : "Negative Score",
+                          value: "${attempt.score} / ${attempt.maxMarks}",
+                          color: statusColor,     // Bar color
+                          valueColor: statusTextColor, // Text color (darker)
+                          percent: scorePercentage,
+                          trackColor: trackColor,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                Text(dateStr, style: const TextStyle(fontSize: 12, color: Colors.grey)),
               ],
             ),
-            const SizedBox(height: 12),
-
-            // --- MODE & TIME ROW ---
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.category_outlined, size: 16, color: Colors.blueGrey),
-                    const SizedBox(width: 4),
-                    Text("${attempt.mode} Mode", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black87)),
-                  ],
-                ),
-                Row(
-                  children: [
-                    Icon(Icons.access_time, size: 16, color: Colors.orange.shade800),
-                    const SizedBox(width: 4),
-                    Text(timeDisplay, style: const TextStyle(fontSize: 13, color: Colors.black87)),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // --- VISUAL SCORE BAR ---
-            // Label Row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                    isPositive ? "Score Acquired" : "Score Lost (Negative)", // Smart Label
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: isPositive ? Colors.green.shade700 : Colors.red.shade700,
-                        fontWeight: FontWeight.w600
-                    )
-                ),
-                Text(
-                  "${attempt.score} / ${attempt.maxMarks}",
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: primaryColor
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-
-            // The Bar Itself
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: percentage,
-                backgroundColor: trackColor,
-                color: primaryColor,
-                minHeight: 8,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildStatRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+    Color? valueColor, // Optional override for text color
+    required double percent,
+    required Color trackColor,
+  }) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 16, color: Colors.grey.shade600),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: valueColor ?? color,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: percent,
+            backgroundColor: trackColor,
+            color: color,
+            minHeight: 8,
+          ),
+        ),
+      ],
     );
   }
 }

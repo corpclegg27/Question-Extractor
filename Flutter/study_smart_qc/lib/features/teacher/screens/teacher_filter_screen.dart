@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart'; // Ensure intl is in pubspec
 import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
@@ -54,7 +55,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   // --- 3. SEARCH STATE ---
   bool _isSearching = false;
   List<Question> _searchResults = [];
-  int _totalMatchCount = 0; // <--- ADDED: To store total count from DB
+  int _totalMatchCount = 0;
 
   // --- 4. SELECTION STATE (The Cart) ---
   final Map<String, Question> _selectedQuestions = {};
@@ -72,7 +73,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     super.dispose();
   }
 
-  // --- DATA FETCHING & PARSING (Kept same as previous working version) ---
+  // --- DATA FETCHING & PARSING ---
   Future<void> _fetchFilterData() async {
     try {
       final firestore = FirebaseFirestore.instance;
@@ -158,7 +159,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     });
   }
 
-  // --- SEARCH LOGIC (UPDATED WITH COUNT) ---
+  // --- SEARCH LOGIC ---
   String _generateRandomId() {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final rnd = Random();
@@ -174,13 +175,12 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     setState(() {
       _isSearching = true;
       _searchResults = [];
-      _totalMatchCount = 0; // Reset count
+      _totalMatchCount = 0;
     });
 
     try {
       Query query = FirebaseFirestore.instance.collection('questions');
 
-      // 1. Build Base Query (Exact Matching)
       query = query.where('Exam', isEqualTo: _selectedExam);
       query = query.where('Subject', isEqualTo: _selectedSubject);
 
@@ -194,19 +194,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         query = query.where('PYQ', isEqualTo: "Yes");
       }
 
-      // --- ADDED: Fetch Total Count ---
-      // We run this separately to get the total number of documents matching filters
       AggregateQuerySnapshot countSnapshot = await query.count().get();
       int totalCount = countSnapshot.count ?? 0;
-      // --------------------------------
 
-      // 2. Randomization Logic
       String randomAnchor = _generateRandomId();
       Query randomQuery = query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(50);
 
       QuerySnapshot snapshot = await randomQuery.get();
       if (snapshot.docs.isEmpty) {
-        // Fallback to start if random index hit the end
         snapshot = await query.limit(50).get();
       }
 
@@ -214,11 +209,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           .map((doc) => Question.fromFirestore(doc))
           .toList();
 
-      // 3. Client-side filtering (if > 10 items selected)
       if (_selectedChapters.length > 10) {
         fetched = fetched.where((q) => _selectedChapters.contains(q.chapter)).toList();
-        // Note: If filtering client-side, the 'totalCount' from server might be higher
-        // than actual local matches, but it's the best approximation without expensive reads.
       }
       if (_selectedTopics.length > 10) {
         fetched = fetched.where((q) => _selectedTopics.contains(q.topic)).toList();
@@ -229,7 +221,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
       setState(() {
         _searchResults = fetched;
-        _totalMatchCount = totalCount; // Update State
+        _totalMatchCount = totalCount;
       });
 
     } catch (e) {
@@ -254,15 +246,39 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     });
   }
 
-  // --- ASSIGNMENT LOGIC (Kept same) ---
+  // --- ASSIGNMENT LOGIC (UPDATED UI) ---
   Future<void> _onAssign() async {
     if (_selectedQuestions.isEmpty) return;
     final teacher = FirebaseAuth.instance.currentUser;
     if (teacher == null) return;
 
-    final titleCtrl = TextEditingController(text: "Homework - ${DateTime.now().toString().split(' ')[0]}");
+    // NO Default text
+    final titleCtrl = TextEditingController();
     final timeCtrl = TextEditingController(text: "${_selectedQuestions.length * 2}");
     bool isSingleAttempt = false;
+    DateTime? selectedDeadline;
+
+    // Pick Date Helper
+    Future<void> pickDateTime(StateSetter setDialogState, BuildContext ctx) async {
+      final date = await showDatePicker(
+        context: ctx,
+        initialDate: DateTime.now().add(const Duration(days: 1)),
+        firstDate: DateTime.now(),
+        lastDate: DateTime.now().add(const Duration(days: 365)),
+      );
+      if (date == null) return;
+
+      if (!ctx.mounted) return;
+      final time = await showTimePicker(
+        context: ctx,
+        initialTime: const TimeOfDay(hour: 17, minute: 0), // Default 5 PM
+      );
+      if (time == null) return;
+
+      setDialogState(() {
+        selectedDeadline = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      });
+    }
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -273,13 +289,60 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Assigning ${_selectedQuestions.length} questions."),
+                  Text("Assigning ${_selectedQuestions.length} questions.", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+
+                  // TITLE FIELD with Clear Icon
+                  TextField(
+                    controller: titleCtrl,
+                    decoration: InputDecoration(
+                      labelText: "Assignment Title",
+                      hintText: "e.g. Optics Homework",
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => titleCtrl.clear(),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 15),
-                  TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: "Assignment Title", border: OutlineInputBorder())),
+
+                  // TIME LIMIT FIELD with Clear Icon
+                  TextField(
+                    controller: timeCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: "Time Limit (Min)",
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => timeCtrl.clear(),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 15),
-                  TextField(controller: timeCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Time Limit (Min)", border: OutlineInputBorder())),
+
+                  // DEADLINE PICKER
+                  InkWell(
+                    onTap: () => pickDateTime(setDialogState, ctx),
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: "Deadline (Optional)",
+                        border: OutlineInputBorder(),
+                        suffixIcon: Icon(Icons.calendar_today),
+                      ),
+                      child: Text(
+                        selectedDeadline == null
+                            ? "Tap to select date & time"
+                            : DateFormat('MMM d, yyyy h:mm a').format(selectedDeadline!),
+                        style: TextStyle(color: selectedDeadline == null ? Colors.grey : Colors.black),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 10),
+
                   CheckboxListTile(
                     title: const Text("Strict Mode (Single Attempt)"),
                     value: isSingleAttempt,
@@ -292,7 +355,10 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Assign")),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text("Assign"),
+              ),
             ],
           );
         },
@@ -308,9 +374,10 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         questions: _selectedQuestions.values.toList(),
         teacherUid: teacher.uid,
         targetAudience: widget.audienceType,
-        assignmentTitle: titleCtrl.text,
+        assignmentTitle: titleCtrl.text.trim(),
         onlySingleAttempt: isSingleAttempt,
         timeLimitMinutes: customTime,
+        deadline: selectedDeadline, // Pass the new parameter
       );
 
       if (mounted) {
@@ -437,13 +504,11 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           if (_isSearching)
             const Center(child: CircularProgressIndicator())
           else if (_searchResults.isEmpty && _totalMatchCount == 0)
-          // Only show 'No questions' if we haven't searched yet or truly found nothing
             const Center(child: Text("Adjust filters and click Search.", style: TextStyle(color: Colors.grey)))
           else
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // --- ADDED: Display Total Count ---
                 Text(
                     "Showing ${_searchResults.length} of $_totalMatchCount Results (Randomized)",
                     style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16)
@@ -459,23 +524,48 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                   itemBuilder: (context, index) {
                     final q = _searchResults[index];
                     final isSelected = _selectedQuestions.containsKey(q.id);
+
                     return Card(
                       elevation: 2,
                       margin: const EdgeInsets.only(bottom: 12),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Checkbox(value: isSelected, onChanged: (val) => _toggleSelection(q)),
-                            Expanded(
-                              child: QuestionPreviewCard(question: q),
-                            ),
-                          ],
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => _toggleSelection(q),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              IgnorePointer(
+                                child: Checkbox(
+                                  value: isSelected,
+                                  onChanged: (val) {},
+                                ),
+                              ),
+                              Expanded(
+                                child: QuestionPreviewCard(question: q),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );
                   },
+                ),
+
+                const SizedBox(height: 20),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.refresh),
+                    label: const Text("Get More Questions"),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: const BorderSide(color: Colors.deepPurple),
+                    ),
+                    onPressed: _performSearch,
+                  ),
                 ),
               ],
             ),
@@ -488,19 +578,15 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     if (_selectedQuestions.isEmpty) {
       return const Center(child: Text("No questions selected."));
     }
-
-    // Convert map values to list for display
     final selectedList = _selectedQuestions.values.toList();
 
     return Stack(
       children: [
         ListView.builder(
-          // Add padding at bottom so the list isn't hidden behind the Assign button
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
           itemCount: selectedList.length,
           itemBuilder: (context, index) {
             final q = selectedList[index];
-
             return Card(
               elevation: 2,
               margin: const EdgeInsets.only(bottom: 12),
@@ -509,13 +595,9 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Checkbox is always checked here. Unchecking it removes from list.
-
                     Expanded(
                       child: QuestionPreviewCard(question: q),
                     ),
-                    // Optional: Keep a delete icon for explicit removal if preferred,
-                    // but the checkbox does the same thing.
                     IconButton(
                       icon: const Icon(Icons.delete_outline, color: Colors.red),
                       onPressed: () => _toggleSelection(q),
@@ -527,7 +609,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           },
         ),
 
-        // Assign Button (Floating at bottom)
         Positioned(
           bottom: 20,
           left: 20,
@@ -549,7 +630,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
       ],
     );
   }
-
 
   Widget _buildFilters() {
     final decoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));

@@ -1,15 +1,255 @@
-// lib/features/teacher/screens/teacher_history_screen.dart
-
+//lib/features/teacher/screens/teacher_history_screen.dart
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
-// IMPORT THE NEW SCREEN
 import 'package:study_smart_qc/features/teacher/screens/curation_management_screen.dart';
+import 'package:study_smart_qc/features/teacher/widgets/teacher_curation_preview_card.dart';
 
-class TeacherHistoryScreen extends StatelessWidget {
+class TeacherHistoryScreen extends StatefulWidget {
   const TeacherHistoryScreen({super.key});
+
+  @override
+  State<TeacherHistoryScreen> createState() => _TeacherHistoryScreenState();
+}
+
+class _TeacherHistoryScreenState extends State<TeacherHistoryScreen> {
+
+  String _generateAssignmentCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rnd = Random();
+    return String.fromCharCodes(Iterable.generate(
+        6, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
+  }
+
+  void _showCloneBottomSheet(BuildContext parentContext, DocumentSnapshot sourceDoc) {
+    final data = sourceDoc.data() as Map<String, dynamic>;
+    final TextEditingController studentIdController = TextEditingController();
+    final TextEditingController deadlineController = TextEditingController();
+
+    DateTime selectedDateTime = DateTime.now().add(const Duration(days: 1));
+    if (data['deadline'] != null && data['deadline'] is Timestamp) {
+      selectedDateTime = (data['deadline'] as Timestamp).toDate();
+    }
+
+    deadlineController.text = DateFormat('MMM d, y  •  h:mm a').format(selectedDateTime);
+
+    showModalBottomSheet(
+      context: parentContext,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        bool isLoading = false;
+        String? errorMessage;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+
+            Future<void> pickFullDateTime() async {
+              final date = await showDatePicker(
+                context: context,
+                initialDate: selectedDateTime,
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (date == null) return;
+
+              if (!context.mounted) return;
+              final time = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay.fromDateTime(selectedDateTime),
+              );
+              if (time == null) return;
+
+              final combined = DateTime(
+                  date.year, date.month, date.day,
+                  time.hour, time.minute
+              );
+
+              setSheetState(() {
+                selectedDateTime = combined;
+                deadlineController.text = DateFormat('MMM d, y  •  h:mm a').format(combined);
+              });
+            }
+
+            Future<void> handleClone() async {
+              setSheetState(() {
+                errorMessage = null;
+                isLoading = true;
+              });
+
+              final rawInput = studentIdController.text.trim();
+
+              if (rawInput.isEmpty) {
+                setSheetState(() {
+                  errorMessage = "Please enter a Student ID";
+                  isLoading = false;
+                });
+                return;
+              }
+
+              final int? targetId = int.tryParse(rawInput);
+
+              if (targetId == null) {
+                setSheetState(() {
+                  errorMessage = "Student ID must be a valid number";
+                  isLoading = false;
+                });
+                return;
+              }
+
+              try {
+                // Correct Query using camelCase 'studentId' and integer targetId
+                final userQuery = await FirebaseFirestore.instance
+                    .collection('users')
+                    .where('studentId', isEqualTo: targetId)
+                    .limit(1)
+                    .get();
+
+                if (userQuery.docs.isEmpty) {
+                  setSheetState(() {
+                    errorMessage = "Student ID '$targetId' not found.";
+                    isLoading = false;
+                  });
+                  return;
+                }
+
+                final userDoc = userQuery.docs.first;
+                final userData = userDoc.data();
+
+                // --- DUPLICATION LOGIC ---
+                // 1. Create a clean copy of the source data
+                final Map<String, dynamic> cleanData = Map.from(data);
+
+                // 2. Remove 'progress' fields from this COPY so the new student starts fresh.
+                // This replaces the 'FieldValue.delete()' which caused the error.
+                cleanData.remove('submittedAt');
+                cleanData.remove('score');
+                cleanData.remove('feedback');
+                cleanData.remove('status');
+
+                // 3. Generate new unique code
+                final newCode = _generateAssignmentCode();
+
+
+                cleanData['studentId'] = targetId;
+                cleanData['studentUid'] = userDoc.id;
+                cleanData['studentName'] = userData['name'] ?? 'Unknown';
+                cleanData['status'] = 'Assigned';
+                cleanData['createdAt'] = FieldValue.serverTimestamp();
+                cleanData['deadline'] = Timestamp.fromDate(selectedDateTime);
+
+                // 5. Save the new document
+                await FirebaseFirestore.instance.collection('questions_curation').add(cleanData);
+
+                if (mounted) {
+                  Navigator.pop(sheetContext);
+                  ScaffoldMessenger.of(parentContext).showSnackBar(
+                      SnackBar(
+                        content: Text("Cloned successfully! Code: $newCode"),
+                        backgroundColor: Colors.green,
+                        duration: const Duration(seconds: 4),
+                      )
+                  );
+                }
+
+              } catch (e) {
+                setSheetState(() {
+                  errorMessage = "Error: $e";
+                  isLoading = false;
+                });
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    "Clone Assignment",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text("Copying: ${data['title'] ?? 'Untitled'}",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+
+                  const SizedBox(height: 20),
+
+                  TextField(
+                    controller: studentIdController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: "New Student ID",
+                      hintText: "e.g. 2602",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.badge_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextField(
+                    controller: deadlineController,
+                    readOnly: true,
+                    onTap: pickFullDateTime,
+                    decoration: const InputDecoration(
+                      labelText: "New Deadline",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.calendar_month_outlined),
+                      suffixIcon: Icon(Icons.arrow_drop_down),
+                      hintText: "Tap to set date & time",
+                    ),
+                  ),
+
+                  if (errorMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        errorMessage!,
+                        style: const TextStyle(color: Colors.red, fontSize: 13),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+
+                  const SizedBox(height: 24),
+
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: isLoading ? null : handleClone,
+                    child: isLoading
+                        ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                    )
+                        : const Text("Clone Assignment"),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,108 +291,29 @@ class TeacherHistoryScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             itemCount: docs.length,
             itemBuilder: (context, index) {
-              final docId = docs[index].id; // Capture the Doc ID for navigation
-              final data = docs[index].data() as Map<String, dynamic>;
-
+              final DocumentSnapshot doc = docs[index];
+              final data = doc.data() as Map<String, dynamic>;
               final String title = data['title'] ?? 'Untitled';
-              final String code = data['assignmentCode'] ?? '----';
-              final String status = data['status'] ?? 'assigned';
-              final bool isStrict = data['onlySingleAttempt'] ?? false;
-              final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
+              final String docId = doc.id;
 
-              // Format Date
-              final Timestamp? ts = data['createdAt'];
-              final String dateStr = ts != null
-                  ? DateFormat('MMM d, yyyy').format(ts.toDate())
-                  : 'Unknown Date';
-
-              return Card(
-                elevation: 2,
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  title: Text(
-                    title,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 4),
-                      Text("$questionCount Questions • $dateStr"),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          _buildStatusChip(status),
-                          const SizedBox(width: 8),
-                          if (isStrict)
-                            _buildMiniLabel("STRICT", Colors.red.shade100, Colors.red.shade800),
-                        ],
+              return TeacherCurationPreviewCard(
+                doc: doc,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CurationManagementScreen(
+                        curationId: docId,
+                        title: title,
                       ),
-                    ],
-                  ),
-                  trailing: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const Text("CODE", style: TextStyle(fontSize: 10, color: Colors.grey)),
-                      Text(
-                        code,
-                        style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.0,
-                            color: Colors.deepPurple
-                        ),
-                      ),
-                    ],
-                  ),
-                  onTap: () {
-                    // Navigate to the Management Screen
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => CurationManagementScreen(
-                          curationId: docId,
-                          title: title,
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
+                onClone: () => _showCloneBottomSheet(context, doc),
               );
             },
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildStatusChip(String status) {
-    Color color = Colors.grey.shade100;
-    Color textColor = Colors.black87;
-
-    if (status == 'submitted') {
-      color = Colors.green.shade100;
-      textColor = Colors.green.shade800;
-    } else if (status == 'assigned') {
-      color = Colors.blue.shade100;
-      textColor = Colors.blue.shade800;
-    }
-
-    return _buildMiniLabel(status.toUpperCase(), color, textColor);
-  }
-
-  Widget _buildMiniLabel(String text, Color bg, Color fg) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: fg),
       ),
     );
   }

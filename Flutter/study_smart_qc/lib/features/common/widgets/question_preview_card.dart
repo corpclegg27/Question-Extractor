@@ -1,3 +1,5 @@
+// lib/features/common/widgets/question_preview_card.dart
+
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 
@@ -22,9 +24,45 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
   Widget build(BuildContext context) {
     final q = widget.question;
 
+    // --- LOGIC FOR HIERARCHICAL TAGS ---
+    // We combine available hierarchy info into a single breadcrumb string
+    // Structure: Chapter > Topic > Topic_L2 (if available)
+    List<String> hierarchy = [];
+
+    // Helper to validate tags: must not be empty and must not contain "unknown"
+    bool isValidTag(String? s) {
+      if (s == null || s.isEmpty) return false;
+      return !s.toLowerCase().contains('unknown');
+    }
+
+    // 1. Chapter
+    if (isValidTag(q.chapter)) {
+      hierarchy.add(_formatTag(q.chapter));
+    } else if (isValidTag(q.chapterId)) {
+      hierarchy.add(_formatTag(q.chapterId));
+    }
+
+    // 2. Topic
+    if (isValidTag(q.topic)) {
+      hierarchy.add(_formatTag(q.topic));
+    } else if (isValidTag(q.topicId)) {
+      hierarchy.add(_formatTag(q.topicId));
+    }
+
+    // 3. Sub-Topic (Topic L2)
+    if (isValidTag(q.topicL2)) {
+      hierarchy.add(_formatTag(q.topicL2));
+    } else if (isValidTag(q.topicL2Id)) {
+      hierarchy.add(_formatTag(q.topicL2Id));
+    }
+
+    String breadcrumbText = hierarchy.join(" > ");
+    if (breadcrumbText.isEmpty) breadcrumbText = "General";
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
+      elevation: 0, // Elevation handled by parent in filter screen
+      color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -33,43 +71,54 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.deepPurple.shade50,
+              color: Colors.grey.shade50,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.deepPurple,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    "QID: ${q.id}",
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        // UPDATED TAGS: Source -> Chapter -> Topic -> Difficulty
-                        if (q.exam.isNotEmpty) ...[
-                          _buildTag(q.exam, Colors.blue.shade50, Colors.blue.shade700),
-                          const SizedBox(width: 5),
-                        ],
-                        if (q.chapterId.isNotEmpty) ...[
-                          _buildTag(_formatTag(q.chapterId), Colors.orange.shade50, Colors.orange.shade800),
-                          const SizedBox(width: 5),
-                        ],
-                        _buildTag(_formatTag(q.topicId), Colors.grey.shade100, Colors.grey.shade700),
-                        const SizedBox(width: 5),
-                        _buildTag(q.difficulty, _getDifficultyColor(q.difficulty), Colors.black87),
-                      ],
+                Row(
+                  children: [
+                    // --- 1. FIXED QID DISPLAY ---
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        "QID: ${q.id.isNotEmpty ? q.id : 'NA'}",
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
                     ),
-                  ),
+                    const Spacer(),
+                    // Difficulty Badge
+                    _buildTag(q.difficulty, _getDifficultyColor(q.difficulty), Colors.black87),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // --- 2. HIERARCHICAL TAGS ---
+                // Displaying Chapter > Topic > ...
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start, // Align icon with top of text if wrapped
+                  children: [
+                    // Icon representing Hierarchy/Tree structure
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2.0), // visual alignment
+                      child: const Icon(Icons.account_tree, size: 16, color: Colors.grey),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        breadcrumbText,
+                        // Increased font size ~10% (12 -> 13.5)
+                        style: TextStyle(fontSize: 13.5, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                        // Removed maxLines to allow wrapping
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -145,7 +194,7 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Text("Correct Option: ", style: TextStyle(fontWeight: FontWeight.bold)),
-                        Text(q.correctAnswer, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text(q.correctAnswer.toString(), style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
                       ],
                     ),
                   ),
@@ -173,6 +222,9 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
   // Helper to clean up ID strings (e.g., "ray_optics" -> "Ray Optics")
   String _formatTag(String text) {
     if (text.isEmpty) return "";
+    // If it already has spaces, assume it's formatted. Otherwise, split by underscore.
+    if (text.contains(' ')) return text;
+
     return text.split('_').map((str) => str.isNotEmpty ? str[0].toUpperCase() + str.substring(1) : '').join(' ');
   }
 

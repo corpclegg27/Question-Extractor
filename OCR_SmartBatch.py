@@ -7,10 +7,10 @@ import numpy as np
 from tqdm import tqdm
 from datetime import datetime
 
-# Suppress specific warnings for cleaner output
+# Suppress warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-def update_ocr_to_csv():
+def update_ocr_incremental():
     # --- 1. CONFIGURATION ---
     CONFIG_PATH = 'config.json'
     config = {
@@ -20,10 +20,8 @@ def update_ocr_to_csv():
 
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, 'r') as f:
-            loaded = json.load(f)
-            config.update(loaded)
+            config.update(json.load(f))
 
-    # Normalize Paths
     BASE_PATH = os.path.normpath(config['BASE_PATH'])
     
     if os.path.isabs(config['MODEL_DIR']):
@@ -33,202 +31,139 @@ def update_ocr_to_csv():
 
     IMG_BASE_DIR = os.path.join(BASE_PATH, 'Processed_Database')
     
-    # SAFE IO SETUP
-    MASTER_DB_PATH = os.path.join(BASE_PATH, 'DB Master.csv')       # READ ONLY
-    OUTPUT_DB_PATH = os.path.join(BASE_PATH, 'DB Master_OCR.csv')   # READ/WRITE
+    # FILES
+    MASTER_DB_PATH = os.path.join(BASE_PATH, 'Question Bank Allen For OCR.csv')       
+    OUTPUT_DB_PATH = os.path.join(BASE_PATH, 'DB Master_OCR.csv')   
 
     print(f"🔧 CONFIGURATION:")
     print(f"   - Master DB (Read) : {MASTER_DB_PATH}")
-    print(f"   - Output DB (Write): {OUTPUT_DB_PATH}")
+    print(f"   - Output DB (Append): {OUTPUT_DB_PATH}")
 
-    # --- 2. LOAD DATABASE SAFELY ---
-    print(f"\n📂 Loading Master Database...")
+    # --- 2. LOAD MASTER ---
     if not os.path.exists(MASTER_DB_PATH):
-        print(f"❌ Error: Master Database not found at {MASTER_DB_PATH}")
+        print(f"❌ Error: Master DB not found at {MASTER_DB_PATH}")
         return
 
-    try:
-        df_master = pd.read_csv(MASTER_DB_PATH)
-        print(f"   ✅ Loaded {len(df_master)} rows from Master DB.")
-    except Exception as e:
-        print(f"❌ Error reading Master CSV: {e}")
-        return
+    df_master = pd.read_csv(MASTER_DB_PATH)
+    print(f"\n📂 Loaded Master: {len(df_master)} rows.")
 
-    # --- 3. MERGE EXISTING PROGRESS ---
+    if 'unique_id' not in df_master.columns:
+        print("❌ CRITICAL: 'unique_id' missing in Master.")
+        return
+        
+    # Standardize ID to string to avoid mismatch
+    df_master['unique_id'] = df_master['unique_id'].astype(str).str.strip()
+
+    # --- 3. DETERMINE WHAT IS ALREADY DONE ---
+    processed_ids = set()
+    
     if os.path.exists(OUTPUT_DB_PATH):
-        print(f"🔄 Found existing Output DB. Merging progress...")
         try:
-            df_progress = pd.read_csv(OUTPUT_DB_PATH)
+            # We only read the IDs from the output file to know what to skip
+            df_existing = pd.read_csv(OUTPUT_DB_PATH)
             
-            if 'unique_id' in df_master.columns and 'unique_id' in df_progress.columns:
-                df_progress.drop_duplicates(subset=['unique_id'], keep='last', inplace=True)
+            # Check for valid OCR text (length > 20)
+            if 'OCR_Text' in df_existing.columns and 'unique_id' in df_existing.columns:
+                df_existing['OCR_Text'] = df_existing['OCR_Text'].astype(str).replace('nan', '')
+                valid_rows = df_existing[df_existing['OCR_Text'].str.len() > 20]
+                processed_ids = set(valid_rows['unique_id'].astype(str).str.strip())
                 
-                df_master.set_index('unique_id', inplace=True, drop=False)
-                df_progress.set_index('unique_id', inplace=True, drop=False)
-                
-                df_master.update(df_progress)
-                
-                df_master.reset_index(drop=True, inplace=True)
-                print(f"   ✅ Merged progress. Current Row Count: {len(df_master)}")
-            else:
-                print("   ⚠️ 'unique_id' missing. Cannot safely merge. Starting from Master data.")
+            print(f"🔄 Found Output DB. Skipping {len(processed_ids)} already completed rows.")
         except Exception as e:
-            print(f"   ⚠️ Could not read Output DB: {e}")
+            print(f"⚠️  Could not read existing Output DB ({e}). Starting fresh.")
+
+    # --- 4. FILTER PENDING ---
+    # We only keep rows from Master that are NOT in processed_ids
+    df_pending = df_master[~df_master['unique_id'].isin(processed_ids)].copy()
     
-    df = df_master
+    # Initialize necessary columns for the pending rows
+    if 'OCR_Text' not in df_pending.columns: df_pending['OCR_Text'] = ""
+    if 'last_updated' not in df_pending.columns: df_pending['last_updated'] = ""
 
-    # --- 4. DATA PREP & INDEX FIX ---
-    # Critical: Reset index to ensure 0..n sequence
-    df.reset_index(drop=True, inplace=True)
+    total_pending = len(df_pending)
+    print(f"   📊 Pending Work: {total_pending} rows.")
 
-    if 'OCR_Text' not in df.columns: 
-        df['OCR_Text'] = ""
-    if 'last_updated' not in df.columns:
-        df['last_updated'] = ""
-        
-    # Convert to string, replace 'nan' text with empty string for cleaner logic
-    df['OCR_Text'] = df['OCR_Text'].astype(str).replace('nan', '')
-
-    # --- 5. DEFINE "BAD OCR" LOGIC ---
-    # A row needs processing if:
-    # 1. It is empty
-    # 2. It is just "0"
-    # 3. It is shorter than 30 characters
-    
-    # Calculate text length series
-    text_len = df['OCR_Text'].str.strip().str.len()
-    
-    # Create the mask for "Needs Work"
-    mask_needs_work = (
-        (df['OCR_Text'].str.strip() == "") | 
-        (df['OCR_Text'].str.strip() == "0") | 
-        (text_len < 30)
-    )
-    
-    print(f"   📊 Initial check: {mask_needs_work.sum()} rows identified as having missing/bad OCR.")
-
-    # --- 6. SMART COPY: PDF_TEXT -> OCR_TEXT ---
-    print("🔄 Checking for PDF Text to fast-fill...")
-
-    cols_map = {c.lower(): c for c in df.columns}
-    col_pdf_text = cols_map.get('pdf_text')            
-    col_pdf_flag = cols_map.get('pdf_text_available')  
-
-    if col_pdf_text and col_pdf_flag:
-        # Conditions for Smart Copy:
-        # 1. Row needs work (as defined above)
-        # 2. PDF_Text_Available == "Yes"
-        # 3. PDF_Text actually has content
-        
-        pdf_available_mask = df[col_pdf_flag].astype(str).str.strip().str.lower() == "yes"
-        pdf_content_exists = df[col_pdf_text].notna() & (df[col_pdf_text].astype(str).str.strip() != "")
-        
-        mask_smart_copy = mask_needs_work & pdf_available_mask & pdf_content_exists
-        
-        count_copied = mask_smart_copy.sum()
-
-        if count_copied > 0:
-            print(f"   ↳ ⚡ Fast-filled {count_copied} rows from '{col_pdf_text}'.")
-            df.loc[mask_smart_copy, 'OCR_Text'] = df.loc[mask_smart_copy, col_pdf_text]
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            df.loc[mask_smart_copy, 'last_updated'] = current_time
-        else:
-            print("   ↳ No rows qualified for Smart Copy.")
-    else:
-        print(f"   ⚠️ Could not find '{col_pdf_text}' or '{col_pdf_flag}' columns.")
-
-    # --- 7. RE-CALCULATE PENDING LIST ---
-    # Re-run the check to see what is STILL missing after the smart copy
-    text_len = df['OCR_Text'].astype(str).str.strip().str.len()
-    mask_still_needs_work = (
-        (df['OCR_Text'].astype(str).str.strip() == "") | 
-        (df['OCR_Text'].astype(str).str.strip() == "0") | 
-        (text_len < 30)
-    )
-    
-    pending_indices = df[mask_still_needs_work].index
-
-    if len(pending_indices) == 0:
-        print("\n🎉 No pending items! Database is up to date.")
-        df.sort_values(by='last_updated', ascending=False, inplace=True)
-        df.to_csv(OUTPUT_DB_PATH, index=False)
-        print(f"✅ Saved clean DB to: {OUTPUT_DB_PATH}")
+    if total_pending == 0:
+        print("\n🎉 All done! Database is up to date.")
         return
 
-    print(f"\n🎯 Found {len(pending_indices)} questions needing actual OCR (GPU).")
-
-    # --- 8. INITIALIZE ENGINE ---
-    print("🚀 Initializing EasyOCR...")
-    if not os.path.exists(MODEL_STORAGE):
-        os.makedirs(MODEL_STORAGE, exist_ok=True)
-        
+    # --- 5. INITIALIZE ENGINE ---
+    print("\n🚀 Initializing EasyOCR (GPU)...")
+    if not os.path.exists(MODEL_STORAGE): os.makedirs(MODEL_STORAGE, exist_ok=True)
     reader = easyocr.Reader(['en'], model_storage_directory=MODEL_STORAGE, gpu=True) 
 
-    # --- 9. PROCESSING LOOP ---
-    print("\n▶️  Starting Batch Processing...")
+    # --- 6. ROW-BY-ROW PROCESSING ---
+    print(f"\n▶️  Processing {total_pending} images...")
     
-    processed_count = 0
-    save_frequency = 5
+    # Check if we need to write the header (only if file doesn't exist)
+    write_header = not os.path.exists(OUTPUT_DB_PATH)
     
     try:
-        with tqdm(total=len(pending_indices), unit="img") as pbar:
-            
-            for index in pending_indices:
-                folder = str(df.at[index, 'Folder']).strip()
+        with tqdm(total=total_pending, unit="img") as pbar:
+            for idx, row in df_pending.iterrows():
+                folder = str(row.get('Folder', '')).strip()
                 
-                # --- Get Question Number ---
-                q_num = None
-                if 'Question No.' in df.columns:
-                    val = df.at[index, 'Question No.']
-                    if pd.notna(val) and str(val).strip() != "":
-                        q_num = str(val).split('.')[0]
-                
-                if not q_num and 'Q' in df.columns:
-                    val = df.at[index, 'Q']
-                    if pd.notna(val) and str(val).strip() != "":
-                        q_num = str(val).split('.')[0]
+                # Q Number Logic
+                val = row.get('Question No.') if 'Question No.' in df_pending.columns else row.get('Q')
+                q_num = str(val).split('.')[0] if pd.notna(val) and str(val).strip() != "" else None
                 
                 if not q_num:
-                    pbar.write(f"⚠️  Skipping Row {index}: No Question Number found.")
                     pbar.update(1)
                     continue
 
-                img_filename = f"Q_{q_num}.png"
-                img_path = os.path.join(IMG_BASE_DIR, folder, img_filename)
+                # --- STEP A: TRY SMART COPY (PDF TEXT) ---
+                # Check if PDF text is available and valid
+                pdf_avail = str(row.get('PDF_Text_Available', '')).lower() == 'yes'
+                pdf_text = str(row.get('pdf_Text', '')).strip()
                 
-                if os.path.exists(img_path):
-                    try:
-                        result = reader.readtext(img_path, detail=0)
-                        text_content = " ".join(result)
-                        
-                        df.at[index, 'OCR_Text'] = text_content
-                        df.at[index, 'last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        processed_count += 1
-                        
-                        if processed_count % save_frequency == 0:
-                            df_save = df.sort_values(by='last_updated', ascending=False)
-                            df_save.to_csv(OUTPUT_DB_PATH, index=False)
-                            
-                    except Exception as e:
-                        pbar.write(f"❌ Error on {img_filename}: {e}")
+                final_text = ""
+                source = ""
+                
+                if pdf_avail and len(pdf_text) > 20:
+                    final_text = pdf_text
+                    source = "PDF_COPY"
                 else:
-                    pass
+                    # --- STEP B: RUN OCR ---
+                    img_filename = f"Q_{q_num}.png"
+                    img_path = os.path.join(IMG_BASE_DIR, folder, img_filename)
+                    
+                    if os.path.exists(img_path):
+                        try:
+                            result = reader.readtext(img_path, detail=0)
+                            final_text = " ".join(result)
+                            source = "OCR_GPU"
+                        except Exception as e:
+                            pbar.write(f"❌ Error {img_filename}: {e}")
+                    else:
+                        # Skip if file missing
+                        pbar.update(1)
+                        continue
 
+                # --- STEP C: APPEND TO FILE ---
+                # Only write if we actually got text (length > 20)
+                if len(final_text) > 20:
+                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Update the specific fields in the single-row dataframe
+                    df_pending.at[idx, 'OCR_Text'] = final_text
+                    df_pending.at[idx, 'last_updated'] = current_time
+                    
+                    # Extract just this row as a DataFrame
+                    single_row = df_pending.loc[[idx]]
+                    
+                    # Append to CSV
+                    # mode='a' appends. header=False prevents writing headers repeatedly.
+                    single_row.to_csv(OUTPUT_DB_PATH, mode='a', header=write_header, index=False)
+                    
+                    # Ensure header is only written once (for the very first row of a fresh file)
+                    write_header = False
+                
                 pbar.update(1)
 
     except KeyboardInterrupt:
-        print("\n\n🛑 Script stopped by user.")
+        print("\n🛑 Stopped by user.")
     
-    # --- 10. FINAL SORT & SAVE ---
-    print("💾 Performing final sort and save...")
-    try:
-        df.sort_values(by='last_updated', ascending=False, inplace=True)
-        df.to_csv(OUTPUT_DB_PATH, index=False)
-        print(f"✅ Saved successfully to: {OUTPUT_DB_PATH}")
-        print(f"📊 Total processed: {processed_count}")
-    except PermissionError:
-        print(f"❌ ERROR: Could not save to {OUTPUT_DB_PATH}. Is the file open?")
+    print("\n✅ Script finished. Check DB Master_OCR.csv for results.")
 
 if __name__ == "__main__":
-    update_ocr_to_csv()
+    update_ocr_incremental()

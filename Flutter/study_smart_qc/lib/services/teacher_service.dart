@@ -37,7 +37,6 @@ class TeacherService {
   }
 
   // --- 2. ADVANCED SEARCH (PAGINATED) ---
-
   Future<PaginatedQuestions> fetchQuestionsPaged({
     required String audienceType,
     int? studentId,
@@ -45,49 +44,31 @@ class TeacherService {
     String? subject,
     List<String>? chapterIds,
     List<String>? topicIds,
-    int limit = 20, // Default reduced to 20
-    DocumentSnapshot? startAfter, // Cursor for pagination
+    int limit = 20,
+    DocumentSnapshot? startAfter,
   }) async {
-    // 1. Determine Source (Tracker vs General Pool)
-    // Note: Tracker-based fetching (Smart Filter) is hard to paginate via Firestore query
-    // because it reads a list of IDs. For now, we fetch the list and handle slicing manually
-    // if needed, or just return all since tracker buckets usually aren't massive.
-    // For 'General' search, we use true Firestore pagination.
-
     if (audienceType == 'Particular Student' && smartFilter != null && smartFilter != 'New Questions') {
-      // Logic for Tracker (Pre-existing logic, simplified return)
       final allQuestions = await _fetchFromTracker(studentId!, smartFilter);
-      // We simulate pagination or just return all for tracker buckets
       return PaginatedQuestions(allQuestions, null);
     }
 
-    // 2. General Pool Query Construction
     Query query = _firestore.collection('questions');
 
     if (chapterIds != null && chapterIds.isNotEmpty) {
-      // 'whereIn' limits to 10. If more, we might need multiple queries,
-      // but assuming the UI restricts or we take first 10.
       query = query.where('chapterId', whereIn: chapterIds.take(10).toList());
     }
 
-    // Apply Cursor
     if (startAfter != null) {
       query = query.startAfterDocument(startAfter);
     }
 
-    // Apply Limit
     final snap = await query.limit(limit).get();
-
-    // Convert
     List<Question> questions = snap.docs.map((d) => Question.fromFirestore(d)).toList();
 
-    // 3. Filter by Topic (Client-side)
-    // Firestore can't do whereIn(chapters) AND whereIn(topics) easily.
     if (topicIds != null && topicIds.isNotEmpty) {
       questions = questions.where((q) => topicIds.contains(q.topicId)).toList();
     }
 
-    // 4. Exclude History (Client-side)
     if (audienceType == 'Particular Student' && studentId != null) {
       final historyIds = await _getStudentHistory(studentId);
       questions = questions.where((q) => !historyIds.contains(q.id)).toList();
@@ -152,15 +133,16 @@ class TeacherService {
     });
   }
 
-  // --- 5. ASSIGNMENT LOGIC ---
+  // --- 5. ASSIGNMENT LOGIC (Fixed Signature) ---
   Future<void> assignQuestionsToStudent({
     required int studentId,
     required List<Question> questions,
     required String teacherUid,
     required String targetAudience,
-    String assignmentTitle = "Teacher Assignment",
+    String assignmentTitle = "",
     bool onlySingleAttempt = false,
     int? timeLimitMinutes,
+    DateTime? deadline, // <--- ADDED PARAMETER HERE
   }) async {
     final studentUid = await _findUidByStudentId(studentId);
     if (studentUid == null) throw Exception("Student not found");
@@ -170,18 +152,31 @@ class TeacherService {
     final batch = _firestore.batch();
 
     final assignmentCode = _generateAssignmentCode();
+    // Using q.id because in your model Question.id is mapped to the real question_id
     final questionIds = questions.map((q) => q.id).toList();
-    final subjects = questions.map((q) => q.chapterId.split('_').first).toSet().toList();
-    final hierarchy = _buildHierarchy(questions);
-    final int finalTimeLimit = timeLimitMinutes ?? (questions.length * 2);
 
-    batch.set(newAssignmentRef, {
+    // FIXED: Subjects Logic
+    final subjects = questions
+        .map((q) => q.subject.isNotEmpty ? q.subject : (q.chapterId.split('_').first))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toSet()
+        .toList();
+
+    // FIXED: Meta Hierarchy Logic
+    final hierarchy = _buildHierarchy(questions);
+
+    final int finalTimeLimit = timeLimitMinutes ?? (questions.length * 2);
+    final String finalTitle = assignmentTitle.isEmpty ? "New Assignment" : assignmentTitle;
+
+    Map<String, dynamic> curationData = {
       'assignmentId': newAssignmentRef.id,
       'assignmentCode': assignmentCode,
       'targetAudience': targetAudience,
+      'studentId': studentId,
       'studentUid': studentUid,
       'teacherUid': teacherUid,
-      'title': assignmentTitle,
+      'title': finalTitle,
       'questionIds': questionIds,
       'createdAt': FieldValue.serverTimestamp(),
       'status': 'assigned',
@@ -189,7 +184,14 @@ class TeacherService {
       'timeLimitMinutes': finalTimeLimit,
       'subjects': subjects,
       'meta_hierarchy': hierarchy,
-    });
+    };
+
+    // Add deadline if present
+    if (deadline != null) {
+      curationData['deadline'] = Timestamp.fromDate(deadline);
+    }
+
+    batch.set(newAssignmentRef, curationData);
 
     batch.update(trackerRef, {
       'assigned_history': FieldValue.arrayUnion(questionIds),
@@ -237,7 +239,7 @@ class TeacherService {
     final ids = List<String>.from(buckets[dbKey] ?? []);
     if (ids.isEmpty) return [];
 
-    final safeIds = ids.take(20).toList(); // Limit tracker fetch too
+    final safeIds = ids.take(20).toList();
     final query = await _firestore.collection('questions').where(FieldPath.documentId, whereIn: safeIds).get();
     return query.docs.map((d) => Question.fromFirestore(d)).toList();
   }
@@ -262,13 +264,16 @@ class TeacherService {
     return String.fromCharCodes(Iterable.generate(4, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
   }
 
+  // UPDATED: Hierarchy Builder using Names
   Map<String, dynamic> _buildHierarchy(List<Question> questions) {
     Map<String, dynamic> hierarchy = {};
     for (var q in questions) {
-      final exam = q.exam.isEmpty ? 'Unknown Exam' : q.exam;
-      final subject = 'Physics';
-      final chapter = q.chapterId.isEmpty ? 'Unknown Chapter' : q.chapterId;
-      final topic = q.topicId.isEmpty ? 'Unknown Topic' : q.topicId;
+      final exam = q.exam.isEmpty ? 'General' : q.exam;
+      final subject = q.subject.isEmpty ? 'General' : q.subject;
+
+      // Prefer Names -> Fallback to IDs -> Fallback to Unknown
+      String chapter = q.chapter.isNotEmpty ? q.chapter : (q.chapterId.isNotEmpty ? q.chapterId : 'Unknown Chapter');
+      String topic = q.topic.isNotEmpty ? q.topic : (q.topicId.isNotEmpty ? q.topicId : 'Unknown Topic');
 
       hierarchy.putIfAbsent(exam, () => <String, dynamic>{});
       hierarchy[exam].putIfAbsent(subject, () => <String, dynamic>{});

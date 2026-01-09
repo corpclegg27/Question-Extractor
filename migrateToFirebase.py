@@ -242,7 +242,7 @@ for index, row in df.iterrows():
             doc_data['solution_url'] = None
 
         # 5. Firestore Write
-        doc_ref = db.collection(COLLECTION_NAME).document(q_id)
+        doc_ref = db.collection(COLLECTION_NAME).document()
         
         doc_snap = doc_ref.get()
         if doc_snap.exists:

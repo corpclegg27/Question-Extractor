@@ -97,8 +97,6 @@ version: 1.0.0+1
 environment:
   sdk: ^3.10.4
 
-
-
 dependencies:
   flutter:
     sdk: flutter
@@ -110,20 +108,19 @@ dependencies:
   firebase_auth: ^6.1.3
   google_sign_in: 6.2.1
   fl_chart: ^0.68.0
-  intl: ^0.19.0 # Added for date formatting
+  intl: ^0.19.0
   provider: ^6.1.5+1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-
   flutter_lints: ^6.0.0
   flutter_native_splash: "^2.3.10"
   flutter_launcher_icons: "^0.13.1"
 
 flutter_native_splash:
-  color: "#FFFFFF" # Background color
+  color: "#FFFFFF"
   image: assets/splash_bg.png
   android_12:
     image: assets/splash_bg.png
@@ -132,7 +129,7 @@ flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "assets/app_icon.png"
-  adaptive_icon_background: "#FFFFFF" # Change to your brand color
+  adaptive_icon_background: "#FFFFFF"
 
 flutter:
   uses-material-design: true
@@ -201,7 +198,6 @@ FILE: ios/Runner/Info.plist
 ================================================================================
 FILE: lib/main.dart
 ================================================================================
-// lib/main.dart
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -431,7 +427,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   List<int> skippedIndices = [];
   List<int> reviewIndices = [];
 
-  // Smart Analysis Categories (Key = Category Name, Value = List of Question Indices)
+  // Smart Analysis Categories
   final Map<String, List<int>> _smartAnalysisGroups = {
     "Perfect Attempt": [],
     "Overtime Correct": [],
@@ -441,14 +437,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
     "Time Wasted": [],
   };
 
-  // Friendly coaching descriptions for the UI
+  // Friendly coaching descriptions
   final Map<String, String> _categoryDescriptions = {
-    "Perfect Attempt": "You nailed it! You got the answer right and managed your time perfectly within the subject's limit.",
-    "Overtime Correct": "You got it right! You reached the correct answer, though you spent a bit more time than the ideal limit for this subject.",
-    "Careless Mistake": "Slow down a bit! You answered very quickly but unfortunately missed this one. Double-check your work next time.",
-    "Wasted Attempt": "Don't get stuck! You spent a lot of time here but didn't quite get the right answer. It might be time to review this concept.",
-    "Good Skip": "Great tactical move! You recognized a tough one early and skipped it quickly to save your time for other questions.",
-    "Time Wasted": "Careful with the clock! You spent quite a while on this before skipping. Try to decide to move on a little sooner next time.",
+    "Perfect Attempt": "You nailed it! Correct answer within ideal time.",
+    "Overtime Correct": "Correct, but took longer than ideal.",
+    "Careless Mistake": "Answered quickly but incorrect. Slow down!",
+    "Wasted Attempt": "Spent too much time and still got it wrong.",
+    "Good Skip": "Smart move. Skipped a tough one quickly.",
+    "Time Wasted": "Spent too long before deciding to skip.",
   };
 
   @override
@@ -545,13 +541,40 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  String get _formattedTimeTaken {
-    final minutes = widget.result.timeTaken.inMinutes.toString().padLeft(2, '0');
-    final seconds = (widget.result.timeTaken.inSeconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+  // --- HELPERS ---
+
+  /// Standard Card Decoration (Grey Border)
+  BoxDecoration get _standardCardDecoration => BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(16),
+    border: Border.all(color: Colors.grey.shade300, width: 1.5),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withOpacity(0.05),
+        blurRadius: 10,
+        offset: const Offset(0, 4),
+      ),
+    ],
+  );
+
+  String _formatDurationCompact(int totalSeconds) {
+    if (totalSeconds == 0) return "0s";
+    final duration = Duration(seconds: totalSeconds);
+    if (totalSeconds < 60) {
+      return "${totalSeconds}s";
+    } else if (totalSeconds < 3600) {
+      int m = duration.inMinutes;
+      int s = totalSeconds % 60;
+      return s > 0 ? "${m}m ${s}s" : "${m}m";
+    } else {
+      int h = duration.inHours;
+      int m = duration.inMinutes % 60;
+      return m > 0 ? "${h}h ${m}m" : "${h}h";
+    }
   }
 
-  String _formatSeconds(int totalSeconds) {
+  String _formatSecondsDetailed(int totalSeconds) {
+    if (totalSeconds < 60) return "${totalSeconds}s";
     int m = totalSeconds ~/ 60;
     int s = totalSeconds % 60;
     return '${m}m ${s}s';
@@ -559,23 +582,48 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
   Color _getSmartColor(String category) {
     switch (category) {
-      case "Perfect Attempt": return Colors.green.shade800;
-      case "Overtime Correct": return Colors.green.shade300;
-      case "Careless Mistake": return Colors.red.shade200;
-      case "Wasted Attempt": return Colors.red.shade900;
+      case "Perfect Attempt": return Colors.green.shade700;
+      case "Overtime Correct": return Colors.green.shade400;
+      case "Careless Mistake": return Colors.red.shade300;
+      case "Wasted Attempt": return Colors.red.shade800;
       case "Good Skip": return Colors.grey.shade400;
-      case "Time Wasted": return Colors.grey.shade700;
+      case "Time Wasted": return Colors.grey.shade600;
       default: return Colors.blue;
     }
+  }
+
+  ({Color bar, Color text}) _getDynamicColors(double score, double max) {
+    if (score < 0) return (bar: const Color(0xFFD32F2F), text: const Color(0xFFB71C1C));
+    if (max == 0) return (bar: Colors.grey, text: Colors.grey.shade700);
+
+    final double percentage = (score / max).clamp(0.0, 1.0);
+    Color color;
+
+    if (percentage < 0.4) {
+      final t = percentage / 0.4;
+      color = Color.lerp(Colors.deepOrange, Colors.orange, t)!;
+    } else if (percentage < 0.75) {
+      final t = (percentage - 0.4) / 0.35;
+      color = Color.lerp(Colors.orange, Colors.lightGreen.shade600, t)!;
+    } else {
+      final t = (percentage - 0.75) / 0.25;
+      color = Color.lerp(Colors.green, const Color(0xFF1B5E20), t)!;
+    }
+
+    final HSLColor hsl = HSLColor.fromColor(color);
+    final Color textColor = hsl.withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0)).toColor();
+    return (bar: color, text: textColor);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFFAFAFA),
       appBar: AppBar(
         title: const Text('Test Analysis'),
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
+        elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
@@ -586,32 +634,32 @@ class _ResultsScreenState extends State<ResultsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Score Card
             _buildScoreCard(),
-            const SizedBox(height: 20),
-            _buildStatsRow(),
-            const SizedBox(height: 30),
+            const SizedBox(height: 24),
 
-            // 1. # Questions by Result
+            // Stats Row
+            _buildStatsRow(),
+            const SizedBox(height: 32),
+
+            // Charts
             _buildHeader("# Questions by Result"),
             _buildPerformanceDistributionChart(),
-            const SizedBox(height: 30),
+            const SizedBox(height: 32),
 
-            // 2. Time spent by Result
             _buildHeader("Time spent by Result"),
             _buildTimeSpentByResultChart(),
-            const SizedBox(height: 30),
+            const SizedBox(height: 32),
 
-            // 3. # Questions by Behavior
             _buildHeader("# Questions by Behavior"),
             _buildSmartAnalysisChart(),
-            const SizedBox(height: 30),
+            const SizedBox(height: 32),
 
-            // 4. Time spent by Behavior
             _buildHeader("Time spent by Behavior"),
             _buildTimeSpentByBehaviorChart(),
-            const SizedBox(height: 30),
+            const SizedBox(height: 32),
 
-            // 5. Categorized Questions
+            // Detailed List
             _buildHeader("Questions Breakdown"),
             _buildSmartAnalysisList(),
           ],
@@ -622,7 +670,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
   Widget _buildHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
+      padding: const EdgeInsets.only(bottom: 16.0),
       child: Text(
         title,
         textAlign: TextAlign.center,
@@ -631,91 +679,101 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  // --- SCORE CARD ---
   Widget _buildScoreCard() {
-    double percentage = (widget.result.totalMarks > 0)
-        ? (marksObtained / widget.result.totalMarks) * 100
-        : 0;
-    String motivation = percentage >= 75 ? 'Excellent Work!' : percentage >= 50 ? 'Good Effort!' : 'Keep Improving!';
-    return Card(
-      color: Colors.deepPurple.shade700,
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            Text('Marks Obtained', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 16)),
-            const SizedBox(height: 8),
-            Text('$marksObtained / ${widget.result.totalMarks}', style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text(motivation, style: const TextStyle(color: Colors.yellowAccent, fontSize: 14, fontWeight: FontWeight.bold)),
-          ],
-        ),
+    final double maxScore = widget.result.totalMarks.toDouble();
+    final double score = marksObtained.toDouble();
+    final themeColors = _getDynamicColors(score, maxScore);
+    double scorePercentage = (maxScore == 0) ? 0 : (score.abs() / maxScore).clamp(0.0, 1.0);
+
+    return Container(
+      decoration: _standardCardDecoration,
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Score', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.black)),
+              Text('$marksObtained / ${widget.result.totalMarks}', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: themeColors.text)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: scorePercentage,
+              backgroundColor: Colors.grey.shade100,
+              color: themeColors.bar,
+              minHeight: 12,
+            ),
+          ),
+        ],
       ),
     );
   }
 
+  // --- STATS ROW ---
   Widget _buildStatsRow() {
     return Row(
       children: [
-        _buildStatCard('Accuracy', '${accuracy.toStringAsFixed(0)}%', Icons.track_changes, Colors.blue),
-        _buildStatCard('Attempt %', '${attemptPercentage.toStringAsFixed(0)}%', Icons.rule, Colors.orange),
-        _buildStatCard('Time Taken', _formattedTimeTaken, Icons.timer_outlined, Colors.purple),
+        _buildStatCard(
+          title: 'Accuracy',
+          value: '${accuracy.toStringAsFixed(0)}%',
+          percentage: accuracy / 100,
+          color: Colors.blue,
+          icon: Icons.gps_fixed,
+        ),
+        const SizedBox(width: 16),
+        _buildStatCard(
+          title: 'Attempt %',
+          value: '${attemptPercentage.toStringAsFixed(0)}%',
+          percentage: attemptPercentage / 100,
+          color: Colors.orange,
+          icon: Icons.checklist,
+        ),
+        const SizedBox(width: 16),
+        _buildStatCard(
+          title: 'Time Taken',
+          value: _formatDurationCompact(widget.result.timeTaken.inSeconds),
+          percentage: 1.0,
+          color: Colors.purple,
+          icon: Icons.timer_outlined,
+        ),
       ],
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard({
+    required String title,
+    required String value,
+    required double percentage,
+    required Color color,
+    required IconData icon,
+  }) {
     return Expanded(
-      child: Card(
-        elevation: 2,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 28),
-              const SizedBox(height: 8),
-              Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              const SizedBox(height: 4),
-              Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // --- CHART 1: # Questions by Result ---
-  Widget _buildPerformanceDistributionChart() {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
+        decoration: _standardCardDecoration,
         child: Column(
           children: [
-            SizedBox(
-              height: 180,
-              child: PieChart(
-                PieChartData(
-                  sectionsSpace: 2,
-                  centerSpaceRadius: 40,
-                  startDegreeOffset: 270,
-                  sections: [
-                    _buildSection(correctIndices.length.toDouble(), '${correctIndices.length}', Colors.green),
-                    _buildSection(incorrectIndices.length.toDouble(), '${incorrectIndices.length}', Colors.red),
-                    _buildSection(skippedIndices.length.toDouble(), '${skippedIndices.length}', Colors.grey.shade300, textColor: Colors.black54),
-                  ],
-                ),
-              ),
+            Icon(icon, size: 32, color: color),
+            const SizedBox(height: 16),
+            Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[500], fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(value, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
             ),
-            const SizedBox(height: 20),
-            Wrap(
-              spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
-              children: [
-                _buildLegendItem(Colors.green, 'Correct'),
-                _buildLegendItem(Colors.red, 'Incorrect'),
-                _buildLegendItem(Colors.grey.shade300, 'Unattempted'),
-              ],
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: percentage.clamp(0.0, 1.0),
+                backgroundColor: color.withOpacity(0.1),
+                color: color,
+                minHeight: 6,
+              ),
             ),
           ],
         ),
@@ -723,7 +781,58 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- CHART 2: Time Spent by Result ---
+  // --- CHARTS ---
+
+  Widget _buildPerformanceDistributionChart() {
+    int total = widget.result.questions.length;
+    return Container(
+      decoration: _standardCardDecoration,
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 200,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                PieChart(
+                  PieChartData(
+                    sectionsSpace: 2,
+                    centerSpaceRadius: 40,
+                    startDegreeOffset: 270,
+                    sections: [
+                      _buildSection(correctIndices.length.toDouble(), '${correctIndices.length}', Colors.green),
+                      _buildSection(incorrectIndices.length.toDouble(), '${incorrectIndices.length}', Colors.red),
+                      _buildSection(skippedIndices.length.toDouble(), '${skippedIndices.length}', Colors.grey.shade300, textColor: Colors.black54),
+                    ],
+                  ),
+                ),
+                FittedBox(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                        "$total",
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)
+                    ),
+                  ),
+                )
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Wrap(
+            spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
+            children: [
+              _buildLegendItem(Colors.green, 'Correct'),
+              _buildLegendItem(Colors.red, 'Incorrect'),
+              _buildLegendItem(Colors.grey.shade300, 'Unattempted'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTimeSpentByResultChart() {
     final Map<String, int> timeMap = {"CORRECT": 0, "INCORRECT": 0, "SKIPPED": 0};
     for (var resp in widget.result.responses.values) {
@@ -732,82 +841,106 @@ class _ResultsScreenState extends State<ResultsScreen> {
     }
     final total = timeMap.values.fold(0, (sum, item) => sum + item);
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            SizedBox(
-              height: 180,
-              child: total == 0 ? const Center(child: Text("No time data recorded")) : PieChart(
-                PieChartData(
-                  sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
-                  sections: [
-                    _buildTimeSection(timeMap["CORRECT"]!, total, Colors.green),
-                    _buildTimeSection(timeMap["INCORRECT"]!, total, Colors.red),
-                    _buildTimeSection(timeMap["SKIPPED"]!, total, Colors.grey.shade300, textColor: Colors.black54),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Wrap(
-              spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
+    return Container(
+      decoration: _standardCardDecoration,
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 200,
+            child: total == 0 ? const Center(child: Text("No data")) : Stack(
+              alignment: Alignment.center,
               children: [
-                _buildLegendItem(Colors.green, 'Correct (${_formatSeconds(timeMap["CORRECT"]!)})'),
-                _buildLegendItem(Colors.red, 'Incorrect (${_formatSeconds(timeMap["INCORRECT"]!)})'),
-                _buildLegendItem(Colors.grey.shade300, 'Skipped (${_formatSeconds(timeMap["SKIPPED"]!)})'),
+                PieChart(
+                  PieChartData(
+                    sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
+                    sections: [
+                      _buildTimeSection(timeMap["CORRECT"]!, total, Colors.green),
+                      _buildTimeSection(timeMap["INCORRECT"]!, total, Colors.red),
+                      _buildTimeSection(timeMap["SKIPPED"]!, total, Colors.grey.shade300, textColor: Colors.black54),
+                    ],
+                  ),
+                ),
+                FittedBox(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                        _formatDurationCompact(total),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)
+                    ),
+                  ),
+                )
               ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 24),
+          Wrap(
+            spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
+            children: [
+              _buildLegendItem(Colors.green, 'Correct (${_formatSecondsDetailed(timeMap["CORRECT"]!)})'),
+              _buildLegendItem(Colors.red, 'Incorrect (${_formatSecondsDetailed(timeMap["INCORRECT"]!)})'),
+              _buildLegendItem(Colors.grey.shade300, 'Skipped (${_formatSecondsDetailed(timeMap["SKIPPED"]!)})'),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  // --- CHART 3: # Questions by Behavior ---
   Widget _buildSmartAnalysisChart() {
     List<PieChartSectionData> sections = [];
+    int totalCount = 0;
     for (var key in _behavioralOrder) {
       final count = _smartAnalysisGroups[key]!.length;
       if (count > 0) {
         sections.add(_buildSection(count.toDouble(), '$count', _getSmartColor(key)));
+        totalCount += count;
       }
     }
 
-    if (sections.isEmpty) return const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text("Not enough behavioral data"))));
+    if (sections.isEmpty) return Container(decoration: _standardCardDecoration, padding: const EdgeInsets.all(20), child: const Center(child: Text("No behavioral data")));
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            SizedBox(
-              height: 180,
-              child: PieChart(
-                PieChartData(
-                  sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
-                  sections: sections,
+    return Container(
+      decoration: _standardCardDecoration,
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 200,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                PieChart(
+                  PieChartData(
+                    sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
+                    sections: sections,
+                  ),
                 ),
-              ),
+                FittedBox(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                        "$totalCount",
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)
+                    ),
+                  ),
+                )
+              ],
             ),
-            const SizedBox(height: 20),
-            Wrap(
-              spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
-              children: _behavioralOrder
-                  .where((key) => _smartAnalysisGroups[key]!.isNotEmpty)
-                  .map((key) => _buildLegendItem(_getSmartColor(key), key))
-                  .toList(),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 24),
+          Wrap(
+            spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
+            children: _behavioralOrder
+                .where((key) => _smartAnalysisGroups[key]!.isNotEmpty)
+                .map((key) => _buildLegendItem(_getSmartColor(key), key))
+                .toList(),
+          ),
+        ],
       ),
     );
   }
 
-  // --- CHART 4: Time Spent by Behavior ---
   Widget _buildTimeSpentByBehaviorChart() {
     Map<String, int> timeMap = {};
     for (var resp in widget.result.responses.values) {
@@ -825,32 +958,113 @@ class _ResultsScreenState extends State<ResultsScreen> {
       }
     }
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            SizedBox(
-              height: 180,
-              child: total == 0 ? const Center(child: Text("No time data recorded")) : PieChart(
-                PieChartData(
-                  sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
-                  sections: sections,
+    return Container(
+      decoration: _standardCardDecoration,
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 200,
+            child: total == 0 ? const Center(child: Text("No data")) : Stack(
+              alignment: Alignment.center,
+              children: [
+                PieChart(
+                  PieChartData(
+                    sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
+                    sections: sections,
+                  ),
                 ),
-              ),
+                FittedBox(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                        _formatDurationCompact(total),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)
+                    ),
+                  ),
+                )
+              ],
             ),
-            const SizedBox(height: 20),
-            Wrap(
-              spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
-              children: _behavioralOrder
-                  .where((key) => (timeMap[key] ?? 0) > 0)
-                  .map((key) => _buildLegendItem(_getSmartColor(key), '$key (${_formatSeconds(timeMap[key] ?? 0)})'))
-                  .toList(),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 24),
+          Wrap(
+            spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
+            children: _behavioralOrder
+                .where((key) => (timeMap[key] ?? 0) > 0)
+                .map((key) => _buildLegendItem(_getSmartColor(key), '$key (${_formatSecondsDetailed(timeMap[key] ?? 0)})'))
+                .toList(),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildSmartAnalysisList() {
+    return Column(
+      children: _behavioralOrder.map((key) {
+        final indices = _smartAnalysisGroups[key] ?? [];
+        if (indices.isEmpty) return const SizedBox.shrink();
+        final color = _getSmartColor(key);
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          // SPECIFIC DECORATION FOR LIST ITEMS
+          // White background, Colored Border (2.0 width), Soft Shadow
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color, width: 2.0),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.label, size: 20, color: color), // COLORED ICON
+                  const SizedBox(width: 12),
+                  Text(key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    child: Text("${indices.length}", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+                  )
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                  _categoryDescriptions[key] ?? "",
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600, height: 1.5)
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8, runSpacing: 8,
+                children: indices.map((idx) => GestureDetector(
+                  onTap: () => _showSolutionSheet(idx),
+                  child: Container(
+                    width: 44, height: 34, alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: color.withOpacity(0.5)),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [BoxShadow(color: color.withOpacity(0.05), blurRadius: 2, offset: const Offset(0, 1))]
+                    ),
+                    child: Text("Q${idx + 1}", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
+                )).toList(),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -876,53 +1090,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
       children: [
         Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 6),
-        Text(text, style: const TextStyle(fontSize: 11)),
+        Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87)),
       ],
-    );
-  }
-
-  // --- LIST BREAKDOWN ---
-  Widget _buildSmartAnalysisList() {
-    return Column(
-      children: _behavioralOrder.map((key) {
-        final indices = _smartAnalysisGroups[key] ?? [];
-        if (indices.isEmpty) return const SizedBox.shrink();
-        final color = _getSmartColor(key);
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.label, size: 16, color: color),
-                    const SizedBox(width: 8),
-                    Text(key, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    const Spacer(),
-                    CircleAvatar(radius: 10, backgroundColor: color, child: Text("${indices.length}", style: const TextStyle(color: Colors.white, fontSize: 10))),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(_categoryDescriptions[key] ?? "", style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontStyle: FontStyle.italic)),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8, runSpacing: 8,
-                  children: indices.map((idx) => GestureDetector(
-                    onTap: () => _showSolutionSheet(idx),
-                    child: Container(
-                      width: 40, height: 30, alignment: Alignment.center,
-                      decoration: BoxDecoration(border: Border.all(color: color), borderRadius: BorderRadius.circular(4)),
-                      child: Text("Q${idx + 1}", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
-                    ),
-                  )).toList(),
-                ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
     );
   }
 }
@@ -1087,7 +1256,10 @@ class _TestHistoryScreenState extends State<TestHistoryScreen> {
 ================================================================================
 FILE: lib/features/analytics/widgets/attempt_display_card.dart
 ================================================================================
+// lib/features/analytics/widgets/attempt_display_card.dart
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:study_smart_qc/models/attempt_model.dart';
 
 class AttemptDisplayCard extends StatelessWidget {
@@ -1100,110 +1272,265 @@ class AttemptDisplayCard extends StatelessWidget {
     required this.onTap,
   });
 
+  String _formatDurationClean(int seconds) {
+    if (seconds < 60) return "${seconds}s";
+    final int m = seconds ~/ 60;
+    final int s = seconds % 60;
+    if (s == 0) return "${m}m";
+    return "${m}m ${s}s";
+  }
+
+  /// Returns a record containing the [BarColor] and a darker [TextColor]
+  ({Color bar, Color text}) _getDynamicColors(double score, double max) {
+    // 1. Handle Negative (Red)
+    if (score < 0) {
+      return (bar: const Color(0xFFD32F2F), text: const Color(0xFFB71C1C));
+    }
+
+    // 2. Handle Zero divide
+    if (max == 0) {
+      return (bar: Colors.grey, text: Colors.grey.shade700);
+    }
+
+    final double percentage = (score / max).clamp(0.0, 1.0);
+
+    // 3. Define Spectrum (Orange -> Amber -> Green -> Dark Green)
+    // We break the 0.0 to 1.0 range into segments for cleaner colors
+
+    Color color;
+
+    if (percentage < 0.4) {
+      // 0% to 40%: Deep Orange to Amber (Low Score)
+      // Normalizing percentage to 0.0-1.0 range for this segment
+      final t = percentage / 0.4;
+      color = Color.lerp(Colors.deepOrange, Colors.orange, t)!;
+
+    } else if (percentage < 0.75) {
+      // 40% to 75%: Amber to Light Green (Average Score)
+      final t = (percentage - 0.4) / 0.35;
+      color = Color.lerp(Colors.orange, Colors.lightGreen.shade600, t)!;
+
+    } else {
+      // 75% to 100%: Green to Dark Emerald (High Score)
+      final t = (percentage - 0.75) / 0.25;
+      color = Color.lerp(Colors.green, const Color(0xFF1B5E20), t)!;
+    }
+
+    // To ensure text is readable, we darken the bar color slightly for text
+    final HSLColor hsl = HSLColor.fromColor(color);
+    final Color textColor = hsl.withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0)).toColor();
+
+    return (bar: color, text: textColor);
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Formatting the date
+    // --- Data Prep ---
     final date = attempt.completedAt.toDate();
-    final dateStr = "${date.day}/${date.month}/${date.year}";
+    final dateStr = DateFormat('d MMM, h:mm a').format(date);
 
-    // UI logic for mode-based colors
-    final bool isTest = attempt.mode == 'Test';
+    final int timeTakenSec = attempt.timeTakenSeconds;
+    final int timeLimitMin = attempt.timeLimitMinutes ?? 0;
+    final int timeLimitSec = timeLimitMin * 60;
+
+    String timeDisplay = _formatDurationClean(timeTakenSec);
+    if (timeLimitMin > 0) timeDisplay += " / ${timeLimitMin}m";
+
+    // Percentages
+    double timePercentage = (timeLimitSec > 0)
+        ? (timeTakenSec / timeLimitSec).clamp(0.0, 1.0)
+        : 0.0;
+
+    final double maxScore = attempt.maxMarks.toDouble();
+    final double score = attempt.score.toDouble();
+    final bool isPositive = score >= 0;
+
+    double scorePercentage = (maxScore == 0)
+        ? 0
+        : (score.abs() / maxScore).clamp(0.0, 1.0);
+
+    // --- Dynamic Colors ---
+    final themeColors = _getDynamicColors(score, maxScore);
+    final Color statusColor = themeColors.bar;
+    final Color statusTextColor = themeColors.text;
+
+    final Color timeColor = const Color(0xFFFF9800); // Consistent Orange for Time
+    final Color trackColor = Colors.grey.shade100;
 
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
         decoration: BoxDecoration(
-          color: const Color(0xFFF9F7FB), // Light lavender tint like assignments
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade300, width: 1.5),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
+              color: const Color(0xFF2D2F45).withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Top Row: Code and Date
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // --- 1. DYNAMIC COLORED STRIP ---
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFDED6F5),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    "CODE: ${attempt.assignmentCode}",
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF4A148C),
+                  width: 6,
+                  color: statusColor, // Uses the gradient color
+                ),
+
+                // --- 2. MAIN CONTENT ---
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Header
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF3E5F5),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                "CODE: ${attempt.assignmentCode}",
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF7B1FA2),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              dateStr,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Title
+                        Text(
+                          attempt.title,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF2D2D2D),
+                            height: 1.2,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Stats: Time
+                        if (timeLimitSec > 0) ...[
+                          _buildStatRow(
+                            icon: Icons.access_time_rounded,
+                            label: "Time Taken",
+                            value: timeDisplay,
+                            color: timeColor,
+                            percent: timePercentage,
+                            trackColor: trackColor,
+                          ),
+                          const SizedBox(height: 16),
+                        ] else ...[
+                          Row(
+                            children: [
+                              Icon(Icons.access_time_rounded, size: 16, color: Colors.grey.shade600),
+                              const SizedBox(width: 6),
+                              Text(timeDisplay, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+
+                        // Stats: Score (With Dynamic Colors)
+                        _buildStatRow(
+                          icon: isPositive ? Icons.analytics_outlined : Icons.warning_amber_rounded,
+                          label: isPositive ? "Score" : "Negative Score",
+                          value: "${attempt.score} / ${attempt.maxMarks}",
+                          color: statusColor,     // Bar color
+                          valueColor: statusTextColor, // Text color (darker)
+                          percent: scorePercentage,
+                          trackColor: trackColor,
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                Text(
-                  dateStr,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-
-            // Mode Label (Test/Practice)
-            Text(
-              "${attempt.mode} Attempt",
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // Bottom Row: Icons and Score
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.timer_outlined, size: 16, color: Colors.grey),
-                    const SizedBox(width: 4),
-                    Text(
-                      "${(attempt.timeTakenSeconds / 60).toStringAsFixed(1)} min",
-                      style: const TextStyle(fontSize: 13, color: Colors.black54),
-                    ),
-                  ],
-                ),
-                // Score Display
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: attempt.score >= 0 ? Colors.green.shade50 : Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: attempt.score >= 0 ? Colors.green.shade200 : Colors.red.shade200,
-                    ),
-                  ),
-                  child: Text(
-                    "Score: ${attempt.score}",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: attempt.score >= 0 ? Colors.green.shade700 : Colors.red.shade700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildStatRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+    Color? valueColor, // Optional override for text color
+    required double percent,
+    required Color trackColor,
+  }) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 16, color: Colors.grey.shade600),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: valueColor ?? color,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: percent,
+            backgroundColor: trackColor,
+            color: color,
+            minHeight: 8,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1228,10 +1555,15 @@ class AttemptListWidget extends StatelessWidget {
   final String? filterMode; // 'Practice', 'Test', or null (for all)
   final String? targetUserId; // Optional: If provided (by Teacher), fetches specific student data
 
+  // NEW PARAMETER: To distinguish between "Strict Tests" and "Assignments taken as Test"
+  final bool onlySingleAttempt;
+
   const AttemptListWidget({
     super.key,
     this.filterMode,
     this.targetUserId,
+    // Default to false so existing calls elsewhere don't break
+    this.onlySingleAttempt = false,
   });
 
   // --- NAVIGATION LOGIC ---
@@ -1332,12 +1664,23 @@ class AttemptListWidget extends StatelessWidget {
         }
 
         // --- CLIENT SIDE FILTERING ---
+        // We filter here instead of in the query to avoid complex composite index requirements
         final docs = snapshot.data!.docs.where((doc) {
-          if (filterMode == null) return true;
-
           final data = doc.data() as Map<String, dynamic>;
-          final String mode = data['mode'] ?? '';
-          return mode.toLowerCase() == filterMode!.toLowerCase();
+
+          // 1. Filter by Mode (Practice vs Test)
+          if (filterMode != null) {
+            final String mode = data['mode'] ?? '';
+            if (mode.toLowerCase() != filterMode!.toLowerCase()) return false;
+          }
+
+          // 2. Filter by Strictness (onlySingleAttempt)
+          // We check if the attempt document has this flag matching what we want
+          final bool docSingleAttempt = data['onlySingleAttempt'] ?? false;
+
+          if (docSingleAttempt != onlySingleAttempt) return false;
+
+          return true;
         }).toList();
 
         if (docs.isEmpty) {
@@ -1365,8 +1708,13 @@ class AttemptListWidget extends StatelessWidget {
     IconData icon = Icons.history;
 
     if (filterMode == 'Test') {
-      message = "No strict tests attempted yet.";
-      icon = Icons.timer_off;
+      if (onlySingleAttempt) {
+        message = "No strict tests attempted yet.";
+        icon = Icons.timer_off;
+      } else {
+        message = "No assignments taken in Test Mode yet.";
+        icon = Icons.timer_outlined;
+      }
     } else if (filterMode == 'Practice') {
       message = "No practice assignments completed yet.";
       icon = Icons.assignment_late_outlined;
@@ -1625,7 +1973,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   const Icon(Icons.school_rounded, size: 80, color: Colors.deepPurple),
                   const SizedBox(height: 16),
-                  const Text('StudySmart',
+                  const Text('ModX by Anup Sir',
                       style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
@@ -2474,21 +2822,21 @@ import 'package:study_smart_qc/models/user_model.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 
-// SCREENS
+// SCREENS & WIDGETS
 import 'package:study_smart_qc/features/auth/screens/auth_page.dart';
 import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart';
 import 'package:study_smart_qc/features/student/widgets/student_assignments_list.dart';
-import 'package:study_smart_qc/features/analytics/screens/analysis_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_curation_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_history_screen.dart';
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
+import 'package:study_smart_qc/features/analytics/widgets/attempt_list_widget.dart';
+import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
 
 // SERVICES
 import 'package:study_smart_qc/services/auth_service.dart';
 import 'package:study_smart_qc/services/onboarding_service.dart';
 import 'package:study_smart_qc/services/local_session_service.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
-import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -2531,7 +2879,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  //  RESUME LOGIC START
+  //  RESUME LOGIC
   // ---------------------------------------------------------------------------
 
   Future<void> _checkPendingSession() async {
@@ -2551,9 +2899,9 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text("Resume Test?"),
+        title: const Text("Resume Session?"),
         content: const Text(
-            "You have an unfinished test session saved on this device. Would you like to continue?"),
+            "You have an unfinished session saved on this device. Would you like to continue?"),
         actions: [
           TextButton(
             onPressed: () {
@@ -2561,15 +2909,17 @@ class _HomeScreenState extends State<HomeScreen> {
               _handleSubmitPending();
             },
             style: TextButton.styleFrom(foregroundColor: Colors.grey),
-            child: const Text("No, Submit"),
+            child: const Text("Discard & Submit"),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
               _handleResumePending();
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
-            child: const Text("Yes, Resume"),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6200EA), // Brand Color
+                foregroundColor: Colors.white),
+            child: const Text("Resume"),
           ),
         ],
       ),
@@ -2595,27 +2945,27 @@ class _HomeScreenState extends State<HomeScreen> {
       final int savedTimer = timestamps['quitTimeTimerValue'];
       final String quitTimestamp = timestamps['quitTimeTimestamp'];
 
-      // A. RECONCILE TIMER
+      // RECONCILE TIMER
       final newTime = _localSessionService.calculateResumeTime(
         mode: mode,
         savedTimerValue: savedTimer,
         savedTimestampIso: quitTimestamp,
       );
 
-      // B. CHECK EXPIRY
       if (newTime == null) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Time expired while you were away. Submitting test..."),
+          content: Text("Time expired while you were away. Submitting..."),
           backgroundColor: Colors.red,
         ));
         _handleSubmitPending();
         return;
       }
 
-      // C. FETCH QUESTIONS
+      // FETCH DATA
       List<Question> questions = [];
       List<String> qIds = [];
+      bool isSingleAttempt = false;
 
       final curationQuery = await FirebaseFirestore.instance
           .collection('questions_curation')
@@ -2626,6 +2976,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (curationQuery.docs.isNotEmpty) {
         final data = curationQuery.docs.first.data();
         qIds = List<String>.from(data['questionIds'] ?? []);
+        isSingleAttempt = data['onlySingleAttempt'] ?? false;
       } else {
         final testQuery = await FirebaseFirestore.instance
             .collection('tests')
@@ -2633,8 +2984,9 @@ class _HomeScreenState extends State<HomeScreen> {
             .limit(1)
             .get();
 
-        if(testQuery.docs.isNotEmpty) {
-          qIds = List<String>.from(testQuery.docs.first.data()['questionIds'] ?? []);
+        if (testQuery.docs.isNotEmpty) {
+          qIds = List<String>.from(
+              testQuery.docs.first.data()['questionIds'] ?? []);
         }
       }
 
@@ -2643,22 +2995,21 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       if (questions.isEmpty) {
-        throw Exception("Could not retrieve questions for Code: $assignmentCode");
+        throw Exception("Could not retrieve questions.");
       }
 
-      // D. PARSE RESPONSES
       final responseMap = _localSessionService.parseResponses(
-          Map<String, dynamic>.from(state['responses'])
-      );
+          Map<String, dynamic>.from(state['responses']));
 
-      // E. NAVIGATE TO TEST SCREEN
       if (mounted) {
         Navigator.pop(context);
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => TestScreen(
-              sourceId: curationQuery.docs.isNotEmpty ? curationQuery.docs.first.id : '',
+              sourceId: curationQuery.docs.isNotEmpty
+                  ? curationQuery.docs.first.id
+                  : '',
               assignmentCode: assignmentCode,
               questions: questions,
               timeLimitInMinutes: 0,
@@ -2666,19 +3017,19 @@ class _HomeScreenState extends State<HomeScreen> {
               resumedTimerSeconds: newTime,
               resumedPageIndex: state['currentQuestionIndex'],
               resumedResponses: responseMap,
+              title: meta['title'] ?? 'Resumed Session',
+              onlySingleAttempt: isSingleAttempt,
             ),
           ),
         ).then((_) {
           _checkPendingSession();
-          _fetchUserData(); // Refresh to check if they submitted
+          _fetchUserData();
         });
       }
-
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      print("Resume Error: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error resuming session: $e")),
+        SnackBar(content: Text("Error resuming: $e")),
       );
     }
   }
@@ -2691,14 +3042,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final metaMode = meta['mode'] ?? 'Test';
 
     final responseMap = _localSessionService.parseResponses(
-        Map<String, dynamic>.from(state['responses'])
-    );
+        Map<String, dynamic>.from(state['responses']));
 
     int correct = 0;
     int incorrect = 0;
     responseMap.forEach((k, v) {
-      if(v.status == 'CORRECT') correct++;
-      if(v.status == 'INCORRECT') incorrect++;
+      if (v.status == 'CORRECT') correct++;
+      if (v.status == 'INCORRECT') incorrect++;
     });
     final score = (correct * 4) - incorrect;
 
@@ -2706,6 +3056,8 @@ class _HomeScreenState extends State<HomeScreen> {
       sourceId: meta['testId'] ?? '',
       assignmentCode: meta['assignmentCode'],
       mode: metaMode,
+      title: meta['title'] ?? 'Untitled Test',
+      onlySingleAttempt: false,
       questions: [],
       score: score,
       timeTakenSeconds: 0,
@@ -2720,8 +3072,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     if (mounted) {
-      _fetchUserData(); // Refresh user data to get the new submission code
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Test submitted successfully.")));
+      _fetchUserData();
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Session submitted successfully.")));
     }
   }
 
@@ -2754,63 +3107,70 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // --- STUDENT DASHBOARD ---
-    // Prepare common params for lists
     final List<String> submitted = _userModel!.assignmentCodesSubmitted;
     final String? resumeCode = _pendingAssignmentCode;
     final VoidCallback navToAnalysis = () => setState(() => _currentTabIndex = 2);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF9F9F9), // Clean off-white background
       appBar: AppBar(
-        title: Text(_getAppBarTitle()),
+        title: Text(
+          _getAppBarTitle(),
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 20),
+        ),
         elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
         centerTitle: false,
       ),
       drawer: _buildDrawer(context),
-
       body: IndexedStack(
         index: _currentTabIndex,
         children: [
-          // Tab 0: Assignments (General / Practice)
-          StudentAssignmentsList(
+          // Tab 0: Assignments
+          _AssignmentTabContainer(
             isStrict: false,
             submittedCodes: submitted,
             resumableAssignmentCode: resumeCode,
             onResumeTap: _handleResumePending,
             onViewAnalysisTap: navToAnalysis,
+            onRefreshNeeded: _fetchUserData, // PASS CALLBACK HERE
           ),
 
-          // Tab 1: Tests (Strict / Timed)
-          // Removed the duplicate 'Resume Card' - now handled inside the list
-          StudentAssignmentsList(
+          // Tab 1: Tests
+          _AssignmentTabContainer(
             isStrict: true,
             submittedCodes: submitted,
             resumableAssignmentCode: resumeCode,
             onResumeTap: _handleResumePending,
             onViewAnalysisTap: navToAnalysis,
+            onRefreshNeeded: _fetchUserData, // PASS CALLBACK HERE
           ),
 
-          // Tab 2: Analysis
-          const AnalysisScreen(),
+          // Tab 2: Analysis (Redesigned)
+          const _AnalysisView(),
         ],
       ),
-
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentTabIndex,
-        onDestinationSelected: (index) => setState(() => _currentTabIndex = index),
+        onDestinationSelected: (index) =>
+            setState(() => _currentTabIndex = index),
+        backgroundColor: Colors.white,
+        indicatorColor: const Color(0xFFEADBFF), // Brand light purple
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.assignment_outlined),
-            selectedIcon: Icon(Icons.assignment),
+            selectedIcon: Icon(Icons.assignment, color: Color(0xFF6200EA)),
             label: 'Assignments',
           ),
           NavigationDestination(
             icon: Icon(Icons.timer_outlined),
-            selectedIcon: Icon(Icons.timer),
+            selectedIcon: Icon(Icons.timer, color: Color(0xFF6200EA)),
             label: 'Tests',
           ),
           NavigationDestination(
             icon: Icon(Icons.analytics_outlined),
-            selectedIcon: Icon(Icons.analytics),
+            selectedIcon: Icon(Icons.analytics, color: Color(0xFF6200EA)),
             label: 'Analysis',
           ),
         ],
@@ -2820,10 +3180,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _getAppBarTitle() {
     switch (_currentTabIndex) {
-      case 0: return "My Assignments";
-      case 1: return "My Tests";
-      case 2: return "Performance";
-      default: return "Study Smart";
+      case 0:
+        return "Assignments";
+      case 1:
+        return "Tests";
+      case 2:
+        return "Analysis";
+      default:
+        return "ModX by Anup Sir";
     }
   }
 
@@ -2834,32 +3198,39 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: EdgeInsets.zero,
         children: [
           UserAccountsDrawerHeader(
-            accountName: Text(_userModel?.displayName ?? "User"),
+            accountName: Text(
+              _userModel?.displayName ?? "User",
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
             accountEmail: Text(_userModel?.email ?? ""),
             currentAccountPicture: CircleAvatar(
               backgroundColor: Colors.white,
               child: Text(
                 (_userModel?.displayName ?? "U")[0].toUpperCase(),
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF6200EA)),
               ),
             ),
-            decoration: const BoxDecoration(color: Colors.deepPurple),
+            decoration: const BoxDecoration(
+              color: Color(0xFF6200EA),
+            ),
           ),
-
           if (!isTeacher && _userModel?.studentId != null) ...[
             ListTile(
               leading: const Icon(Icons.badge_outlined),
               title: Text("Student ID: ${_userModel!.studentId}"),
-              subtitle: const Text("Share this with your teacher"),
               tileColor: Colors.grey.shade50,
             ),
             const Divider(),
           ],
-
           if (isTeacher) ...[
             const Padding(
               padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
-              child: Text("Teacher Tools", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+              child: Text("Teacher Tools",
+                  style: TextStyle(
+                      color: Colors.grey, fontWeight: FontWeight.bold)),
             ),
             ListTile(
               leading: const Icon(Icons.history_edu),
@@ -2868,7 +3239,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 Navigator.pop(context);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const TeacherHistoryScreen()),
+                  MaterialPageRoute(
+                      builder: (_) => const TeacherHistoryScreen()),
                 );
               },
             ),
@@ -2896,7 +3268,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Divider(),
           ],
-
           ListTile(
             leading: const Icon(Icons.person),
             title: const Text('Profile'),
@@ -2924,6 +3295,226 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// ---------------------------------------------------------------------------
+//  HELPER 1: TAB CONTAINER (Assignments/Tests)
+// ---------------------------------------------------------------------------
+
+class _AssignmentTabContainer extends StatefulWidget {
+  final bool isStrict;
+  final List<String> submittedCodes;
+  final String? resumableAssignmentCode;
+  final Future<void> Function() onResumeTap;
+  final VoidCallback onViewAnalysisTap;
+  final VoidCallback? onRefreshNeeded;
+
+  const _AssignmentTabContainer({
+    required this.isStrict,
+    required this.submittedCodes,
+    required this.resumableAssignmentCode,
+    required this.onResumeTap,
+    required this.onViewAnalysisTap,
+    this.onRefreshNeeded,
+  });
+
+  @override
+  State<_AssignmentTabContainer> createState() => _AssignmentTabContainerState();
+}
+
+class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Clean Segmented Tab Bar
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: TabBar(
+            controller: _tabController,
+            indicator: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            labelColor: const Color(0xFF6200EA), // Brand Color
+            unselectedLabelColor: Colors.grey.shade600,
+            labelStyle:
+            const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            indicatorSize: TabBarIndicatorSize.tab,
+            dividerColor: Colors.transparent,
+            indicatorPadding: const EdgeInsets.all(4),
+            tabs: const [
+              Tab(text: "Pending"),
+              Tab(text: "Completed"),
+            ],
+          ),
+        ),
+
+        // Lists
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              StudentAssignmentsList(
+                isStrict: widget.isStrict,
+                submittedCodes: widget.submittedCodes,
+                resumableAssignmentCode: widget.resumableAssignmentCode,
+                onResumeTap: widget.onResumeTap,
+                onViewAnalysisTap: widget.onViewAnalysisTap,
+                showOnlySubmitted: false, // Pending Tab
+                onRefreshNeeded: widget.onRefreshNeeded, // PASS DOWN
+              ),
+              StudentAssignmentsList(
+                isStrict: widget.isStrict,
+                submittedCodes: widget.submittedCodes,
+                resumableAssignmentCode: widget.resumableAssignmentCode,
+                onResumeTap: widget.onResumeTap,
+                onViewAnalysisTap: widget.onViewAnalysisTap,
+                showOnlySubmitted: true, // Completed Tab
+                onRefreshNeeded: widget.onRefreshNeeded, // PASS DOWN
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  HELPER 2: ANALYSIS VIEW (Redesigned)
+// ---------------------------------------------------------------------------
+
+class _AnalysisView extends StatefulWidget {
+  const _AnalysisView();
+
+  @override
+  State<_AnalysisView> createState() => _AnalysisViewState();
+}
+
+class _AnalysisViewState extends State<_AnalysisView> with SingleTickerProviderStateMixin {
+  late TabController _mainTabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _mainTabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // 1. MAIN TAB BAR (Assignments vs Tests)
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: TabBar(
+            controller: _mainTabController,
+            indicator: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            labelColor: const Color(0xFF6200EA),
+            unselectedLabelColor: Colors.grey.shade600,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            indicatorSize: TabBarIndicatorSize.tab,
+            dividerColor: Colors.transparent,
+            indicatorPadding: const EdgeInsets.all(4),
+            tabs: const [
+              Tab(text: "Assignments"),
+              Tab(text: "Tests"),
+            ],
+          ),
+        ),
+
+        // 2. TAB VIEW
+        Expanded(
+          child: TabBarView(
+            controller: _mainTabController,
+            children: [
+              // TAB A: ASSIGNMENTS (Nested Tabs)
+              _buildAssignmentsAnalysisTab(),
+
+              // TAB B: TESTS (Single List)
+              // Strict tests are always 'Test' mode and onlySingleAttempt = true
+              const AttemptListWidget(filterMode: 'Test', onlySingleAttempt: true),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAssignmentsAnalysisTab() {
+    // Nested DefaultTabController for the sub-tabs
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          // Sub-Tabs
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            height: 36,
+            child: const TabBar(
+              isScrollable: false,
+              labelColor: Colors.deepPurple,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: Colors.deepPurple,
+              labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              tabs: [
+                Tab(text: "Practice Mode"),
+                Tab(text: "Test Mode"),
+              ],
+            ),
+          ),
+          // Sub-Tab Views
+          const Expanded(
+            child: TabBarView(
+              children: [
+                // Assignments taken in Practice Mode
+                AttemptListWidget(filterMode: 'Practice', onlySingleAttempt: false),
+                // Assignments taken in Test Mode
+                AttemptListWidget(filterMode: 'Test', onlySingleAttempt: false),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 ================================================================================
 FILE: lib/features/student/widgets/student_assignments_list.dart
 ================================================================================
@@ -2940,22 +3531,25 @@ import 'package:study_smart_qc/services/test_orchestration_service.dart';
 
 class StudentAssignmentsList extends StatelessWidget {
   final bool isStrict;
-
-  // --- Resume Capabilities ---
   final String? resumableAssignmentCode;
   final VoidCallback? onResumeTap;
-
-  // --- NEW: Submitted Capabilities ---
   final List<String> submittedCodes;
   final VoidCallback? onViewAnalysisTap;
+
+  // Refresh Callback to update parent UI state
+  final VoidCallback? onRefreshNeeded;
+
+  final bool showOnlySubmitted;
 
   const StudentAssignmentsList({
     super.key,
     required this.isStrict,
     this.resumableAssignmentCode,
     this.onResumeTap,
-    this.submittedCodes = const [], // Default empty
+    this.submittedCodes = const [],
     this.onViewAnalysisTap,
+    this.onRefreshNeeded,
+    this.showOnlySubmitted = false,
   });
 
   @override
@@ -2964,10 +3558,11 @@ class StudentAssignmentsList extends StatelessWidget {
     if (user == null) return const SizedBox.shrink();
 
     return StreamBuilder<QuerySnapshot>(
+      // We removed the .where('status', isEqualTo: 'assigned') filter.
+      // We now rely on local logic + the user's submittedCodes list for filtering.
       stream: FirebaseFirestore.instance
           .collection('questions_curation')
           .where('studentUid', isEqualTo: user.uid)
-          .where('status', isEqualTo: 'assigned')
           .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
@@ -2983,12 +3578,25 @@ class StudentAssignmentsList extends StatelessWidget {
           return _buildEmptyState();
         }
 
-        // Client-side filtering for legacy data safety
         final allDocs = snapshot.data!.docs;
+
+        // LOCAL FILTERING LOGIC
         final filteredDocs = allDocs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
+
+          // Filter A: Is it a Strict Test (Test) or Homework (Assignment)?
           final bool docIsStrict = data['onlySingleAttempt'] ?? false;
-          return docIsStrict == isStrict;
+          if (docIsStrict != isStrict) return false;
+
+          // Filter B: Determine bucket based on submittedCodes array from User document
+          final String code = data['assignmentCode'] ?? '';
+          final bool isSubmitted = submittedCodes.contains(code);
+
+          if (showOnlySubmitted) {
+            return isSubmitted; // Show in Completed Tab
+          } else {
+            return !isSubmitted; // Show in Pending Tab
+          }
         }).toList();
 
         if (filteredDocs.isEmpty) {
@@ -3003,98 +3611,22 @@ class StudentAssignmentsList extends StatelessWidget {
             final data = filteredDocs[index].data() as Map<String, dynamic>;
             final docId = filteredDocs[index].id;
 
-            // --- STATUS CHECKS ---
             final String currentCode = data['assignmentCode'] ?? '----';
-
-            final bool isResumable = (resumableAssignmentCode != null &&
-                resumableAssignmentCode == currentCode);
-
+            final bool isResumable = (resumableAssignmentCode != null && resumableAssignmentCode == currentCode);
             final bool isSubmitted = submittedCodes.contains(currentCode);
 
-            // Wrap in Column for extra buttons (Resume / View Analysis)
             return Column(
               children: [
                 _buildAssignmentCard(context, data, docId, isResumable, isSubmitted),
 
-                // CASE 1: RESUMABLE (Show Purple Resume Button)
+                // Resumable Session Banner (Pending View Only)
                 if (isResumable && !isSubmitted)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurple.shade50,
-                      borderRadius: const BorderRadius.only(
-                        bottomLeft: Radius.circular(12),
-                        bottomRight: Radius.circular(12),
-                      ),
-                      border: Border.all(color: Colors.deepPurple.shade200),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          "Unfinished Session Found",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.deepPurple,
-                            fontSize: 13,
-                          ),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: onResumeTap,
-                          icon: const Icon(Icons.restore, size: 16),
-                          label: const Text("Resume"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.deepPurple,
-                            foregroundColor: Colors.white,
-                            visualDensity: VisualDensity.compact,
-                            textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
+                  _buildResumeBanner()
 
-                // CASE 2: SUBMITTED (Show Green/Teal View Analysis Button)
+                // Completed/Analysis Banner (Completed View Only)
                 else if (isSubmitted)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.teal.shade50,
-                      borderRadius: const BorderRadius.only(
-                        bottomLeft: Radius.circular(12),
-                        bottomRight: Radius.circular(12),
-                      ),
-                      border: Border.all(color: Colors.teal.shade200),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          "Completed",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.teal,
-                            fontSize: 13,
-                          ),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: onViewAnalysisTap,
-                          icon: const Icon(Icons.analytics, size: 16),
-                          label: const Text("View Analysis"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.teal,
-                            foregroundColor: Colors.white,
-                            visualDensity: VisualDensity.compact,
-                            textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
+                  _buildCompletedBanner(context, docId, data)
 
-                // CASE 3: STANDARD (Just spacing)
                 else
                   const SizedBox(height: 12),
               ],
@@ -3105,21 +3637,96 @@ class StudentAssignmentsList extends StatelessWidget {
     );
   }
 
+  // --- HELPER BANNERS ---
+
+  Widget _buildResumeBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.deepPurple.shade50,
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(12),
+          bottomRight: Radius.circular(12),
+        ),
+        border: Border.all(color: Colors.deepPurple.shade200),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text("Unfinished Session Found",
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple, fontSize: 13)),
+          ElevatedButton.icon(
+            onPressed: onResumeTap,
+            icon: const Icon(Icons.restore, size: 16),
+            label: const Text("Resume"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+              foregroundColor: Colors.white,
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompletedBanner(BuildContext context, String docId, Map<String, dynamic> data) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.teal.shade50,
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(12),
+          bottomRight: Radius.circular(12),
+        ),
+        border: Border.all(color: Colors.teal.shade200),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text("Completed",
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal, fontSize: 13)),
+          Row(
+            children: [
+              if (!isStrict) // Only assignments allow re-attempts
+                Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: TextButton(
+                    onPressed: () => _showModeSelectionDialog(context, docId, data),
+                    child: const Text("Attempt Again",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.teal)),
+                  ),
+                ),
+              ElevatedButton.icon(
+                onPressed: onViewAnalysisTap,
+                icon: const Icon(Icons.analytics, size: 16),
+                label: const Text("Analysis"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
+    String message = showOnlySubmitted ? "No submission history yet" : (isStrict ? "No pending tests!" : "No pending assignments!");
+    IconData icon = showOnlySubmitted ? Icons.history_edu : (isStrict ? Icons.timer_off_outlined : Icons.assignment_turned_in_outlined);
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            isStrict ? Icons.timer_off_outlined : Icons.assignment_turned_in_outlined,
-            size: 64,
-            color: Colors.grey.shade300,
-          ),
+          Icon(icon, size: 64, color: Colors.grey.shade300),
           const SizedBox(height: 16),
-          Text(
-            isStrict ? "No pending tests!" : "No pending assignments!",
-            style: const TextStyle(color: Colors.grey),
-          ),
+          Text(message, style: const TextStyle(color: Colors.grey)),
         ],
       ),
     );
@@ -3127,115 +3734,58 @@ class StudentAssignmentsList extends StatelessWidget {
 
   Widget _buildAssignmentCard(BuildContext context, Map<String, dynamic> data, String docId, bool isResumable, bool isSubmitted) {
     final Timestamp? ts = data['createdAt'];
-    final dateStr = ts != null
-        ? DateFormat('MMM d, yyyy').format(ts.toDate())
-        : 'Unknown Date';
-
+    final dateStr = ts != null ? DateFormat('MMM d, yyyy').format(ts.toDate()) : 'Unknown Date';
     final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
     final String code = data['assignmentCode'] ?? '----';
-
-    // --- DISPLAY TIME LIMIT ---
     final int? storedTime = data['timeLimitMinutes'];
-    final String timeDisplay = storedTime != null
-        ? "${storedTime}m"
-        : "${questionCount * 2}m (Est)";
+    final String timeDisplay = storedTime != null ? "${storedTime}m" : "${questionCount * 2}m (Est)";
 
-    // Determine visual style based on status
-    Color codeBgColor;
-    Color codeTextColor;
-    Color borderColor;
-
-    if (isSubmitted) {
-      codeBgColor = Colors.teal.shade50;
-      codeTextColor = Colors.teal.shade900;
-      borderColor = Colors.teal.shade300;
-    } else if (isStrict) {
-      codeBgColor = Colors.red.shade50;
-      codeTextColor = Colors.red.shade900;
-      borderColor = Colors.red.shade200;
-    } else {
-      codeBgColor = Colors.deepPurple.shade50;
-      codeTextColor = Colors.deepPurple.shade900;
-      borderColor = Colors.deepPurple.shade200;
-    }
+    Color codeBgColor = isSubmitted ? Colors.teal.shade50 : (isStrict ? Colors.red.shade50 : Colors.deepPurple.shade50);
+    Color codeTextColor = isSubmitted ? Colors.teal.shade900 : (isStrict ? Colors.red.shade900 : Colors.deepPurple.shade900);
+    Color borderColor = isSubmitted ? Colors.teal.shade300 : (isStrict ? Colors.red.shade200 : Colors.deepPurple.shade200);
 
     return Card(
       elevation: (isResumable || isSubmitted) ? 4 : 2,
-      margin: EdgeInsets.zero, // Margin handled by parent Column
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: (isResumable || isSubmitted)
             ? const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12))
             : BorderRadius.circular(12),
-        side: (isResumable)
-            ? BorderSide(color: Colors.deepPurple.shade300, width: 1.5)
-            : BorderSide.none,
+        side: isResumable ? BorderSide(color: Colors.deepPurple.shade300, width: 1.5) : BorderSide.none,
       ),
       child: InkWell(
         borderRadius: (isResumable || isSubmitted)
             ? const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12))
             : BorderRadius.circular(12),
-        onTap: () {
-          if (isSubmitted) {
-            // If submitted, tapping card also goes to Analysis
-            if (onViewAnalysisTap != null) onViewAnalysisTap!();
-          } else {
-            // Otherwise show mode selection
-            _showModeSelectionDialog(context, docId, data);
-          }
-        },
+        onTap: () => _showModeSelectionDialog(context, docId, data),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row: Code & Date
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: codeBgColor,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: borderColor),
-                    ),
-                    child: Text(
-                      "CODE: $code",
-                      style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: codeTextColor
-                      ),
-                    ),
+                    decoration: BoxDecoration(color: codeBgColor, borderRadius: BorderRadius.circular(4), border: Border.all(color: borderColor)),
+                    child: Text("CODE: $code", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: codeTextColor)),
                   ),
                   Text(dateStr, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 ],
               ),
               const SizedBox(height: 10),
-
-              // Title
-              Text(
-                data['title'] ?? "Untitled Assignment",
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
+              Text(data['title'] ?? "Untitled Assignment", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 5),
-
-              // Details Row
               Row(
                 children: [
                   Icon(Icons.quiz, size: 14, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
-                  Text(
-                    "$questionCount Qs",
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                  ),
+                  Text("$questionCount Qs", style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
                   const SizedBox(width: 15),
                   Icon(Icons.timer, size: 14, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
-                  Text(
-                    timeDisplay,
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                  ),
+                  Text(timeDisplay, style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
                   if (isSubmitted) ...[
                     const Spacer(),
                     const Icon(Icons.check_circle, size: 18, color: Colors.teal),
@@ -3252,9 +3802,9 @@ class StudentAssignmentsList extends StatelessWidget {
   }
 
   void _showModeSelectionDialog(BuildContext context, String docId, Map<String, dynamic> data) {
-    // ... [Same as before] ...
     final questionIds = List<String>.from(data['questionIds'] ?? []);
     final String code = data['assignmentCode'] ?? '----';
+    final String title = data['title'] ?? "Untitled Assignment";
     final bool isStrictAssignment = data['onlySingleAttempt'] ?? false;
     final int timeLimit = data['timeLimitMinutes'] ?? (questionIds.length * 2);
 
@@ -3266,60 +3816,43 @@ class StudentAssignmentsList extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text("Title: ${data['title']}"),
+              Text("Title: $title"),
               const SizedBox(height: 10),
               Text("Questions: ${questionIds.length}"),
               Text("Time Limit: $timeLimit mins"),
               const SizedBox(height: 10),
-
               if (isStrictAssignment)
                 Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: Colors.red.shade200)
-                  ),
+                  decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.shade200)),
                   child: const Row(
                     children: [
                       Icon(Icons.warning_amber_rounded, size: 16, color: Colors.red),
                       SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          "Single Attempt Only. Practice Mode disabled.",
-                          style: TextStyle(fontSize: 12, color: Colors.red),
-                        ),
+                        child: Text("Single Attempt Only.", style: TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),
                 ),
-
-              const SizedBox(height: 20),
-              const Text("Select Mode:", style: TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
           actions: [
             if (!isStrictAssignment)
-              OutlinedButton.icon(
-                icon: const Icon(Icons.school_outlined),
-                label: const Text("Practice Mode"),
+              OutlinedButton(
                 onPressed: () {
                   Navigator.pop(ctx);
-                  _launchTest(context, docId, code, questionIds, TestMode.practice, timeLimit);
+                  _launchTest(context, docId, code, title, questionIds, TestMode.practice, timeLimit, isStrictAssignment);
                 },
+                child: const Text("Practice Mode"),
               ),
-
-            ElevatedButton.icon(
-              icon: const Icon(Icons.timer),
-              label: const Text("Test Mode"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
-                foregroundColor: Colors.white,
-              ),
+            ElevatedButton(
               onPressed: () {
                 Navigator.pop(ctx);
-                _launchTest(context, docId, code, questionIds, TestMode.test, timeLimit);
+                _launchTest(context, docId, code, title, questionIds, TestMode.test, timeLimit, isStrictAssignment);
               },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+              child: const Text("Test Mode"),
             ),
           ],
         )
@@ -3330,45 +3863,47 @@ class StudentAssignmentsList extends StatelessWidget {
       BuildContext context,
       String assignmentId,
       String assignmentCode,
+      String title,
       List<String> questionIds,
       TestMode mode,
-      int timeLimit
+      int timeLimit,
+      bool onlySingleAttempt,
       ) async {
-
-    // ... [Same as before] ...
-    showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => const Center(child: CircularProgressIndicator())
-    );
+    showDialog(context: context, barrierDismissible: false, builder: (ctx) => const Center(child: CircularProgressIndicator()));
 
     try {
       final questions = await TestOrchestrationService().getQuestionsByIds(questionIds);
-
       if (!context.mounted) return;
-      Navigator.pop(context); // Hide loading
+      Navigator.pop(context);
 
       if (questions.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Questions not found.")));
         return;
       }
 
-      Navigator.push(
+      await Navigator.push(
           context,
           MaterialPageRoute(
               builder: (_) => TestScreen(
                 sourceId: assignmentId,
                 assignmentCode: assignmentCode,
+                title: title,
                 questions: questions,
                 timeLimitInMinutes: timeLimit,
                 testMode: mode,
+                onlySingleAttempt: onlySingleAttempt,
               )
           )
       );
+
+      if (onRefreshNeeded != null) {
+        onRefreshNeeded!();
+      }
+
     } catch (e) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error loading test: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     }
   }
@@ -5676,11 +6211,17 @@ import 'package:study_smart_qc/widgets/question_input_widget.dart';
 class TestScreen extends StatefulWidget {
   final String sourceId;
   final String assignmentCode;
+
+  // Title
+  final String title;
+
+  // NEW FIELD: Only Single Attempt Flag
+  final bool onlySingleAttempt;
+
   final List<Question> questions;
   final int timeLimitInMinutes;
   final TestMode testMode;
 
-  // --- RESUME CAPABILITIES ---
   final int? resumedTimerSeconds;
   final int? resumedPageIndex;
   final Map<String, ResponseObject>? resumedResponses;
@@ -5691,6 +6232,11 @@ class TestScreen extends StatefulWidget {
     required this.timeLimitInMinutes,
     this.sourceId = '',
     this.assignmentCode = 'PRAC',
+    this.title = 'Practice Test',
+
+    // Initialize new field
+    this.onlySingleAttempt = false,
+
     this.testMode = TestMode.test,
     this.resumedTimerSeconds,
     this.resumedPageIndex,
@@ -5710,7 +6256,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   final Map<int, AnswerState> _answerStates = {};
   final Map<int, int> _visitCounts = {};
   final Map<int, Stopwatch> _timeTrackers = {};
-  final Map<int, int> _accumulatedTime = {}; // Loaded from disk
+  final Map<int, int> _accumulatedTime = {};
 
   int _currentPage = 0;
   bool _isAnswerChecked = false;
@@ -5725,7 +6271,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     _currentPage = widget.resumedPageIndex ?? 0;
     _pageController = PageController(initialPage: _currentPage);
 
-    // Timer Setup
     if (widget.resumedTimerSeconds != null) {
       _overallTimeCounter = Duration(seconds: widget.resumedTimerSeconds!);
     } else {
@@ -5736,7 +6281,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       }
     }
 
-    // Initialize Questions
     for (int i = 0; i < widget.questions.length; i++) {
       final question = widget.questions[i];
       _visitCounts[i] = 0;
@@ -6089,8 +6633,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter).inSeconds
         : _overallTimeCounter.inSeconds;
 
-    // --- NEW: Determine Limit to Save ---
-    // If Practice, we save null (no limit). If Test, we save the limit.
     final int? limitToSave = widget.testMode == TestMode.test
         ? widget.timeLimitInMinutes
         : null;
@@ -6098,13 +6640,16 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     final enrichedAttempt = await TestOrchestrationService().submitAttempt(
       sourceId: widget.sourceId,
       assignmentCode: widget.assignmentCode,
+      title: widget.title,
+
+      // PASS NEW FIELD
+      onlySingleAttempt: widget.onlySingleAttempt,
+
       mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
       questions: widget.questions,
       score: score,
       timeTakenSeconds: finalTime,
       responses: initialResponses,
-
-      // Pass the Limit
       timeLimitMinutes: limitToSave,
     );
 
@@ -6280,6 +6825,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     );
   }
 
+  // ... (Remainder of the widget logic for timers/palettes/UI remains unchanged)
   Widget _buildOverallTimerWidget() {
     String twoDigits(int n) => n.toString().padLeft(2, "0");
     final minutes = twoDigits(_overallTimeCounter.inMinutes.remainder(60));
@@ -6617,6 +7163,7 @@ FILE: lib/models/attempt_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ResponseObject {
+  // ... (No changes to ResponseObject needed, keeping it as is) ...
   final String status;
   final dynamic selectedOption;
   final String correctOption;
@@ -6725,6 +7272,13 @@ class AttemptModel {
   final String id;
   final String sourceId;
   final String assignmentCode;
+
+  // Title
+  final String title;
+
+  // NEW FIELD: Only Single Attempt Flag
+  final bool onlySingleAttempt;
+
   final String mode;
   final String userId;
   final Timestamp startedAt;
@@ -6739,7 +7293,6 @@ class AttemptModel {
 
   final int timeTakenSeconds;
 
-  // NEW FIELD: Matches Firestore Schema
   final int? timeLimitMinutes;
 
   final Map<String, int> smartTimeAnalysisCounts;
@@ -6752,6 +7305,11 @@ class AttemptModel {
     required this.id,
     required this.sourceId,
     required this.assignmentCode,
+    this.title = 'Test Attempt',
+
+    // Initialize new field (Defaulting to false ensures backward compatibility)
+    this.onlySingleAttempt = false,
+
     required this.mode,
     required this.userId,
     required this.startedAt,
@@ -6763,7 +7321,7 @@ class AttemptModel {
     required this.incorrectCount,
     required this.skippedCount,
     required this.timeTakenSeconds,
-    this.timeLimitMinutes, // Nullable
+    this.timeLimitMinutes,
     required this.smartTimeAnalysisCounts,
     required this.responses,
     this.secondsBreakdownHighLevel = const {},
@@ -6793,7 +7351,6 @@ class AttemptModel {
       });
     }
 
-    // Helper for maps
     Map<String, int> parseIntMap(dynamic mapData) {
       Map<String, int> result = {};
       if (mapData is Map) {
@@ -6808,6 +7365,11 @@ class AttemptModel {
       id: doc.id,
       sourceId: data['sourceId'] ?? data['testId'] ?? '',
       assignmentCode: data['assignmentCode'] ?? '----',
+      title: data['title'] ?? 'Test Attempt',
+
+      // READ NEW FIELD
+      onlySingleAttempt: data['onlySingleAttempt'] ?? false,
+
       mode: data['mode'] ?? 'Test',
       userId: data['userId'] ?? '',
       startedAt: startedAtTimestamp,
@@ -6819,10 +7381,7 @@ class AttemptModel {
       incorrectCount: data['incorrect_count'] ?? 0,
       skippedCount: data['skipped_count'] ?? 0,
       timeTakenSeconds: data['timeTakenSeconds'] ?? 0,
-
-      // Load New Field
       timeLimitMinutes: data['timeLimitMinutes'],
-
       smartTimeAnalysisCounts: parseIntMap(data['smartTimeAnalysisCounts']),
       responses: parsedResponses,
       secondsBreakdownHighLevel: parseIntMap(data['secondsBreakdownHighLevel']),
@@ -6834,6 +7393,11 @@ class AttemptModel {
     return {
       'sourceId': sourceId,
       'assignmentCode': assignmentCode,
+      'title': title,
+
+      // WRITE NEW FIELD
+      'onlySingleAttempt': onlySingleAttempt,
+
       'mode': mode,
       'userId': userId,
       'startedAt': startedAt,
@@ -6845,10 +7409,7 @@ class AttemptModel {
       'incorrect_count': incorrectCount,
       'skipped_count': skippedCount,
       'timeTakenSeconds': timeTakenSeconds,
-
-      // Save New Field
       'timeLimitMinutes': timeLimitMinutes,
-
       'smartTimeAnalysisCounts': smartTimeAnalysisCounts,
       'secondsBreakdownHighLevel': secondsBreakdownHighLevel,
       'secondsBreakdownSmartTimeAnalysis': secondsBreakdownSmartTimeAnalysis,
@@ -8080,13 +8641,10 @@ class TestOrchestrationService {
   // ===========================================================================
 
   /// Fetch attempts for a user.
-  /// If [targetUserId] is provided (Mentor Mode), it fetches for that specific student.
-  /// Otherwise, it defaults to the current user.
   Future<List<AttemptModel>> getUserAttempts({String? targetUserId}) async {
     final String? idToQuery = targetUserId ?? _userId;
     if (idToQuery == null) return [];
     try {
-      // NOTE: Requires a Composite Index for 'userId' (Asc) and 'completedAt' (Desc)
       final snapshot = await _firestore
           .collection('attempts')
           .where('userId', isEqualTo: idToQuery)
@@ -8102,28 +8660,31 @@ class TestOrchestrationService {
   }
 
   // ===========================================================================
-  // 2. UNIVERSAL SUBMISSION LOGIC (With Enriched Metadata & Smart Analysis)
+  // 2. UNIVERSAL SUBMISSION LOGIC
   // ===========================================================================
 
   /// Submits the test attempt and returns the enriched AttemptModel for immediate UI use
   Future<AttemptModel?> submitAttempt({
     required String sourceId,
     required String assignmentCode,
+    required String title,
+
+    // NEW ARGUMENT: Only Single Attempt Flag
+    required bool onlySingleAttempt,
+
     required String mode,
     required List<Question> questions,
     required num score,
     required int timeTakenSeconds,
     required Map<String, ResponseObject> responses,
-
-    // NEW PARAMETER: Consistent with Firestore schema & UI Model
     int? timeLimitMinutes,
   }) async {
     if (_userId == null) return null;
 
     // --- STEP 1: FETCH CONFIGURATION FOR SMART ANALYSIS ---
     Map<String, dynamic> idealTimeMap = {};
-    double carelessFactor = 0.25; // Default fallback (25%)
-    double goodSkipFactorRaw = 20.0; // Default fallback (20%)
+    double carelessFactor = 0.25;
+    double goodSkipFactorRaw = 20.0;
 
     try {
       final configSnap = await _firestore
@@ -8158,7 +8719,6 @@ class TestOrchestrationService {
       "Time Wasted": 0
     };
 
-    // *** ADDITIVE: New Time Breakdown Accumulators ***
     Map<String, int> highLevelTime = {"CORRECT": 0, "INCORRECT": 0, "SKIPPED": 0};
     Map<String, int> smartTimeBreakdown = {
       "Perfect Attempt": 0,
@@ -8188,10 +8748,8 @@ class TestOrchestrationService {
         skippedCount++;
       }
 
-      // *** ADDITIVE: Accumulate High-Level Time ***
       highLevelTime[status] = (highLevelTime[status] ?? 0) + timeSpent;
 
-      // Generate the analysis tag
       String smartTag = _generateSmartTag(
         status: status,
         timeTaken: timeSpent,
@@ -8205,8 +8763,6 @@ class TestOrchestrationService {
       if (smartTag.isNotEmpty) {
         String shortKey = smartTag.split(' (').first.trim();
         analysisCounts[shortKey] = (analysisCounts[shortKey] ?? 0) + 1;
-
-        // *** ADDITIVE: Accumulate Smart Analysis Time ***
         smartTimeBreakdown[shortKey] = (smartTimeBreakdown[shortKey] ?? 0) + timeSpent;
       }
 
@@ -8242,6 +8798,11 @@ class TestOrchestrationService {
       id: attemptRef.id,
       sourceId: sourceId,
       assignmentCode: assignmentCode,
+      title: title,
+
+      // SAVE TO ATTEMPT MODEL
+      onlySingleAttempt: onlySingleAttempt,
+
       mode: mode,
       userId: _userId!,
       startedAt: timestamp,
@@ -8253,12 +8814,8 @@ class TestOrchestrationService {
       incorrectCount: incorrectCount,
       skippedCount: skippedCount,
       timeTakenSeconds: timeTakenSeconds,
-
-      // PASS NEW FIELD
       timeLimitMinutes: timeLimitMinutes,
-
       smartTimeAnalysisCounts: analysisCounts,
-      // *** ADDITIVE: Assign New Time Breakdown Maps ***
       secondsBreakdownHighLevel: highLevelTime,
       secondsBreakdownSmartTimeAnalysis: smartTimeBreakdown,
       responses: enrichedResponses,
@@ -8326,13 +8883,13 @@ class TestOrchestrationService {
     if (sourceId.isNotEmpty) {
       try {
         final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
-        final assignmentDoc = await assignmentRef.get();
+        // Optimization: We already have the flag passed in, but we still need to check/update the doc status
+        // If 'onlySingleAttempt' is TRUE, we update the status to submitted.
 
-        if (assignmentDoc.exists) {
-          if (assignmentDoc.data()?['onlySingleAttempt'] == true) {
-            batch.update(assignmentRef, {'status': 'submitted'});
-          }
+        if (onlySingleAttempt) {
+          batch.update(assignmentRef, {'status': 'submitted'});
         } else {
+          // Fallback for logic where we might need to check if it's a test
           final testRef = _firestore.collection('tests').doc(sourceId);
           final testDoc = await testRef.get();
           if(testDoc.exists) batch.update(testRef, {'status': 'Attempted'});
@@ -8343,18 +8900,16 @@ class TestOrchestrationService {
     }
 
     // ==========================================================
-    // NEW LOGIC: Update User's Submitted List (MOVED BEFORE COMMIT)
+    // Update User's Submitted List (MOVED BEFORE COMMIT)
     // ==========================================================
     if (assignmentCode.isNotEmpty && assignmentCode != 'PRAC') {
       final userRef = _firestore.collection('users').doc(_userId);
-      // Atomic update: Adds the code to the list only if it doesn't exist
       batch.update(userRef, {
         'assignmentCodesSubmitted': FieldValue.arrayUnion([assignmentCode])
       });
     }
 
     await batch.commit();
-
     return newAttempt;
   }
 

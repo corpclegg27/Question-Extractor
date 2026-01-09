@@ -1,3 +1,5 @@
+# migrateToFirebaseAllen.py
+
 import pandas as pd
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
@@ -10,7 +12,7 @@ from tqdm import tqdm
 # --- 1. CONFIGURATION ---
 CREDENTIALS_FILE = 'studysmart-5da53-firebase-adminsdk-fbsvc-ca5974c5e9.json'
 STORAGE_BUCKET = 'studysmart-5da53.firebasestorage.app'
-ALLEN_CSV_PATH = 'Question Bank Allen.csv'
+ALLEN_CSV_PATH = 'Question Bank Allen - Firebase.csv'
 LOG_FILE_PATH = 'migrationLogsAllen.csv'
 COLLECTION_NAME = 'questions'
 

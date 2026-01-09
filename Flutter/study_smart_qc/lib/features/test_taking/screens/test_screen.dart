@@ -24,8 +24,11 @@ class TestScreen extends StatefulWidget {
   final String sourceId;
   final String assignmentCode;
 
-  // NEW FIELD: Title
+  // Title
   final String title;
+
+  // NEW FIELD: Only Single Attempt Flag
+  final bool onlySingleAttempt;
 
   final List<Question> questions;
   final int timeLimitInMinutes;
@@ -41,9 +44,10 @@ class TestScreen extends StatefulWidget {
     required this.timeLimitInMinutes,
     this.sourceId = '',
     this.assignmentCode = 'PRAC',
-
-    // Default Title
     this.title = 'Practice Test',
+
+    // Initialize new field
+    this.onlySingleAttempt = false,
 
     this.testMode = TestMode.test,
     this.resumedTimerSeconds,
@@ -448,9 +452,10 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     final enrichedAttempt = await TestOrchestrationService().submitAttempt(
       sourceId: widget.sourceId,
       assignmentCode: widget.assignmentCode,
-
-      // PASS TITLE
       title: widget.title,
+
+      // PASS NEW FIELD
+      onlySingleAttempt: widget.onlySingleAttempt,
 
       mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
       questions: widget.questions,
@@ -632,6 +637,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     );
   }
 
+  // ... (Remainder of the widget logic for timers/palettes/UI remains unchanged)
   Widget _buildOverallTimerWidget() {
     String twoDigits(int n) => n.toString().padLeft(2, "0");
     final minutes = twoDigits(_overallTimeCounter.inMinutes.remainder(60));

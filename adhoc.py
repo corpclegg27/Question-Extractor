@@ -446,6 +446,69 @@ def addIdealTimeMapToOptionSets():
 
 
 
+# --- SANITIZE ANSWER KEY ---
+
+
+def sanitize_correct_answers(file_path):
+    """
+    1. Converts 'Correct Answer' 1-4 to A-D for 'Single Correct' questions.
+    2. If a 'Single Correct' question has a non A-D answer (like 45.5), 
+       reclassifies 'Question type' to 'Numerical type'.
+    """
+    if not os.path.exists(file_path):
+        print(f"❌ Error: File not found at {file_path}")
+        return
+
+    print(f"🔍 Reading {os.path.basename(file_path)} for sanitization...")
+    df = pd.read_csv(file_path)
+    
+    # Mapping for standard Single Correct options
+    ans_map = {
+        '1': 'A', '1.0': 'A', 1: 'A', 1.0: 'A',
+        '2': 'B', '2.0': 'B', 2: 'B', 2.0: 'B',
+        '3': 'C', '3.0': 'C', 3: 'C', 3.0: 'C',
+        '4': 'D', '4.0': 'D', 4: 'D', 4.0: 'D'
+    }
+
+    type_changes = 0
+    ans_changes = 0
+
+    def processing_logic(row):
+        nonlocal type_changes, ans_changes
+        # Get values and handle potential NaNs
+        q_type = str(row.get('Question type', '')).strip()
+        ans = str(row.get('Correct Answer', '')).strip()
+
+        if q_type == 'Single Correct':
+            # Step 1: Attempt to map 1,2,3,4 to A,B,C,D
+            if ans in ans_map:
+                new_ans = ans_map[ans]
+                row['Correct Answer'] = new_ans
+                ans_changes += 1
+                ans = new_ans # Update local var for the next check
+
+            # Step 2: Validate if it actually fits 'Single Correct'
+            # If answer is not A, B, C, or D (e.g., it's "42.5" or "100")
+            if ans not in ['A', 'B', 'C', 'D']:
+                row['Question type'] = 'Numerical type'
+                type_changes += 1
+        
+        return row
+
+    # Ensure required columns exist before applying
+    if 'Correct Answer' in df.columns and 'Question type' in df.columns:
+        df = df.apply(processing_logic, axis=1)
+        
+        try:
+            df.to_csv(file_path, index=False)
+            print(f"✅ Sanitization Complete for: {file_path}")
+            print(f"📊 Mapped to A-D: {ans_changes} rows")
+            print(f"📊 Reclassified to Numerical type: {type_changes} rows")
+        except PermissionError:
+            print(f"❌ Permission Denied: Please close '{file_path}' in Excel and try again.")
+    else:
+        print(f"⚠️ Warning: Required columns ('Correct Answer' or 'Question type') not found.")
+
 # --- MAIN MENU ---
 
 def main():
@@ -460,6 +523,7 @@ def main():
         print ("5. clearCollection [names already provided in file]")
         print ("6. Delete all user records from auth system")
         print ("7. Add ideal time per question map")
+        print ("8. Sanitize answer key of csv provided")
         print("0. Exit")
         print("-" * 40)
         
@@ -485,6 +549,9 @@ def main():
 
         if choice == '7':
             addIdealTimeMapToOptionSets()
+
+        if choice == '8':
+            sanitize_correct_answers(file_path=r"D:\Main\3. Work - Teaching\Projects\Question extractor\DB Master Firebase.csv")
 
         elif choice == '0':
             print("Bye! 👋")

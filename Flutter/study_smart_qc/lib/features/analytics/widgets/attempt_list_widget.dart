@@ -15,10 +15,15 @@ class AttemptListWidget extends StatelessWidget {
   final String? filterMode; // 'Practice', 'Test', or null (for all)
   final String? targetUserId; // Optional: If provided (by Teacher), fetches specific student data
 
+  // NEW PARAMETER: To distinguish between "Strict Tests" and "Assignments taken as Test"
+  final bool onlySingleAttempt;
+
   const AttemptListWidget({
     super.key,
     this.filterMode,
     this.targetUserId,
+    // Default to false so existing calls elsewhere don't break
+    this.onlySingleAttempt = false,
   });
 
   // --- NAVIGATION LOGIC ---
@@ -119,12 +124,23 @@ class AttemptListWidget extends StatelessWidget {
         }
 
         // --- CLIENT SIDE FILTERING ---
+        // We filter here instead of in the query to avoid complex composite index requirements
         final docs = snapshot.data!.docs.where((doc) {
-          if (filterMode == null) return true;
-
           final data = doc.data() as Map<String, dynamic>;
-          final String mode = data['mode'] ?? '';
-          return mode.toLowerCase() == filterMode!.toLowerCase();
+
+          // 1. Filter by Mode (Practice vs Test)
+          if (filterMode != null) {
+            final String mode = data['mode'] ?? '';
+            if (mode.toLowerCase() != filterMode!.toLowerCase()) return false;
+          }
+
+          // 2. Filter by Strictness (onlySingleAttempt)
+          // We check if the attempt document has this flag matching what we want
+          final bool docSingleAttempt = data['onlySingleAttempt'] ?? false;
+
+          if (docSingleAttempt != onlySingleAttempt) return false;
+
+          return true;
         }).toList();
 
         if (docs.isEmpty) {
@@ -152,8 +168,13 @@ class AttemptListWidget extends StatelessWidget {
     IconData icon = Icons.history;
 
     if (filterMode == 'Test') {
-      message = "No strict tests attempted yet.";
-      icon = Icons.timer_off;
+      if (onlySingleAttempt) {
+        message = "No strict tests attempted yet.";
+        icon = Icons.timer_off;
+      } else {
+        message = "No assignments taken in Test Mode yet.";
+        icon = Icons.timer_outlined;
+      }
     } else if (filterMode == 'Practice') {
       message = "No practice assignments completed yet.";
       icon = Icons.assignment_late_outlined;

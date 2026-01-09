@@ -10,21 +10,21 @@ import 'package:study_smart_qc/models/user_model.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 
-// SCREENS
+// SCREENS & WIDGETS
 import 'package:study_smart_qc/features/auth/screens/auth_page.dart';
 import 'package:study_smart_qc/features/auth/screens/auth_wrapper.dart';
 import 'package:study_smart_qc/features/student/widgets/student_assignments_list.dart';
-import 'package:study_smart_qc/features/analytics/screens/analysis_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_curation_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_history_screen.dart';
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
+import 'package:study_smart_qc/features/analytics/widgets/attempt_list_widget.dart';
+import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
 
 // SERVICES
 import 'package:study_smart_qc/services/auth_service.dart';
 import 'package:study_smart_qc/services/onboarding_service.dart';
 import 'package:study_smart_qc/services/local_session_service.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
-import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -67,7 +67,39 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  //  RESUME LOGIC START
+  //  SORTING LOGIC (CLIENT SIDE)
+  // ---------------------------------------------------------------------------
+
+  /// Sorts documents:
+  /// 1. Items with deadline (Ascending / Earliest first)
+  /// 2. Items without deadline (Descending by CreatedAt / Newest first)
+  int _deadlineAwareSort(QueryDocumentSnapshot a, QueryDocumentSnapshot b) {
+    final Map<String, dynamic> dataA = a.data() as Map<String, dynamic>;
+    final Map<String, dynamic> dataB = b.data() as Map<String, dynamic>;
+
+    final Timestamp? deadlineA = dataA['deadline'];
+    final Timestamp? deadlineB = dataB['deadline'];
+
+    // Fallback: CreatedAt (assume non-null)
+    final Timestamp createdA = dataA['createdAt'] ?? Timestamp.now();
+    final Timestamp createdB = dataB['createdAt'] ?? Timestamp.now();
+
+    // 1. Prioritize existence of Deadline
+    if (deadlineA != null && deadlineB == null) return -1; // A comes first
+    if (deadlineA == null && deadlineB != null) return 1;  // B comes first
+
+    // 2. If both have deadlines, sort Ascending (Earliest deadline first)
+    if (deadlineA != null && deadlineB != null) {
+      int cmp = deadlineA.compareTo(deadlineB);
+      if (cmp != 0) return cmp;
+    }
+
+    // 3. If neither have deadlines (or deadlines are equal), sort CreatedAt Descending
+    return createdB.compareTo(createdA);
+  }
+
+  // ---------------------------------------------------------------------------
+  //  RESUME LOGIC
   // ---------------------------------------------------------------------------
 
   Future<void> _checkPendingSession() async {
@@ -87,9 +119,9 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text("Resume Test?"),
+        title: const Text("Resume Session?"),
         content: const Text(
-            "You have an unfinished test session saved on this device. Would you like to continue?"),
+            "You have an unfinished session saved on this device. Would you like to continue?"),
         actions: [
           TextButton(
             onPressed: () {
@@ -97,15 +129,17 @@ class _HomeScreenState extends State<HomeScreen> {
               _handleSubmitPending();
             },
             style: TextButton.styleFrom(foregroundColor: Colors.grey),
-            child: const Text("No, Submit"),
+            child: const Text("Discard & Submit"),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
               _handleResumePending();
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
-            child: const Text("Yes, Resume"),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6200EA),
+                foregroundColor: Colors.white),
+            child: const Text("Resume"),
           ),
         ],
       ),
@@ -131,27 +165,27 @@ class _HomeScreenState extends State<HomeScreen> {
       final int savedTimer = timestamps['quitTimeTimerValue'];
       final String quitTimestamp = timestamps['quitTimeTimestamp'];
 
-      // A. RECONCILE TIMER
+      // RECONCILE TIMER
       final newTime = _localSessionService.calculateResumeTime(
         mode: mode,
         savedTimerValue: savedTimer,
         savedTimestampIso: quitTimestamp,
       );
 
-      // B. CHECK EXPIRY
       if (newTime == null) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Time expired while you were away. Submitting test..."),
+          content: Text("Time expired while you were away. Submitting..."),
           backgroundColor: Colors.red,
         ));
         _handleSubmitPending();
         return;
       }
 
-      // C. FETCH QUESTIONS
+      // FETCH DATA
       List<Question> questions = [];
       List<String> qIds = [];
+      bool isSingleAttempt = false;
 
       final curationQuery = await FirebaseFirestore.instance
           .collection('questions_curation')
@@ -162,15 +196,18 @@ class _HomeScreenState extends State<HomeScreen> {
       if (curationQuery.docs.isNotEmpty) {
         final data = curationQuery.docs.first.data();
         qIds = List<String>.from(data['questionIds'] ?? []);
+        isSingleAttempt = data['onlySingleAttempt'] ?? false;
       } else {
+        // Fallback for legacy 'tests' collection if needed
         final testQuery = await FirebaseFirestore.instance
             .collection('tests')
             .where('assignmentCode', isEqualTo: assignmentCode)
             .limit(1)
             .get();
 
-        if(testQuery.docs.isNotEmpty) {
-          qIds = List<String>.from(testQuery.docs.first.data()['questionIds'] ?? []);
+        if (testQuery.docs.isNotEmpty) {
+          qIds = List<String>.from(
+              testQuery.docs.first.data()['questionIds'] ?? []);
         }
       }
 
@@ -179,42 +216,41 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       if (questions.isEmpty) {
-        throw Exception("Could not retrieve questions for Code: $assignmentCode");
+        throw Exception("Could not retrieve questions.");
       }
 
-      // D. PARSE RESPONSES
       final responseMap = _localSessionService.parseResponses(
-          Map<String, dynamic>.from(state['responses'])
-      );
+          Map<String, dynamic>.from(state['responses']));
 
-      // E. NAVIGATE TO TEST SCREEN
       if (mounted) {
         Navigator.pop(context);
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => TestScreen(
-              sourceId: curationQuery.docs.isNotEmpty ? curationQuery.docs.first.id : '',
+              sourceId: curationQuery.docs.isNotEmpty
+                  ? curationQuery.docs.first.id
+                  : '',
               assignmentCode: assignmentCode,
               questions: questions,
-              timeLimitInMinutes: 0,
+              timeLimitInMinutes: 0, // Handled by resume logic usually
               testMode: mode == 'Test' ? TestMode.test : TestMode.practice,
               resumedTimerSeconds: newTime,
               resumedPageIndex: state['currentQuestionIndex'],
               resumedResponses: responseMap,
+              title: meta['title'] ?? 'Resumed Session',
+              onlySingleAttempt: isSingleAttempt,
             ),
           ),
         ).then((_) {
           _checkPendingSession();
-          _fetchUserData(); // Refresh to check if they submitted
+          _fetchUserData();
         });
       }
-
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      print("Resume Error: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error resuming session: $e")),
+        SnackBar(content: Text("Error resuming: $e")),
       );
     }
   }
@@ -227,14 +263,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final metaMode = meta['mode'] ?? 'Test';
 
     final responseMap = _localSessionService.parseResponses(
-        Map<String, dynamic>.from(state['responses'])
-    );
+        Map<String, dynamic>.from(state['responses']));
 
     int correct = 0;
     int incorrect = 0;
     responseMap.forEach((k, v) {
-      if(v.status == 'CORRECT') correct++;
-      if(v.status == 'INCORRECT') incorrect++;
+      if (v.status == 'CORRECT') correct++;
+      if (v.status == 'INCORRECT') incorrect++;
     });
     final score = (correct * 4) - incorrect;
 
@@ -242,7 +277,8 @@ class _HomeScreenState extends State<HomeScreen> {
       sourceId: meta['testId'] ?? '',
       assignmentCode: meta['assignmentCode'],
       mode: metaMode,
-      title: meta['title'] ?? 'Untitled Test', // <--- ADD THIS LINE
+      title: meta['title'] ?? 'Untitled Test',
+      onlySingleAttempt: false,
       questions: [],
       score: score,
       timeTakenSeconds: 0,
@@ -257,8 +293,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     if (mounted) {
-      _fetchUserData(); // Refresh user data to get the new submission code
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Test submitted successfully.")));
+      _fetchUserData();
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Session submitted successfully.")));
     }
   }
 
@@ -291,63 +328,120 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // --- STUDENT DASHBOARD ---
-    // Prepare common params for lists
-    final List<String> submitted = _userModel!.assignmentCodesSubmitted;
-    final String? resumeCode = _pendingAssignmentCode;
-    final VoidCallback navToAnalysis = () => setState(() => _currentTabIndex = 2);
-
+    // Single Stream Source for all tabs to ensure sync and efficiency
     return Scaffold(
+      backgroundColor: const Color(0xFFF9F9F9),
       appBar: AppBar(
-        title: Text(_getAppBarTitle()),
+        title: Text(
+          _getAppBarTitle(),
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 20),
+        ),
         elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
         centerTitle: false,
       ),
       drawer: _buildDrawer(context),
+      body: StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('questions_curation')
+          // CORRECTED: Matching the single number field 'studentId'
+              .where('studentId', isEqualTo: _userModel!.studentId)
+              .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-      body: IndexedStack(
-        index: _currentTabIndex,
-        children: [
-          // Tab 0: Assignments (General / Practice)
-          StudentAssignmentsList(
-            isStrict: false,
-            submittedCodes: submitted,
-            resumableAssignmentCode: resumeCode,
-            onResumeTap: _handleResumePending,
-            onViewAnalysisTap: navToAnalysis,
-          ),
+          if (snapshot.hasError) {
+            return Center(child: Text("Error: ${snapshot.error}"));
+          }
 
-          // Tab 1: Tests (Strict / Timed)
-          // Removed the duplicate 'Resume Card' - now handled inside the list
-          StudentAssignmentsList(
-            isStrict: true,
-            submittedCodes: submitted,
-            resumableAssignmentCode: resumeCode,
-            onResumeTap: _handleResumePending,
-            onViewAnalysisTap: navToAnalysis,
-          ),
+          final allDocs = snapshot.data?.docs ?? [];
+          final submittedCodes = _userModel!.assignmentCodesSubmitted;
 
-          // Tab 2: Analysis
-          const AnalysisScreen(),
-        ],
+          // 1. Filter: Strict (Test) vs Non-Strict (Assignment)
+          final strictDocs = <QueryDocumentSnapshot>[];
+          final normalDocs = <QueryDocumentSnapshot>[];
+
+          for (var doc in allDocs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final bool isStrict = data['onlySingleAttempt'] ?? false;
+            if (isStrict) {
+              strictDocs.add(doc);
+            } else {
+              normalDocs.add(doc);
+            }
+          }
+
+          // 2. Filter: Pending vs Completed
+          // 3. Sort: Apply Deadline->CreatedAt Logic
+
+          // -- ASSIGNMENTS --
+          final pendingAssignments = normalDocs
+              .where((d) => !submittedCodes.contains(d['assignmentCode']))
+              .toList()..sort(_deadlineAwareSort);
+
+          final completedAssignments = normalDocs
+              .where((d) => submittedCodes.contains(d['assignmentCode']))
+              .toList()..sort(_deadlineAwareSort);
+
+          // -- TESTS --
+          final pendingTests = strictDocs
+              .where((d) => !submittedCodes.contains(d['assignmentCode']))
+              .toList()..sort(_deadlineAwareSort);
+
+          final completedTests = strictDocs
+              .where((d) => submittedCodes.contains(d['assignmentCode']))
+              .toList()..sort(_deadlineAwareSort);
+
+          return IndexedStack(
+            index: _currentTabIndex,
+            children: [
+              // Tab 0: Assignments
+              _AssignmentTabContainer(
+                pendingDocs: pendingAssignments,
+                completedDocs: completedAssignments,
+                resumableAssignmentCode: _pendingAssignmentCode,
+                onResumeTap: _handleResumePending,
+                onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
+              ),
+
+              // Tab 1: Tests
+              _AssignmentTabContainer(
+                pendingDocs: pendingTests,
+                completedDocs: completedTests,
+                resumableAssignmentCode: _pendingAssignmentCode,
+                onResumeTap: _handleResumePending,
+                onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
+              ),
+
+              // Tab 2: Analysis
+              const _AnalysisView(),
+            ],
+          );
+        },
       ),
-
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentTabIndex,
-        onDestinationSelected: (index) => setState(() => _currentTabIndex = index),
+        onDestinationSelected: (index) =>
+            setState(() => _currentTabIndex = index),
+        backgroundColor: Colors.white,
+        indicatorColor: const Color(0xFFEADBFF),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.assignment_outlined),
-            selectedIcon: Icon(Icons.assignment),
+            selectedIcon: Icon(Icons.assignment, color: Color(0xFF6200EA)),
             label: 'Assignments',
           ),
           NavigationDestination(
             icon: Icon(Icons.timer_outlined),
-            selectedIcon: Icon(Icons.timer),
+            selectedIcon: Icon(Icons.timer, color: Color(0xFF6200EA)),
             label: 'Tests',
           ),
           NavigationDestination(
             icon: Icon(Icons.analytics_outlined),
-            selectedIcon: Icon(Icons.analytics),
+            selectedIcon: Icon(Icons.analytics, color: Color(0xFF6200EA)),
             label: 'Analysis',
           ),
         ],
@@ -357,10 +451,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _getAppBarTitle() {
     switch (_currentTabIndex) {
-      case 0: return "My Assignments";
-      case 1: return "My Tests";
-      case 2: return "Performance";
-      default: return "Study Smart";
+      case 0:
+        return "Assignments";
+      case 1:
+        return "Tests";
+      case 2:
+        return "Analysis";
+      default:
+        return "ModX by Anup Sir";
     }
   }
 
@@ -371,32 +469,39 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: EdgeInsets.zero,
         children: [
           UserAccountsDrawerHeader(
-            accountName: Text(_userModel?.displayName ?? "User"),
+            accountName: Text(
+              _userModel?.displayName ?? "User",
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
             accountEmail: Text(_userModel?.email ?? ""),
             currentAccountPicture: CircleAvatar(
               backgroundColor: Colors.white,
               child: Text(
                 (_userModel?.displayName ?? "U")[0].toUpperCase(),
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF6200EA)),
               ),
             ),
-            decoration: const BoxDecoration(color: Colors.deepPurple),
+            decoration: const BoxDecoration(
+              color: Color(0xFF6200EA),
+            ),
           ),
-
           if (!isTeacher && _userModel?.studentId != null) ...[
             ListTile(
               leading: const Icon(Icons.badge_outlined),
               title: Text("Student ID: ${_userModel!.studentId}"),
-              subtitle: const Text("Share this with your teacher"),
               tileColor: Colors.grey.shade50,
             ),
             const Divider(),
           ],
-
           if (isTeacher) ...[
             const Padding(
               padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
-              child: Text("Teacher Tools", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+              child: Text("Teacher Tools",
+                  style: TextStyle(
+                      color: Colors.grey, fontWeight: FontWeight.bold)),
             ),
             ListTile(
               leading: const Icon(Icons.history_edu),
@@ -405,7 +510,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 Navigator.pop(context);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const TeacherHistoryScreen()),
+                  MaterialPageRoute(
+                      builder: (_) => const TeacherHistoryScreen()),
                 );
               },
             ),
@@ -433,7 +539,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Divider(),
           ],
-
           ListTile(
             leading: const Icon(Icons.person),
             title: const Text('Profile'),
@@ -454,6 +559,213 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               }
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  HELPER 1: TAB CONTAINER (MODIFIED TO ACCEPT LISTS)
+// ---------------------------------------------------------------------------
+
+class _AssignmentTabContainer extends StatefulWidget {
+  // Now accepts Pre-Sorted Lists instead of just codes
+  final List<QueryDocumentSnapshot> pendingDocs;
+  final List<QueryDocumentSnapshot> completedDocs;
+
+  final String? resumableAssignmentCode;
+  final Future<void> Function() onResumeTap;
+  final VoidCallback onViewAnalysisTap;
+
+  const _AssignmentTabContainer({
+    required this.pendingDocs,
+    required this.completedDocs,
+    required this.resumableAssignmentCode,
+    required this.onResumeTap,
+    required this.onViewAnalysisTap,
+  });
+
+  @override
+  State<_AssignmentTabContainer> createState() => _AssignmentTabContainerState();
+}
+
+class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Tab Bar
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: TabBar(
+            controller: _tabController,
+            indicator: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            labelColor: const Color(0xFF6200EA),
+            unselectedLabelColor: Colors.grey.shade600,
+            labelStyle:
+            const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            indicatorSize: TabBarIndicatorSize.tab,
+            dividerColor: Colors.transparent,
+            indicatorPadding: const EdgeInsets.all(4),
+            tabs: const [
+              Tab(text: "Pending"),
+              Tab(text: "Completed"),
+            ],
+          ),
+        ),
+
+        // Lists
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              // NOTE: StudentAssignmentsList must be updated to accept `documents` list
+              // instead of fetching them internally.
+              StudentAssignmentsList(
+                documents: widget.pendingDocs, // Pass list directly
+                resumableAssignmentCode: widget.resumableAssignmentCode,
+                onResumeTap: widget.onResumeTap,
+                onViewAnalysisTap: widget.onViewAnalysisTap,
+              ),
+              StudentAssignmentsList(
+                documents: widget.completedDocs, // Pass list directly
+                resumableAssignmentCode: widget.resumableAssignmentCode,
+                onResumeTap: widget.onResumeTap,
+                onViewAnalysisTap: widget.onViewAnalysisTap,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  HELPER 2: ANALYSIS VIEW (Unchanged)
+// ---------------------------------------------------------------------------
+
+class _AnalysisView extends StatefulWidget {
+  const _AnalysisView();
+
+  @override
+  State<_AnalysisView> createState() => _AnalysisViewState();
+}
+
+class _AnalysisViewState extends State<_AnalysisView> with SingleTickerProviderStateMixin {
+  late TabController _mainTabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _mainTabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // 1. MAIN TAB BAR (Assignments vs Tests)
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: TabBar(
+            controller: _mainTabController,
+            indicator: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            labelColor: const Color(0xFF6200EA),
+            unselectedLabelColor: Colors.grey.shade600,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            indicatorSize: TabBarIndicatorSize.tab,
+            dividerColor: Colors.transparent,
+            indicatorPadding: const EdgeInsets.all(4),
+            tabs: const [
+              Tab(text: "Assignments"),
+              Tab(text: "Tests"),
+            ],
+          ),
+        ),
+
+        // 2. TAB VIEW
+        Expanded(
+          child: TabBarView(
+            controller: _mainTabController,
+            children: [
+              _buildAssignmentsAnalysisTab(),
+              const AttemptListWidget(filterMode: 'Test', onlySingleAttempt: true),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAssignmentsAnalysisTab() {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            height: 36,
+            child: const TabBar(
+              isScrollable: false,
+              labelColor: Colors.deepPurple,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: Colors.deepPurple,
+              labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              tabs: [
+                Tab(text: "Practice Mode"),
+                Tab(text: "Test Mode"),
+              ],
+            ),
+          ),
+          const Expanded(
+            child: TabBarView(
+              children: [
+                AttemptListWidget(filterMode: 'Practice', onlySingleAttempt: false),
+                AttemptListWidget(filterMode: 'Test', onlySingleAttempt: false),
+              ],
+            ),
           ),
         ],
       ),

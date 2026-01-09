@@ -46,9 +46,10 @@ class TestOrchestrationService {
   Future<AttemptModel?> submitAttempt({
     required String sourceId,
     required String assignmentCode,
-
-    // NEW REQUIRED PARAMETER: Title
     required String title,
+
+    // NEW ARGUMENT: Only Single Attempt Flag
+    required bool onlySingleAttempt,
 
     required String mode,
     required List<Question> questions,
@@ -176,9 +177,10 @@ class TestOrchestrationService {
       id: attemptRef.id,
       sourceId: sourceId,
       assignmentCode: assignmentCode,
-
-      // PASS TITLE HERE
       title: title,
+
+      // SAVE TO ATTEMPT MODEL
+      onlySingleAttempt: onlySingleAttempt,
 
       mode: mode,
       userId: _userId!,
@@ -260,13 +262,13 @@ class TestOrchestrationService {
     if (sourceId.isNotEmpty) {
       try {
         final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
-        final assignmentDoc = await assignmentRef.get();
+        // Optimization: We already have the flag passed in, but we still need to check/update the doc status
+        // If 'onlySingleAttempt' is TRUE, we update the status to submitted.
 
-        if (assignmentDoc.exists) {
-          if (assignmentDoc.data()?['onlySingleAttempt'] == true) {
-            batch.update(assignmentRef, {'status': 'submitted'});
-          }
+        if (onlySingleAttempt) {
+          batch.update(assignmentRef, {'status': 'submitted'});
         } else {
+          // Fallback for logic where we might need to check if it's a test
           final testRef = _firestore.collection('tests').doc(sourceId);
           final testDoc = await testRef.get();
           if(testDoc.exists) batch.update(testRef, {'status': 'Attempted'});

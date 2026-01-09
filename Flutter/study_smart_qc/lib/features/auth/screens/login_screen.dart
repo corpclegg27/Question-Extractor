@@ -116,7 +116,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   const Icon(Icons.school_rounded, size: 80, color: Colors.deepPurple),
                   const SizedBox(height: 16),
-                  const Text('StudySmart',
+                  const Text('ModX by Anup Sir',
                       style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
