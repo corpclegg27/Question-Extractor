@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-// CRITICAL IMPORTS
+import 'package:flutter/services.dart';
 import 'package:study_smart_qc/models/question_model.dart';
-import 'package:study_smart_qc/models/test_enums.dart'; // <--- ADD THIS
+import 'package:study_smart_qc/models/test_enums.dart';
 
 class QuestionInputWidget extends StatefulWidget {
   final Question question;
@@ -20,6 +20,34 @@ class QuestionInputWidget extends StatefulWidget {
 }
 
 class _QuestionInputWidgetState extends State<QuestionInputWidget> {
+  late TextEditingController _numericalController;
+
+  @override
+  void initState() {
+    super.initState();
+    _numericalController = TextEditingController(
+        text: widget.currentAnswer?.toString() ?? ''
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant QuestionInputWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.question.id != oldWidget.question.id ||
+        widget.currentAnswer != oldWidget.currentAnswer) {
+      String newText = widget.currentAnswer?.toString() ?? '';
+      if (_numericalController.text != newText) {
+        _numericalController.text = newText;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _numericalController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     switch (widget.question.type) {
@@ -30,61 +58,117 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
       case QuestionType.multipleCorrect:
         return _buildMultipleCorrect();
       case QuestionType.matrixSingle:
-        return _buildMatrixMatch(isMulti: false);
       case QuestionType.matrixMulti:
-        return _buildMatrixMatch(isMulti: true);
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text("Matrix Match is not supported in this view yet."),
+          ),
+        );
+      case QuestionType.unknown:
       default:
         return const Center(child: Text("Unknown Question Type"));
     }
   }
 
-  // --- 1. Single Correct (Radio) ---
+  // ===========================================================================
+  // 1. SINGLE CORRECT (Row of 4 Rectangles)
+  // ===========================================================================
   Widget _buildSingleCorrect() {
-    final List<String> options = ['A', 'B', 'C', 'D'];
-    return Column(
-      children: options.map((opt) {
-        return RadioListTile<String>(
-          title: Text("Option $opt"),
-          value: opt,
-          groupValue: widget.currentAnswer?.toString(),
-          onChanged: (val) => widget.onAnswerChanged(val),
-          activeColor: Colors.deepPurple,
-        );
-      }).toList(),
-    );
-  }
+    final options = ['A', 'B', 'C', 'D'];
 
-  // --- 2. Numerical (TextField) ---
-  Widget _buildNumerical() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: TextField(
-        controller:
-            TextEditingController(text: widget.currentAnswer?.toString() ?? '')
-              ..selection = TextSelection.fromPosition(
-                TextPosition(
-                  offset: (widget.currentAnswer?.toString() ?? '').length,
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+      child: Row(
+        children: options.map((opt) {
+          final bool isSelected = (widget.currentAnswer?.toString() == opt);
+
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6.0),
+              child: InkWell(
+                onTap: () => widget.onAnswerChanged(opt),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  height: 50, // Fixed height for the rectangle
+                  decoration: BoxDecoration(
+                    color: Colors.white, // Fill stays white
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      // Green if selected, Grey if not
+                      color: isSelected ? Colors.green : Colors.grey.shade400,
+                      // Thick border if selected (3.0 vs 1.0)
+                      width: isSelected ? 3.0 : 1.0,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    opt,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      // Text turns green to match border, or stays grey
+                      color: isSelected ? Colors.green : Colors.grey.shade700,
+                    ),
+                  ),
                 ),
               ),
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          labelText: "Enter Numerical Answer",
-          hintText: "e.g. 5 or 2.5",
-        ),
-        onChanged: (val) => widget.onAnswerChanged(val),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
 
-  // --- 3. Multiple Correct (Checkbox) ---
+  // ===========================================================================
+  // 2. NUMERICAL TYPE
+  // ===========================================================================
+  Widget _buildNumerical() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Enter your numerical answer:",
+            style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _numericalController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            ],
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              hintText: "e.g. 5 or 2.5",
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF6200EA), width: 2),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            ),
+            onChanged: (val) {
+              widget.onAnswerChanged(val);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // 3. MULTIPLE CORRECT
+  // ===========================================================================
   Widget _buildMultipleCorrect() {
-    final List<String> options = ['A', 'B', 'C', 'D'];
+    final options = ['A', 'B', 'C', 'D'];
+
     List<String> selected = [];
     if (widget.currentAnswer is List) {
       selected = List<String>.from(widget.currentAnswer);
     } else if (widget.currentAnswer is String) {
-      // Fallback if data is malformed
       selected = [widget.currentAnswer];
     }
 
@@ -94,6 +178,7 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
         return CheckboxListTile(
           title: Text("Option $opt"),
           value: isSelected,
+          activeColor: const Color(0xFF6200EA),
           onChanged: (bool? checked) {
             final newSelection = List<String>.from(selected);
             if (checked == true) {
@@ -101,93 +186,11 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
             } else {
               newSelection.remove(opt);
             }
-            newSelection.sort(); // Keep consistent order
+            newSelection.sort();
             widget.onAnswerChanged(newSelection);
           },
-          activeColor: Colors.deepPurple,
         );
       }).toList(),
-    );
-  }
-
-  // --- 4. Matrix Match (Grid of Radio/Checkbox) ---
-  Widget _buildMatrixMatch({required bool isMulti}) {
-    // Rows: A, B, C, D
-    // Cols: p, q, r, s, t
-    final rows = ['A', 'B', 'C', 'D'];
-    final cols = ['p', 'q', 'r', 's', 't'];
-
-    // Structure: Map<String, List<String>>  e.g. {'A': ['p'], 'B': ['q', 'r']}
-    Map<String, List<String>> matrixState = {};
-    if (widget.currentAnswer is Map) {
-      matrixState = Map<String, List<String>>.from(
-        (widget.currentAnswer as Map).map(
-          (k, v) => MapEntry(k.toString(), List<String>.from(v ?? [])),
-        ),
-      );
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        columns: [
-          const DataColumn(label: Text('')), // Corner
-          ...cols.map((c) => DataColumn(label: Text(c))),
-        ],
-        rows: rows.map((rowKey) {
-          return DataRow(
-            cells: [
-              DataCell(
-                Text(
-                  rowKey,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ), // Row Header
-              ...cols.map((colKey) {
-                final currentSelections = matrixState[rowKey] ?? [];
-                final isSelected = currentSelections.contains(colKey);
-
-                return DataCell(
-                  isMulti
-                      ? Checkbox(
-                          value: isSelected,
-                          onChanged: (val) {
-                            final newRowSelections = List<String>.from(
-                              currentSelections,
-                            );
-                            if (val == true) {
-                              newRowSelections.add(colKey);
-                            } else {
-                              newRowSelections.remove(colKey);
-                            }
-                            newRowSelections.sort();
-
-                            final newState = Map<String, List<String>>.from(
-                              matrixState,
-                            );
-                            newState[rowKey] = newRowSelections;
-                            widget.onAnswerChanged(newState);
-                          },
-                        )
-                      : Radio<String>(
-                          value: colKey,
-                          groupValue: currentSelections.isNotEmpty
-                              ? currentSelections.first
-                              : null,
-                          onChanged: (val) {
-                            final newState = Map<String, List<String>>.from(
-                              matrixState,
-                            );
-                            newState[rowKey] = [val!]; // Single select per row
-                            widget.onAnswerChanged(newState);
-                          },
-                        ),
-                );
-              }),
-            ],
-          );
-        }).toList(),
-      ),
     );
   }
 }

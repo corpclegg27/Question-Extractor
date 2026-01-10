@@ -65,6 +65,9 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   late Duration _overallTimeCounter;
   bool _isPaused = false;
 
+  // ADDED: Scroll Controller for NTA Palette
+  final ScrollController _paletteController = ScrollController();
+
   final Map<int, AnswerState> _answerStates = {};
   final Map<int, int> _visitCounts = {};
   final Map<int, Stopwatch> _timeTrackers = {};
@@ -142,6 +145,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _timer.cancel();
     _pageController.dispose();
+    _paletteController.dispose(); // Dispose the palette controller
     super.dispose();
   }
 
@@ -239,6 +243,22 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         _answerStates[page]?.status = AnswerStatus.notAnswered;
       }
     });
+
+    // --- ADDED: Auto-scroll the top palette to keep the current number in view ---
+    if (_paletteController.hasClients) {
+      // 50.0 is approx width of item + margins.
+      // This centers the selected item.
+      double targetOffset = (page * 60.0) - (MediaQuery.of(context).size.width / 2) + 30;
+      if (targetOffset < 0) targetOffset = 0;
+
+      _paletteController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+    // -----------------------------------------------------------------------------
+
     if (_timeTrackers.containsKey(page)) {
       _timeTrackers[page]!.start();
     }
@@ -329,8 +349,11 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     if (state.userAnswer is Map && (state.userAnswer as Map).isEmpty) isEmpty = true;
 
     if (isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Please select an answer first!")));
+      // FIX: Check mounted before using context
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Please select an answer first!")));
+      }
       return;
     }
     setState(() {
@@ -377,7 +400,11 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     } else {
       setState(() => state.status = AnswerStatus.notAnswered);
     }
-    _triggerLocalSave().then((_) => _moveToNextPage());
+
+    // FIX: Check mounted before moving to next page
+    _triggerLocalSave().then((_) {
+      if (mounted) _moveToNextPage();
+    });
   }
 
   void _handleSaveAndMarkForReview() {
@@ -388,11 +415,17 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
 
     if (hasAnswer) {
       setState(() => state.status = AnswerStatus.answeredAndMarked);
-      _triggerLocalSave().then((_) => _moveToNextPage());
+      // FIX: Check mounted inside the .then() callback
+      _triggerLocalSave().then((_) {
+        if (mounted) _moveToNextPage();
+      });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select an answer to Save & Mark for Review")),
-      );
+      // FIX: Check mounted before showing SnackBar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please select an answer to Save & Mark for Review")),
+        );
+      }
     }
   }
 
@@ -400,9 +433,11 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     setState(() {
       _answerStates[_currentPage]!.status = AnswerStatus.markedForReview;
     });
-    _triggerLocalSave().then((_) => _moveToNextPage());
+    // FIX: Check mounted
+    _triggerLocalSave().then((_) {
+      if (mounted) _moveToNextPage();
+    });
   }
-
   void _handleClearResponse() {
     setState(() {
       _answerStates[_currentPage]!.userAnswer = null;
@@ -417,9 +452,12 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       _pageController.nextPage(
           duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("You are on the last question. Click Submit to finish.")),
-      );
+      // FIX: Check mounted before showing SnackBar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("You are on the last question. Click Submit to finish.")),
+        );
+      }
     }
   }
 
@@ -577,6 +615,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         ),
         body: Column(
           children: [
+            // CHANGED: Correct NTA Palette Function
             _buildNTAQuestionPalette(),
             const Divider(height: 1),
             Expanded(
@@ -687,12 +726,14 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     );
   }
 
+  // UPDATED: NTA Standard Palette
   Widget _buildNTAQuestionPalette() {
     return Container(
       height: 70,
       padding: const EdgeInsets.symmetric(vertical: 10),
-      color: Colors.grey.shade50,
+      color: Colors.white, // Standard white background for palette strip
       child: ListView.builder(
+        controller: _paletteController, // Attached ScrollController
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 10),
         itemCount: widget.questions.length,
@@ -700,36 +741,59 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
           final state = _answerStates[index]!;
           final isCurrent = index == _currentPage;
 
+          // NTA Defaults
           BoxShape shape = BoxShape.rectangle;
-          Color color = Colors.white;
-          Border? border = Border.all(color: Colors.grey.shade300);
+          Color fillColor = Colors.white;
+          Color textColor = Colors.black;
+          Border? border = Border.all(color: Colors.grey.shade300); // Default border
           Widget? badge;
 
           switch (state.status) {
             case AnswerStatus.notVisited:
-              color = Colors.white;
+            // White Box
+              fillColor = Colors.white;
+              textColor = Colors.black;
+              border = Border.all(color: Colors.grey.shade400);
+              shape = BoxShape.rectangle;
               break;
             case AnswerStatus.notAnswered:
-              color = Colors.red;
+            // Red Box
+              fillColor = Colors.red.shade600;
+              textColor = Colors.white;
               border = null;
+              shape = BoxShape.rectangle;
               break;
             case AnswerStatus.answered:
-              color = Colors.green;
+            // Green Box
+              fillColor = Colors.green.shade600;
+              textColor = Colors.white;
               border = null;
+              shape = BoxShape.rectangle;
               break;
             case AnswerStatus.markedForReview:
-              shape = BoxShape.circle;
-              color = Colors.purple;
+            // Purple Circle
+              fillColor = Colors.purple.shade700;
+              textColor = Colors.white;
               border = null;
+              shape = BoxShape.circle;
               break;
             case AnswerStatus.answeredAndMarked:
-              shape = BoxShape.circle;
-              color = Colors.purple;
+            // Purple Circle + Green Badge
+              fillColor = Colors.purple.shade700;
+              textColor = Colors.white;
               border = null;
-              badge = const Positioned(
+              shape = BoxShape.circle;
+              badge = Positioned(
                 bottom: 0,
                 right: 0,
-                child: Icon(Icons.check_circle, size: 14, color: Colors.green),
+                child: Container(
+                  padding: const EdgeInsets.all(1),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check_circle, size: 12, color: Colors.green),
+                ),
               );
               break;
           }
@@ -741,26 +805,32 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
               margin: const EdgeInsets.symmetric(horizontal: 5),
               child: Stack(
                 alignment: Alignment.center,
+                clipBehavior: Clip.none,
                 children: [
                   Container(
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: color,
+                      color: fillColor,
                       shape: shape,
+                      // Highlight current question with Blue Border
                       border: isCurrent
                           ? Border.all(color: Colors.blueAccent, width: 3)
                           : border,
                       borderRadius: shape == BoxShape.rectangle
                           ? BorderRadius.circular(4)
                           : null,
+                      boxShadow: isCurrent
+                          ? [BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 4, spreadRadius: 1)]
+                          : null,
                     ),
                     child: Center(
                       child: Text(
                         "${index + 1}",
                         style: TextStyle(
-                          color: (color == Colors.white) ? Colors.black : Colors.white,
+                          color: textColor,
                           fontWeight: FontWeight.bold,
+                          fontSize: 16,
                         ),
                       ),
                     ),

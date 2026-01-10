@@ -12,11 +12,11 @@ TARGET_FILENAME = "questionToTagUsingAI.csv"
 METADATA_FILENAME = "DB Metadata.xlsx"
 
 # API KEY
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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"
 
 # BATCH SETTINGS
 BATCH_SIZE = 5
-VERBOSE = True 
+VERBOSE = False  # Set to False as requested
 
 MODEL_QUEUE = [
     "openai/gpt-oss-120b", 
@@ -31,7 +31,7 @@ current_model_index = 0
 
 # --- 2. HIERARCHICAL SYLLABUS LOADER ---
 def load_hierarchical_syllabus(metadata_path):
-    print("⏳ Loading Syllabus Tree...")
+    # print("⏳ Loading Syllabus Tree...")
     try:
         meta_df = pd.read_excel(metadata_path, sheet_name="Syllabus tree", engine='openpyxl')
         meta_df = meta_df.map(lambda x: str(x).strip() if pd.notna(x) else "nan")
@@ -69,17 +69,17 @@ def load_hierarchical_syllabus(metadata_path):
                 if valid_l2s:
                     l2_map[t] = {i+1: name for i, name in enumerate(valid_l2s)}
                     # DEBUG: Check specifically for the problem topic
-                    if "Surface tension" in t:
-                        print(f"   🔍 DEBUG: '{t}' split into {len(valid_l2s)} options: {valid_l2s}")
+                    # if "Surface tension" in t:
+                        # print(f"   🔍 DEBUG: '{t}' split into {len(valid_l2s)} options: {valid_l2s}")
                 else:
                     l2_map[t] = {} 
 
-        print(f"✅ Loaded {len(chapter_map)} Chapters.")
-        print(f"✅ Loaded L2 maps for {len(l2_map)} Topics.")
+        # print(f"✅ Loaded {len(chapter_map)} Chapters.")
+        # print(f"✅ Loaded L2 maps for {len(l2_map)} Topics.")
         return chapter_map, topic_map, l2_map
 
     except Exception as e:
-        print(f"❌ Error loading syllabus: {e}")
+        # print(f"❌ Error loading syllabus: {e}")
         return {}, {}, {}
 
 def generate_menu(options_dict):
@@ -96,10 +96,10 @@ def call_ai_with_retry(system_prompt, user_prompt):
         model = MODEL_QUEUE[current_model_index]
         
         try:
-            if VERBOSE:
-                print(f"\n--- [SENDING TO {model}] ---")
-                print(f"SYSTEM:\n{system_prompt[:300]}...\n") 
-                print(f"USER:\n{user_prompt[:500]}\n----------------------------")
+            # if VERBOSE:
+                # print(f"\n--- [SENDING TO {model}] ---")
+                # print(f"SYSTEM:\n{system_prompt[:300]}...\n") 
+                # print(f"USER:\n{user_prompt[:500]}\n----------------------------")
             
             completion = client.chat.completions.create(
                 model=model,
@@ -112,13 +112,13 @@ def call_ai_with_retry(system_prompt, user_prompt):
             )
             
             raw_resp = completion.choices[0].message.content
-            if VERBOSE:
-                print(f"RECEIVED:\n{raw_resp}\n")
+            # if VERBOSE:
+                # print(f"RECEIVED:\n{raw_resp}\n")
             
             return json.loads(raw_resp), model
 
         except Exception as e:
-            err = str(e).lower()
+            # err = str(e).lower()
             print(f"❌ Error ({model}): {e}")
             current_model_index += 1
             time.sleep(1) 
@@ -136,7 +136,7 @@ def run_hierarchical_tagger():
 
     # 2. Load Data
     if not os.path.exists(target_csv):
-        print(f"❌ Error: {target_csv} missing.")
+        # print(f"❌ Error: {target_csv} missing.")
         return
         
     df = pd.read_csv(target_csv)
@@ -157,12 +157,15 @@ def run_hierarchical_tagger():
     )
     
     pending_indices = df[mask_needs_work].index.tolist()
-    print(f"👉 Found {len(pending_indices)} questions needing tagging.")
+    # print(f"👉 Found {len(pending_indices)} questions needing tagging.")
+
+    # --- PROGRESS BAR SETUP ---
+    pbar = tqdm(total=len(pending_indices), desc="Tagging Questions", unit="q")
 
     # --- PROCESS BATCHES ---
     for i in range(0, len(pending_indices), BATCH_SIZE):
         batch_idx = pending_indices[i : i + BATCH_SIZE]
-        print(f"\n📦 Processing Batch indices: {batch_idx}")
+        # print(f"\n📦 Processing Batch indices: {batch_idx}")
         
         # ====================================================
         # PHASE 1: FILL MISSING CHAPTERS
@@ -170,7 +173,7 @@ def run_hierarchical_tagger():
         missing_chapter_indices = [idx for idx in batch_idx if needs_tagging(df.at[idx, 'Chapter'])]
         
         if missing_chapter_indices:
-            print(f"   🔹 Tagging Chapters for {len(missing_chapter_indices)} questions...")
+            # print(f"   🔹 Tagging Chapters for {len(missing_chapter_indices)} questions...")
             q_block = ""
             for idx in missing_chapter_indices:
                 text = str(df.at[idx, 'OCR_Text']).replace("\n", " ")[:600]
@@ -206,7 +209,7 @@ Map questions to ONE Chapter ID from the list below.
                                 df.at[idx, 'Chapter'] = chapter_idx[cid]
                                 df.at[idx, 'AI_Reasoning'] = f"Ch: {resp[key].get('reason')}"
                                 df.at[idx, 'Model_Used'] = model
-                                print(f"      ✅ Q{idx} -> {chapter_idx[cid]}")
+                                # print(f"       ✅ Q{idx} -> {chapter_idx[cid]}")
                         except: pass
 
         # ====================================================
@@ -226,7 +229,7 @@ Map questions to ONE Chapter ID from the list below.
             topic_menu = topic_idx_map[ch_name]
             if not topic_menu: continue 
 
-            print(f"   🔹 Tagging Topics for {len(q_indices)} questions in '{ch_name}'...")
+            # print(f"   🔹 Tagging Topics for {len(q_indices)} questions in '{ch_name}'...")
             q_block = ""
             for idx in q_indices:
                 text = str(df.at[idx, 'OCR_Text']).replace("\n", " ")[:400]
@@ -252,7 +255,7 @@ JSON: {{ "Q_ID_x": {{ "topic_id": 1 }} }}
                             tid = int(resp[key].get('topic_id'))
                             if tid in topic_menu:
                                 df.at[idx, 'Topic'] = topic_menu[tid]
-                                print(f"      ✅ Q{idx} -> {topic_menu[tid]}")
+                                # print(f"       ✅ Q{idx} -> {topic_menu[tid]}")
                         except: pass
 
         # ====================================================
@@ -272,7 +275,7 @@ JSON: {{ "Q_ID_x": {{ "topic_id": 1 }} }}
 
         for t_name, q_indices in topic_groups.items():
             l2_menu = l2_idx_map[t_name]
-            print(f"   🔹 Tagging L2 for {len(q_indices)} questions in '{t_name}'...")
+            # print(f"   🔹 Tagging L2 for {len(q_indices)} questions in '{t_name}'...")
             
             q_block = ""
             for idx in q_indices:
@@ -299,11 +302,16 @@ JSON: {{ "Q_ID_x": {{ "l2_id": 1 }} }}
                             l2id = int(resp[key].get('l2_id'))
                             if l2id in l2_menu:
                                 df.at[idx, 'Topic_L2'] = l2_menu[l2id]
-                                print(f"      ✅ Q{idx} -> {l2_menu[l2id]}")
+                                # print(f"       ✅ Q{idx} -> {l2_menu[l2id]}")
                         except: pass
 
         df.to_csv(target_csv, index=False)
-        print("💾 Batch Saved.")
+        # print("💾 Batch Saved.")
+        
+        # UPDATE PROGRESS BAR
+        pbar.update(len(batch_idx))
+
+    pbar.close()
 
 if __name__ == "__main__":
     run_hierarchical_tagger()

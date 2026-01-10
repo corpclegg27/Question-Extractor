@@ -1,135 +1,393 @@
-// lib/features/student/widgets/student_curation_preview_card.dart
-
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-class StudentCurationPreviewCard extends StatelessWidget {
-  // CHANGED: Accept the snapshot directly to get both ID and Data
-  final QueryDocumentSnapshot snapshot;
+// LOGIC IMPORTS
+import 'package:study_smart_qc/models/test_enums.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
 
+class StudentCurationPreviewCard extends StatelessWidget {
+  final QueryDocumentSnapshot snapshot;
   final bool isResumable;
   final bool isSubmitted;
   final bool isStrict;
-  final VoidCallback onTap;
+
+  final VoidCallback onResumeTap;
+  final VoidCallback onViewAnalysisTap;
 
   const StudentCurationPreviewCard({
     super.key,
     required this.snapshot,
     required this.isResumable,
-    required this.isSubmitted, // Still needed (Context depends on User, not Doc)
+    required this.isSubmitted,
     required this.isStrict,
-    required this.onTap,
+    required this.onResumeTap,
+    required this.onViewAnalysisTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final String? uid = FirebaseAuth.instance.currentUser?.uid;
     final data = snapshot.data() as Map<String, dynamic>;
+    final String assignmentCode = data['assignmentCode'] ?? '----';
 
-    // 1. Parsing Data
+    return StreamBuilder<DocumentSnapshot>(
+      stream: uid != null
+          ? FirebaseFirestore.instance.collection('users').doc(uid).snapshots()
+          : null,
+      builder: (context, userSnap) {
+
+        // --- 1. DETERMINE TRUE STATUS ---
+        bool actuallySubmitted = isSubmitted;
+
+        // Check Backend Status
+        final String docStatus = data['status']?.toString() ?? '';
+        if (docStatus.toLowerCase() == 'submitted' || docStatus == 'Attempted') {
+          actuallySubmitted = true;
+        }
+
+        // Check User Profile (Real-time)
+        if (!actuallySubmitted && userSnap.hasData && userSnap.data!.exists) {
+          final userData = userSnap.data!.data() as Map<String, dynamic>;
+          final List<dynamic> submittedList = userData['assignmentCodesSubmitted'] ?? [];
+          if (submittedList.contains(assignmentCode)) {
+            actuallySubmitted = true;
+          }
+        }
+
+        return _buildCardUI(context, data, actuallySubmitted);
+      },
+    );
+  }
+
+  Widget _buildCardUI(BuildContext context, Map<String, dynamic> data, bool actuallySubmitted) {
+    // --- 2. PARSE DATA ---
     final Timestamp? createdAtTs = data['createdAt'];
     final Timestamp? deadlineTs = data['deadline'];
+    final String title = data['title'] ?? "Untitled Assignment";
+    final String code = data['assignmentCode'] ?? '----';
+    final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
+    final int? storedTime = data['timeLimitMinutes'];
+    final String timeDisplay = storedTime != null ? "${storedTime}m" : "${questionCount * 2}m (Est)";
 
-    // --- DATE LOGIC ---
     String dateLabel;
-    Color dateColor;
+    bool isOverdue = false;
 
     if (deadlineTs != null) {
       final date = deadlineTs.toDate();
       final formatted = DateFormat('MMM d, h:mm a').format(date);
       dateLabel = "Due: $formatted";
-
-      if (date.isBefore(DateTime.now()) && !isSubmitted) {
-        dateColor = Colors.red.shade700;
-      } else {
-        dateColor = Colors.grey.shade700;
+      if (date.isBefore(DateTime.now()) && !actuallySubmitted) {
+        isOverdue = true;
       }
     } else {
       final date = createdAtTs?.toDate();
       dateLabel = date != null ? DateFormat('MMM d, yyyy').format(date) : 'Unknown Date';
-      dateColor = Colors.grey;
     }
 
-    final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
-    final String code = data['assignmentCode'] ?? '----';
-    final int? storedTime = data['timeLimitMinutes'];
-    final String timeDisplay = storedTime != null ? "${storedTime}m" : "${questionCount * 2}m (Est)";
+    // --- 3. THEME LOGIC ---
+    Color borderColor = Colors.transparent;
+    List<BoxShadow> shadows;
+    Widget? statusBadge;
 
-    // 2. Styling Logic
-    Color codeBgColor = isSubmitted
-        ? Colors.teal.shade50
-        : (isStrict ? Colors.red.shade50 : Colors.deepPurple.shade50);
-    Color codeTextColor = isSubmitted
-        ? Colors.teal.shade900
-        : (isStrict ? Colors.red.shade900 : Colors.deepPurple.shade900);
-    Color borderColor = isSubmitted
-        ? Colors.teal.shade300
-        : (isStrict ? Colors.red.shade200 : Colors.deepPurple.shade200);
+    // Default Shadow
+    shadows = [
+      BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4)),
+    ];
 
-    return Card(
-      elevation: (isResumable || isSubmitted) ? 4 : 2,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: (isResumable || isSubmitted)
-            ? const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12))
-            : BorderRadius.circular(12),
-        side: isResumable ? BorderSide(color: Colors.deepPurple.shade300, width: 1.5) : BorderSide.none,
+    if (actuallySubmitted) {
+      // 🟢 COMPLETED: Green Glow & Border
+      borderColor = Colors.green.shade300;
+      shadows = [
+        BoxShadow(color: Colors.green.withOpacity(0.25), blurRadius: 12, spreadRadius: 2),
+        BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 3)),
+      ];
+      statusBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
+            const SizedBox(width: 4),
+            Text("Completed", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green.shade800)),
+          ],
+        ),
+      );
+    } else if (isResumable) {
+      // 🟠 RESUMABLE: Orange Glow
+      borderColor = Colors.orange.shade300;
+      shadows = [
+        BoxShadow(color: Colors.orange.withOpacity(0.2), blurRadius: 10, spreadRadius: 1),
+      ];
+      statusBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.timelapse, size: 16, color: Colors.orange.shade800),
+            const SizedBox(width: 4),
+            Text("In Progress", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade900)),
+          ],
+        ),
+      );
+    } else {
+      // ⚪ PENDING
+      borderColor = Colors.grey.shade200;
+      if (isOverdue) borderColor = Colors.red.shade200;
+      statusBadge = Text(
+        dateLabel,
+        style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isOverdue ? Colors.red : Colors.grey.shade500
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+        boxShadow: shadows,
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _handleTap(context, data, actuallySubmitted),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
+              // --- HEADER ---
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                        color: codeBgColor,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: borderColor)
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(6),
                     ),
-                    child: Text("CODE: $code",
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: codeTextColor)),
+                    child: Text(
+                      "CODE: $code",
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade700),
+                    ),
                   ),
-                  Text(dateLabel,
-                      style: TextStyle(fontSize: 12, color: dateColor, fontWeight: FontWeight.w600)),
+                  if (statusBadge != null) statusBadge!,
                 ],
               ),
-              const SizedBox(height: 10),
 
-              // Title
-              Text(data['title'] ?? "Untitled Assignment",
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 5),
+              const SizedBox(height: 12),
 
-              // Footer
+              // --- TITLE ---
+              Text(
+                title,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, height: 1.2),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+
+              const SizedBox(height: 8),
+
+              // --- DETAILS ROW ---
               Row(
                 children: [
-                  Icon(Icons.quiz, size: 14, color: Colors.grey.shade600),
+                  Icon(Icons.quiz_outlined, size: 16, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
                   Text("$questionCount Qs", style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
-                  const SizedBox(width: 15),
-                  Icon(Icons.timer, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 16),
+                  Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
                   Text(timeDisplay, style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
-                  if (isSubmitted) ...[
-                    const Spacer(),
-                    const Icon(Icons.check_circle, size: 18, color: Colors.teal),
-                    const SizedBox(width: 4),
-                    Text("Done", style: TextStyle(color: Colors.teal.shade700, fontWeight: FontWeight.bold, fontSize: 12)),
-                  ]
+
+                  const Spacer(),
+                  if (isStrict && !actuallySubmitted)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.red.shade100)
+                      ),
+                      child: Text("STRICT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red)),
+                    ),
                 ],
               ),
+
+              const SizedBox(height: 16),
+
+              // --- ACTION BUTTONS ---
+              if (actuallySubmitted) ...[
+                Row(
+                  children: [
+                    // 1. View Analysis (Primary)
+                    Expanded(
+                      flex: 3,
+                      child: ElevatedButton.icon(
+                        onPressed: onViewAnalysisTap,
+                        icon: const Icon(Icons.analytics_outlined, size: 18),
+                        label: const Text("View Analysis"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6200EA),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+
+                    // 2. Attempt Again (Secondary) - Only if NOT strict
+                    if (!isStrict) ...[
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: OutlinedButton(
+                          onPressed: () => _initiateTestFlow(context, data),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.deepPurple,
+                            side: const BorderSide(color: Colors.deepPurple),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          child: const Text("Retake", style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ],
+                )
+              ] else if (isResumable) ...[
+                // Resume Button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: onResumeTap,
+                    icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                    label: const Text("Resume Test"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange.shade700,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  // ===========================================================================
+  //  LOGIC: HANDLE CLICKS & START TEST
+  // ===========================================================================
+
+  void _handleTap(BuildContext context, Map<String, dynamic> data, bool actuallySubmitted) {
+    if (isResumable) {
+      onResumeTap();
+    } else if (actuallySubmitted) {
+      onViewAnalysisTap();
+    } else {
+      _initiateTestFlow(context, data);
+    }
+  }
+
+  Future<void> _initiateTestFlow(BuildContext context, Map<String, dynamic> data) async {
+    TestMode selectedMode = TestMode.test;
+    if (isStrict) {
+      selectedMode = TestMode.test;
+    } else {
+      final userChoice = await _showModeSelectionDialog(context);
+      if (userChoice == null) return;
+      selectedMode = userChoice;
+    }
+    if (context.mounted) {
+      _fetchAndLaunch(context, data, selectedMode);
+    }
+  }
+
+  Future<TestMode?> _showModeSelectionDialog(BuildContext context) async {
+    return showDialog<TestMode>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Start Assignment"),
+        content: const Text("How would you like to attempt this?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, TestMode.practice),
+            child: const Text("Practice Mode"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6200EA),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, TestMode.test),
+            child: const Text("Test Mode"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _fetchAndLaunch(BuildContext context, Map<String, dynamic> data, TestMode mode) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      final List<dynamic> rawIds = data['questionIds'] ?? [];
+      final List<String> qIds = rawIds.cast<String>();
+
+      if (qIds.isEmpty) throw Exception("No questions in this assignment.");
+
+      final questions = await TestOrchestrationService().getQuestionsByIds(qIds);
+
+      if (context.mounted) {
+        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TestScreen(
+              sourceId: snapshot.id,
+              assignmentCode: data['assignmentCode'] ?? 'UNKNOWN',
+              title: data['title'] ?? 'Assignment',
+              onlySingleAttempt: data['onlySingleAttempt'] ?? false,
+              questions: questions,
+              timeLimitInMinutes: data['timeLimitMinutes'] ?? 30,
+              testMode: mode,
+              resumedTimerSeconds: null,
+              resumedPageIndex: 0,
+              resumedResponses: const {},
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error launching test: $e")),
+        );
+      }
+    }
   }
 }

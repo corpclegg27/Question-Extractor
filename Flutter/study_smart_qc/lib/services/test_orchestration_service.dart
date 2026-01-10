@@ -404,14 +404,68 @@ class TestOrchestrationService {
 
   Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
     if (questionIds.isEmpty) return [];
+
+    final uniqueIds = questionIds.where((id) => id.isNotEmpty).toSet().toList();
     final List<Question> fetchedQuestions = [];
-    for (var i = 0; i < questionIds.length; i += 10) {
-      final chunk = questionIds.sublist(i, min(i + 10, questionIds.length));
-      final querySnapshot = await _firestore.collection('questions').where(FieldPath.documentId, whereIn: chunk).get();
-      fetchedQuestions.addAll(querySnapshot.docs.map((doc) => Question.fromFirestore(doc)));
+
+    // 1. Fetch
+    for (var i = 0; i < uniqueIds.length; i += 10) {
+      final chunk = uniqueIds.sublist(i, min(i + 10, uniqueIds.length));
+      try {
+        // Try String Match (Primary)
+        var snapshot = await _firestore
+            .collection('questions')
+            .where('question_id', whereIn: chunk)
+            .get();
+
+        // Try Integer Match (Fallback)
+        if (snapshot.docs.isEmpty) {
+          final intChunk = chunk.map((e) => int.tryParse(e)).whereType<int>().toList();
+          if (intChunk.isNotEmpty) {
+            snapshot = await _firestore
+                .collection('questions')
+                .where('question_id', whereIn: intChunk)
+                .get();
+          }
+        }
+
+        fetchedQuestions.addAll(
+            snapshot.docs.map((doc) => Question.fromFirestore(doc))
+        );
+      } catch (e) {
+        print("Error fetching chunk: $e");
+      }
     }
-    final questionMap = {for (var q in fetchedQuestions) q.id: q};
-    return questionIds.map((id) => questionMap[id]).whereType<Question>().toList();
+
+    // 2. Map & Sort (THE FIX)
+    List<Question> orderedResult = [];
+
+    for (String requestedId in questionIds) {
+      try {
+        final match = fetchedQuestions.firstWhere((q) {
+          // CHECK 1: The New Custom ID (Matches "5743")
+          if (q.customId == requestedId) return true;
+
+          // CHECK 2: The Document Key (Matches "NpV5...")
+          if (q.id == requestedId) return true;
+
+          // CHECK 3: The Question No (Matches "83")
+          if (q.questionNo.toString() == requestedId) return true;
+
+          return false;
+        });
+        orderedResult.add(match);
+      } catch (e) {
+        print("⚠️ [WARN] Question ID $requestedId not found in fetched results.");
+      }
+    }
+
+    // Fallback if matching logic was too strict but we have data
+    if (orderedResult.isEmpty && fetchedQuestions.isNotEmpty) {
+      return fetchedQuestions;
+    }
+
+    return orderedResult;
   }
 
   // ===========================================================================

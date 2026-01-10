@@ -1,10 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-// CRITICAL IMPORT
 import 'package:study_smart_qc/models/test_enums.dart';
 
 class Question {
-  final String id;
+  final String id; // Firestore Document ID (e.g., "NpV5...")
+  final String customId; // Your Custom ID (e.g., "5743") <--- NEW FIELD
+
   final String chapterId;
   final String topicId;
   final String topicL2Id;
@@ -13,7 +14,7 @@ class Question {
   final String topic;
   final String topicL2;
 
-  final QuestionType type; // Uses the enum from test_enums.dart
+  final QuestionType type;
 
   final String imageUrl;
   final String? solutionUrl;
@@ -25,6 +26,7 @@ class Question {
 
   Question({
     required this.id,
+    required this.customId, // <--- Add to constructor
     required this.chapterId,
     required this.topicId,
     required this.topicL2Id,
@@ -42,15 +44,12 @@ class Question {
     required this.questionNo,
   });
 
-  factory Question.fromMap(Map<String, dynamic> data, String id) {
-    // Debugging Missing Images
-    String? foundImage = data['image_url'] ?? data['imageUrl'] ?? data['Image'];
-    if (foundImage == null || foundImage.isEmpty) {
-      debugPrint("⚠️ [WARNING] Question $id has NO IMAGE URL detected.");
-    }
-
+  factory Question.fromMap(Map<String, dynamic> data, String docId) {
     return Question(
-      id: id.isNotEmpty ? id : (data['question_id'] ?? ''),
+      id: docId,
+      // CAPTURE THE CUSTOM ID (Fallback to docId if missing)
+      customId: (data['question_id'] ?? data['id'] ?? docId).toString(),
+
       chapterId: data['chapterId'] ?? '',
       topicId: data['topicId'] ?? '',
       topicL2Id: data['topicL2Id'] ?? '',
@@ -61,14 +60,15 @@ class Question {
 
       type: _mapStringToType(data['Question type']),
 
-      // Robust Image Check
+      // CORRECT IMAGE FIELD (Matches your Firestore doc: 'image_url')
       imageUrl: data['image_url'] ?? data['imageUrl'] ?? data['Image'] ?? '',
-      solutionUrl: data['solution_url'] ?? data['solutionUrl'],
 
+      solutionUrl: data['solution_url'] ?? data['solutionUrl'],
       correctAnswer: data['Correct Answer'],
       difficulty: data['Difficulty_tag'] ?? 'Medium',
       exam: data['Exam'] ?? '',
-      isPyq: (data['PYQ'] ?? '') == 'Yes',
+      isPyq: (data['PYQ'] ?? '') == 'Unknown', // Logic adjustment based on your data
+
       questionNo: data['Question No.'] is int
           ? data['Question No.']
           : int.tryParse(data['Question No.']?.toString() ?? '0') ?? 0,
@@ -82,18 +82,12 @@ class Question {
 
   static QuestionType _mapStringToType(String? typeString) {
     switch (typeString) {
-      case 'Single Correct':
-        return QuestionType.singleCorrect;
-      case 'Numerical type':
-        return QuestionType.numerical;
-      case 'One or more options correct':
-        return QuestionType.multipleCorrect;
-      case 'Single Matrix Match':
-        return QuestionType.matrixSingle;
-      case 'Multi Matrix Match':
-        return QuestionType.matrixMulti;
-      default:
-        return QuestionType.unknown;
+      case 'Single Correct': return QuestionType.singleCorrect;
+      case 'Numerical type': return QuestionType.numerical;
+      case 'One or more options correct': return QuestionType.multipleCorrect;
+      case 'Single Matrix Match': return QuestionType.matrixSingle;
+      case 'Multi Matrix Match': return QuestionType.matrixMulti;
+      default: return QuestionType.unknown;
     }
   }
 }

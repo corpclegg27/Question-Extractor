@@ -19,7 +19,7 @@ LOG_FILE = 'migrationLogs.csv'  # Persistent Log File
 COLLECTION_NAME = 'questions' 
 
 # Local Base Directory
-BASE_DIR = r"D:\Main\3. Work - Teaching\Projects\Question extractor\Processed_Database\Compressed"
+BASE_DIR = r"D:\Main\3. Work - Teaching\Projects\Question extractor\Processed_Database"
 
 # Cloud Storage Root Folder
 STORAGE_ROOT = "Question Bank" 

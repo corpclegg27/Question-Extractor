@@ -3,13 +3,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-// MODELS & SERVICES
-import 'package:study_smart_qc/models/test_enums.dart';
-import 'package:study_smart_qc/services/test_orchestration_service.dart';
-
-// WIDGETS & SCREENS
+// WIDGETS
 import 'package:study_smart_qc/features/student/widgets/student_curation_preview_card.dart';
-import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
 
 class StudentAssignmentsList extends StatelessWidget {
   final List<QueryDocumentSnapshot> documents;
@@ -59,70 +54,16 @@ class StudentAssignmentsList extends StatelessWidget {
         final bool isStrict = data['onlySingleAttempt'] ?? false;
         final bool isResumable = (assignmentCode == resumableAssignmentCode);
 
+        // The Card now handles the "New Test" logic internally
         return StudentCurationPreviewCard(
-          snapshot: doc, // CHANGED: Pass full snapshot
+          snapshot: doc,
           isResumable: isResumable,
           isSubmitted: isHistoryMode,
           isStrict: isStrict,
-          onTap: () {
-            if (isResumable) {
-              onResumeTap();
-            } else if (isHistoryMode) {
-              onViewAnalysisTap();
-            } else {
-              _startNewTest(context, doc.id, data);
-            }
-          },
+          onResumeTap: onResumeTap,
+          onViewAnalysisTap: onViewAnalysisTap,
         );
       },
     );
-  }
-
-  Future<void> _startNewTest(
-      BuildContext context, String docId, Map<String, dynamic> data) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      final List<dynamic> rawIds = data['questionIds'] ?? [];
-      final List<String> qIds = rawIds.cast<String>();
-
-      if (qIds.isEmpty) throw Exception("No questions in this assignment.");
-
-      final questions = await TestOrchestrationService().getQuestionsByIds(qIds);
-
-      if (context.mounted) {
-        Navigator.pop(context);
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => TestScreen(
-              sourceId: docId,
-              assignmentCode: data['assignmentCode'],
-              questions: questions,
-              timeLimitInMinutes: data['timeLimitMinutes'] ?? 0,
-              testMode: (data['onlySingleAttempt'] ?? false)
-                  ? TestMode.test
-                  : TestMode.practice,
-              resumedTimerSeconds: null,
-              resumedPageIndex: 0,
-              resumedResponses: const {},
-              title: data['title'] ?? 'Assignment',
-              onlySingleAttempt: data['onlySingleAttempt'] ?? false,
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error starting test: $e")),
-        );
-      }
-    }
   }
 }
