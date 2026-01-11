@@ -78,7 +78,7 @@ class StudentCurationPreviewCard extends StatelessWidget {
     if (deadlineTs != null) {
       final date = deadlineTs.toDate();
       final formatted = DateFormat('MMM d, h:mm a').format(date);
-      dateLabel = "Due: $formatted";
+      dateLabel = "Deadline: $formatted";
       if (date.isBefore(DateTime.now()) && !actuallySubmitted) {
         isOverdue = true;
       }

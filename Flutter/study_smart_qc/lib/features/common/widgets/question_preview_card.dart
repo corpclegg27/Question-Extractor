@@ -88,7 +88,7 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        "QID: ${q.id.isNotEmpty ? q.id : 'NA'}",
+                        "QID: ${q.customId.isNotEmpty ? q.customId : 'NA'}",
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                       ),
                     ),

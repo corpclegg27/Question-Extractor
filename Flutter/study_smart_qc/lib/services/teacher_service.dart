@@ -153,7 +153,7 @@ class TeacherService {
 
     final assignmentCode = _generateAssignmentCode();
     // Using q.id because in your model Question.id is mapped to the real question_id
-    final questionIds = questions.map((q) => q.id).toList();
+    final questionIds = questions.map((q) => q.customId).toList();
 
     // FIXED: Subjects Logic
     final subjects = questions
