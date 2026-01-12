@@ -1,11 +1,14 @@
+//lib/models/question_model.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 
 class Question {
-  final String id; // Firestore Document ID (e.g., "NpV5...")
-  final String customId; // Your Custom ID (e.g., "5743") <--- NEW FIELD
+  final String id; // Firestore Document ID
+  final String customId; // Custom ID (e.g., "17813")
 
+  // --- Hierarchy / Syllabus Fields ---
   final String chapterId;
   final String topicId;
   final String topicL2Id;
@@ -14,8 +17,8 @@ class Question {
   final String topic;
   final String topicL2;
 
+  // --- Question Metadata ---
   final QuestionType type;
-
   final String imageUrl;
   final String? solutionUrl;
   final dynamic correctAnswer;
@@ -24,9 +27,15 @@ class Question {
   final bool isPyq;
   final int questionNo;
 
+  // --- NEWLY ADDED FIELDS ---
+  final String? qcStatus;      // e.g., "Pending QC", "Accepted"
+  final num? difficultyScore;  // e.g., 0.5, 10, etc.
+  final int? pyqYear;          // e.g., 2022
+  final String? ocrText;       // The raw text of the question
+
   Question({
     required this.id,
-    required this.customId, // <--- Add to constructor
+    required this.customId,
     required this.chapterId,
     required this.topicId,
     required this.topicL2Id,
@@ -42,6 +51,11 @@ class Question {
     required this.exam,
     required this.isPyq,
     required this.questionNo,
+    // Initialize new fields
+    this.qcStatus,
+    this.difficultyScore,
+    this.pyqYear,
+    this.ocrText,
   });
 
   factory Question.fromMap(Map<String, dynamic> data, String docId) {
@@ -53,7 +67,7 @@ class Question {
       chapterId: data['chapterId'] ?? '',
       topicId: data['topicId'] ?? '',
       topicL2Id: data['topicL2Id'] ?? '',
-      subject: data['Subject'] ?? 'Physics',
+      subject: data['Subject'] ?? 'Physics', // Default to Physics if missing
       chapter: data['Chapter'] ?? '',
       topic: data['Topic'] ?? '',
       topicL2: data['Topic_L2'] ?? '',
@@ -65,13 +79,31 @@ class Question {
 
       solutionUrl: data['solution_url'] ?? data['solutionUrl'],
       correctAnswer: data['Correct Answer'],
-      difficulty: data['Difficulty_tag'] ?? 'Medium',
+
+      // Look for 'Difficulty' first (per your Firestore doc), fallback to 'Difficulty_tag'
+      difficulty: data['Difficulty'] ?? data['Difficulty_tag'] ?? 'Medium',
+
       exam: data['Exam'] ?? '',
-      isPyq: (data['PYQ'] ?? '') == 'Unknown', // Logic adjustment based on your data
+
+      // Updated Logic: Check if String is 'Yes' (Case insensitive safe check)
+      isPyq: (data['PYQ'] ?? '').toString().toLowerCase() == 'yes',
 
       questionNo: data['Question No.'] is int
           ? data['Question No.']
           : int.tryParse(data['Question No.']?.toString() ?? '0') ?? 0,
+
+      // --- MAPPING NEW FIELDS ---
+      qcStatus: data['QC_Status'],
+      ocrText: data['OCR_Text'],
+
+      // Handle potential String vs Number mismatches safely
+      difficultyScore: data['Difficulty_score'] is num
+          ? data['Difficulty_score']
+          : num.tryParse(data['Difficulty_score']?.toString() ?? '0'),
+
+      pyqYear: data['PYQ_Year'] is int
+          ? data['PYQ_Year']
+          : int.tryParse(data['PYQ_Year']?.toString() ?? '0'),
     );
   }
 
@@ -90,4 +122,5 @@ class Question {
       default: return QuestionType.unknown;
     }
   }
+
 }

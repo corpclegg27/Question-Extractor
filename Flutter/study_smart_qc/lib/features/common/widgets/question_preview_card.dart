@@ -5,12 +5,10 @@ import 'package:study_smart_qc/models/question_model.dart';
 
 class QuestionPreviewCard extends StatefulWidget {
   final Question question;
-  final bool isExpanded; // If true, shows full details initially
 
   const QuestionPreviewCard({
     super.key,
     required this.question,
-    this.isExpanded = false,
   });
 
   @override
@@ -24,44 +22,20 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
   Widget build(BuildContext context) {
     final q = widget.question;
 
-    // --- LOGIC FOR HIERARCHICAL TAGS ---
-    // We combine available hierarchy info into a single breadcrumb string
-    // Structure: Chapter > Topic > Topic_L2 (if available)
+    // --- Breadcrumb Logic ---
     List<String> hierarchy = [];
+    bool isValidTag(String? s) => s != null && s.isNotEmpty && !s.toLowerCase().contains('unknown');
 
-    // Helper to validate tags: must not be empty and must not contain "unknown"
-    bool isValidTag(String? s) {
-      if (s == null || s.isEmpty) return false;
-      return !s.toLowerCase().contains('unknown');
-    }
-
-    // 1. Chapter
-    if (isValidTag(q.chapter)) {
-      hierarchy.add(_formatTag(q.chapter));
-    } else if (isValidTag(q.chapterId)) {
-      hierarchy.add(_formatTag(q.chapterId));
-    }
-
-    // 2. Topic
-    if (isValidTag(q.topic)) {
-      hierarchy.add(_formatTag(q.topic));
-    } else if (isValidTag(q.topicId)) {
-      hierarchy.add(_formatTag(q.topicId));
-    }
-
-    // 3. Sub-Topic (Topic L2)
-    if (isValidTag(q.topicL2)) {
-      hierarchy.add(_formatTag(q.topicL2));
-    } else if (isValidTag(q.topicL2Id)) {
-      hierarchy.add(_formatTag(q.topicL2Id));
-    }
+    if (isValidTag(q.chapter)) hierarchy.add(_formatTag(q.chapter));
+    if (isValidTag(q.topic)) hierarchy.add(_formatTag(q.topic));
+    if (isValidTag(q.topicL2)) hierarchy.add(_formatTag(q.topicL2));
 
     String breadcrumbText = hierarchy.join(" > ");
     if (breadcrumbText.isEmpty) breadcrumbText = "General";
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      elevation: 0, // Elevation handled by parent in filter screen
+      elevation: 0,
       color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Column(
@@ -80,7 +54,6 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
               children: [
                 Row(
                   children: [
-                    // --- 1. FIXED QID DISPLAY ---
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
@@ -98,24 +71,18 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                   ],
                 ),
                 const SizedBox(height: 8),
-
-                // --- 2. HIERARCHICAL TAGS ---
-                // Displaying Chapter > Topic > ...
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start, // Align icon with top of text if wrapped
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Icon representing Hierarchy/Tree structure
                     Padding(
-                      padding: const EdgeInsets.only(top: 2.0), // visual alignment
+                      padding: const EdgeInsets.only(top: 2.0),
                       child: const Icon(Icons.account_tree, size: 16, color: Colors.grey),
                     ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         breadcrumbText,
-                        // Increased font size ~10% (12 -> 13.5)
                         style: TextStyle(fontSize: 13.5, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
-                        // Removed maxLines to allow wrapping
                       ),
                     ),
                   ],
@@ -146,7 +113,7 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
             ),
           ),
 
-          // FOOTER: Show Answer Toggle
+          // FOOTER
           const Divider(height: 1),
           if (!_showAnswer)
             SizedBox(
@@ -158,7 +125,6 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
               ),
             ),
 
-          // ANSWER SECTION (Conditional)
           if (_showAnswer)
             Container(
               width: double.infinity,
@@ -181,8 +147,6 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                     ],
                   ),
                   const SizedBox(height: 8),
-
-                  // CORRECT ANSWER TEXT
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
@@ -198,10 +162,7 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 10),
-
-                  // SOLUTION IMAGE
                   if (q.solutionUrl != null && q.solutionUrl!.isNotEmpty)
                     Center(
                       child: Image.network(
@@ -219,12 +180,9 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
     );
   }
 
-  // Helper to clean up ID strings (e.g., "ray_optics" -> "Ray Optics")
   String _formatTag(String text) {
     if (text.isEmpty) return "";
-    // If it already has spaces, assume it's formatted. Otherwise, split by underscore.
     if (text.contains(' ')) return text;
-
     return text.split('_').map((str) => str.isNotEmpty ? str[0].toUpperCase() + str.substring(1) : '').join(' ');
   }
 

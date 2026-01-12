@@ -30,12 +30,17 @@
 
 📂 lib/features/student/widgets/
    📄 student_assignments_list.dart
+   📄 student_curation_preview_card.dart
 
 📂 lib/features/teacher/screens/
    📄 curation_management_screen.dart
+   📄 modify_question_screen.dart
    📄 teacher_curation_screen.dart
    📄 teacher_filter_screen.dart
    📄 teacher_history_screen.dart
+
+📂 lib/features/teacher/widgets/
+   📄 teacher_curation_preview_card.dart
 
 📂 lib/features/test_creation/screens/
    📄 custom_test_history_screen.dart
@@ -49,7 +54,6 @@
 📂 lib/models/
    📄 attempt_item_model.dart
    📄 attempt_model.dart
-   📄 custom_test_model.dart
    📄 nta_test_models.dart
    📄 question_model.dart
    📄 test_enums.dart
@@ -62,7 +66,6 @@
 
 📂 lib/services/
    📄 auth_service.dart
-   📄 custom_test_service.dart
    📄 local_session_service.dart
    📄 onboarding_service.dart
    📄 teacher_service.dart
@@ -81,7 +84,7 @@
    📄 test_configuration_bottom_sheet.dart
    📄 timer_hms.dart
 
-Total Source Files: 50
+Total Source Files: 51
 --------------------------------------------------
 --- FILE CONTENTS ---
 
@@ -2607,17 +2610,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
 ================================================================================
 FILE: lib/features/common/widgets/question_preview_card.dart
 ================================================================================
+// lib/features/common/widgets/question_preview_card.dart
+
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 
 class QuestionPreviewCard extends StatefulWidget {
   final Question question;
-  final bool isExpanded; // If true, shows full details initially
 
   const QuestionPreviewCard({
     super.key,
     required this.question,
-    this.isExpanded = false,
   });
 
   @override
@@ -2631,9 +2634,21 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
   Widget build(BuildContext context) {
     final q = widget.question;
 
+    // --- Breadcrumb Logic ---
+    List<String> hierarchy = [];
+    bool isValidTag(String? s) => s != null && s.isNotEmpty && !s.toLowerCase().contains('unknown');
+
+    if (isValidTag(q.chapter)) hierarchy.add(_formatTag(q.chapter));
+    if (isValidTag(q.topic)) hierarchy.add(_formatTag(q.topic));
+    if (isValidTag(q.topicL2)) hierarchy.add(_formatTag(q.topicL2));
+
+    String breadcrumbText = hierarchy.join(" > ");
+    if (breadcrumbText.isEmpty) breadcrumbText = "General";
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
+      elevation: 0,
+      color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2642,43 +2657,47 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.deepPurple.shade50,
+              color: Colors.grey.shade50,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.deepPurple,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    "QID: ${q.id}",
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        // UPDATED TAGS: Source -> Chapter -> Topic -> Difficulty
-                        if (q.exam.isNotEmpty) ...[
-                          _buildTag(q.exam, Colors.blue.shade50, Colors.blue.shade700),
-                          const SizedBox(width: 5),
-                        ],
-                        if (q.chapterId.isNotEmpty) ...[
-                          _buildTag(_formatTag(q.chapterId), Colors.orange.shade50, Colors.orange.shade800),
-                          const SizedBox(width: 5),
-                        ],
-                        _buildTag(_formatTag(q.topicId), Colors.grey.shade100, Colors.grey.shade700),
-                        const SizedBox(width: 5),
-                        _buildTag(q.difficulty, _getDifficultyColor(q.difficulty), Colors.black87),
-                      ],
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        "QID: ${q.customId.isNotEmpty ? q.customId : 'NA'}",
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
                     ),
-                  ),
+                    const Spacer(),
+                    // Difficulty Badge
+                    _buildTag(q.difficulty, _getDifficultyColor(q.difficulty), Colors.black87),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2.0),
+                      child: const Icon(Icons.account_tree, size: 16, color: Colors.grey),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        breadcrumbText,
+                        style: TextStyle(fontSize: 13.5, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -2706,7 +2725,7 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
             ),
           ),
 
-          // FOOTER: Show Answer Toggle
+          // FOOTER
           const Divider(height: 1),
           if (!_showAnswer)
             SizedBox(
@@ -2718,7 +2737,6 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
               ),
             ),
 
-          // ANSWER SECTION (Conditional)
           if (_showAnswer)
             Container(
               width: double.infinity,
@@ -2741,8 +2759,6 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                     ],
                   ),
                   const SizedBox(height: 8),
-
-                  // CORRECT ANSWER TEXT
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
@@ -2754,14 +2770,11 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Text("Correct Option: ", style: TextStyle(fontWeight: FontWeight.bold)),
-                        Text(q.correctAnswer, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text(q.correctAnswer.toString(), style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 10),
-
-                  // SOLUTION IMAGE
                   if (q.solutionUrl != null && q.solutionUrl!.isNotEmpty)
                     Center(
                       child: Image.network(
@@ -2779,9 +2792,9 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
     );
   }
 
-  // Helper to clean up ID strings (e.g., "ray_optics" -> "Ray Optics")
   String _formatTag(String text) {
     if (text.isEmpty) return "";
+    if (text.contains(' ')) return text;
     return text.split('_').map((str) => str.isNotEmpty ? str[0].toUpperCase() + str.substring(1) : '').join(' ');
   }
 
@@ -2879,6 +2892,38 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ---------------------------------------------------------------------------
+  //  SORTING LOGIC (CLIENT SIDE)
+  // ---------------------------------------------------------------------------
+
+  /// Sorts documents:
+  /// 1. Items with deadline (Ascending / Earliest first)
+  /// 2. Items without deadline (Descending by CreatedAt / Newest first)
+  int _deadlineAwareSort(QueryDocumentSnapshot a, QueryDocumentSnapshot b) {
+    final Map<String, dynamic> dataA = a.data() as Map<String, dynamic>;
+    final Map<String, dynamic> dataB = b.data() as Map<String, dynamic>;
+
+    final Timestamp? deadlineA = dataA['deadline'];
+    final Timestamp? deadlineB = dataB['deadline'];
+
+    // Fallback: CreatedAt (assume non-null)
+    final Timestamp createdA = dataA['createdAt'] ?? Timestamp.now();
+    final Timestamp createdB = dataB['createdAt'] ?? Timestamp.now();
+
+    // 1. Prioritize existence of Deadline
+    if (deadlineA != null && deadlineB == null) return -1; // A comes first
+    if (deadlineA == null && deadlineB != null) return 1;  // B comes first
+
+    // 2. If both have deadlines, sort Ascending (Earliest deadline first)
+    if (deadlineA != null && deadlineB != null) {
+      int cmp = deadlineA.compareTo(deadlineB);
+      if (cmp != 0) return cmp;
+    }
+
+    // 3. If neither have deadlines (or deadlines are equal), sort CreatedAt Descending
+    return createdB.compareTo(createdA);
+  }
+
+  // ---------------------------------------------------------------------------
   //  RESUME LOGIC
   // ---------------------------------------------------------------------------
 
@@ -2917,7 +2962,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _handleResumePending();
             },
             style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6200EA), // Brand Color
+                backgroundColor: const Color(0xFF6200EA),
                 foregroundColor: Colors.white),
             child: const Text("Resume"),
           ),
@@ -2978,6 +3023,7 @@ class _HomeScreenState extends State<HomeScreen> {
         qIds = List<String>.from(data['questionIds'] ?? []);
         isSingleAttempt = data['onlySingleAttempt'] ?? false;
       } else {
+        // Fallback for legacy 'tests' collection if needed
         final testQuery = await FirebaseFirestore.instance
             .collection('tests')
             .where('assignmentCode', isEqualTo: assignmentCode)
@@ -3012,7 +3058,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   : '',
               assignmentCode: assignmentCode,
               questions: questions,
-              timeLimitInMinutes: 0,
+              timeLimitInMinutes: 0, // Handled by resume logic usually
               testMode: mode == 'Test' ? TestMode.test : TestMode.practice,
               resumedTimerSeconds: newTime,
               resumedPageIndex: state['currentQuestionIndex'],
@@ -3107,12 +3153,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // --- STUDENT DASHBOARD ---
-    final List<String> submitted = _userModel!.assignmentCodesSubmitted;
-    final String? resumeCode = _pendingAssignmentCode;
-    final VoidCallback navToAnalysis = () => setState(() => _currentTabIndex = 2);
-
+    // Single Stream Source for all tabs to ensure sync and efficiency
     return Scaffold(
-      backgroundColor: const Color(0xFFF9F9F9), // Clean off-white background
+      backgroundColor: const Color(0xFFF9F9F9),
       appBar: AppBar(
         title: Text(
           _getAppBarTitle(),
@@ -3124,39 +3167,111 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: false,
       ),
       drawer: _buildDrawer(context),
-      body: IndexedStack(
-        index: _currentTabIndex,
-        children: [
-          // Tab 0: Assignments
-          _AssignmentTabContainer(
-            isStrict: false,
-            submittedCodes: submitted,
-            resumableAssignmentCode: resumeCode,
-            onResumeTap: _handleResumePending,
-            onViewAnalysisTap: navToAnalysis,
-            onRefreshNeeded: _fetchUserData, // PASS CALLBACK HERE
-          ),
 
-          // Tab 1: Tests
-          _AssignmentTabContainer(
-            isStrict: true,
-            submittedCodes: submitted,
-            resumableAssignmentCode: resumeCode,
-            onResumeTap: _handleResumePending,
-            onViewAnalysisTap: navToAnalysis,
-            onRefreshNeeded: _fetchUserData, // PASS CALLBACK HERE
-          ),
+      // OUTER STREAM: Listen to User Profile (For real-time 'Completed' updates)
+      body: StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(_userModel!.uid)
+              .snapshots(),
+          builder: (context, userSnapshot) {
 
-          // Tab 2: Analysis (Redesigned)
-          const _AnalysisView(),
-        ],
+            // 1. Get Live Submitted Codes
+            // Fallback to static _userModel if stream is loading/empty to prevent flicker
+            List<String> liveSubmittedCodes = _userModel!.assignmentCodesSubmitted;
+
+            if (userSnapshot.hasData && userSnapshot.data!.exists) {
+              final userData = userSnapshot.data!.data() as Map<String, dynamic>;
+              liveSubmittedCodes = List<String>.from(userData['assignmentCodesSubmitted'] ?? []);
+            }
+
+            return StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('questions_curation')
+              // CORRECTED: Matching the single number field 'studentId'
+                  .where('studentId', isEqualTo: _userModel!.studentId)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (snapshot.hasError) {
+                  return Center(child: Text("Error: ${snapshot.error}"));
+                }
+
+                final allDocs = snapshot.data?.docs ?? [];
+
+                // 1. Filter: Strict (Test) vs Non-Strict (Assignment)
+                final strictDocs = <QueryDocumentSnapshot>[];
+                final normalDocs = <QueryDocumentSnapshot>[];
+
+                for (var doc in allDocs) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final bool isStrict = data['onlySingleAttempt'] ?? false;
+                  if (isStrict) {
+                    strictDocs.add(doc);
+                  } else {
+                    normalDocs.add(doc);
+                  }
+                }
+
+                // 2. Filter: Pending vs Completed using LIVE CODES
+                // 3. Sort: Apply Deadline->CreatedAt Logic
+
+                // -- ASSIGNMENTS --
+                final pendingAssignments = normalDocs
+                    .where((d) => !liveSubmittedCodes.contains(d['assignmentCode']))
+                    .toList()..sort(_deadlineAwareSort);
+
+                final completedAssignments = normalDocs
+                    .where((d) => liveSubmittedCodes.contains(d['assignmentCode']))
+                    .toList()..sort(_deadlineAwareSort);
+
+                // -- TESTS --
+                final pendingTests = strictDocs
+                    .where((d) => !liveSubmittedCodes.contains(d['assignmentCode']))
+                    .toList()..sort(_deadlineAwareSort);
+
+                final completedTests = strictDocs
+                    .where((d) => liveSubmittedCodes.contains(d['assignmentCode']))
+                    .toList()..sort(_deadlineAwareSort);
+
+                return IndexedStack(
+                  index: _currentTabIndex,
+                  children: [
+                    // Tab 0: Assignments
+                    _AssignmentTabContainer(
+                      pendingDocs: pendingAssignments,
+                      completedDocs: completedAssignments,
+                      resumableAssignmentCode: _pendingAssignmentCode,
+                      onResumeTap: _handleResumePending,
+                      onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
+                    ),
+
+                    // Tab 1: Tests
+                    _AssignmentTabContainer(
+                      pendingDocs: pendingTests,
+                      completedDocs: completedTests,
+                      resumableAssignmentCode: _pendingAssignmentCode,
+                      onResumeTap: _handleResumePending,
+                      onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
+                    ),
+
+                    // Tab 2: Analysis
+                    const _AnalysisView(),
+                  ],
+                );
+              },
+            );
+          }
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentTabIndex,
         onDestinationSelected: (index) =>
             setState(() => _currentTabIndex = index),
         backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFEADBFF), // Brand light purple
+        indicatorColor: const Color(0xFFEADBFF),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.assignment_outlined),
@@ -3296,24 +3411,24 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ---------------------------------------------------------------------------
-//  HELPER 1: TAB CONTAINER (Assignments/Tests)
+//  HELPER 1: TAB CONTAINER (MODIFIED TO ACCEPT LISTS)
 // ---------------------------------------------------------------------------
 
 class _AssignmentTabContainer extends StatefulWidget {
-  final bool isStrict;
-  final List<String> submittedCodes;
+  // Now accepts Pre-Sorted Lists instead of just codes
+  final List<QueryDocumentSnapshot> pendingDocs;
+  final List<QueryDocumentSnapshot> completedDocs;
+
   final String? resumableAssignmentCode;
   final Future<void> Function() onResumeTap;
   final VoidCallback onViewAnalysisTap;
-  final VoidCallback? onRefreshNeeded;
 
   const _AssignmentTabContainer({
-    required this.isStrict,
-    required this.submittedCodes,
+    required this.pendingDocs,
+    required this.completedDocs,
     required this.resumableAssignmentCode,
     required this.onResumeTap,
     required this.onViewAnalysisTap,
-    this.onRefreshNeeded,
   });
 
   @override
@@ -3334,7 +3449,7 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Clean Segmented Tab Bar
+        // Tab Bar
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           height: 48,
@@ -3355,7 +3470,7 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
                 ),
               ],
             ),
-            labelColor: const Color(0xFF6200EA), // Brand Color
+            labelColor: const Color(0xFF6200EA),
             unselectedLabelColor: Colors.grey.shade600,
             labelStyle:
             const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
@@ -3374,23 +3489,19 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
           child: TabBarView(
             controller: _tabController,
             children: [
+              // NOTE: StudentAssignmentsList must be updated to accept `documents` list
+              // instead of fetching them internally.
               StudentAssignmentsList(
-                isStrict: widget.isStrict,
-                submittedCodes: widget.submittedCodes,
+                documents: widget.pendingDocs, // Pass list directly
                 resumableAssignmentCode: widget.resumableAssignmentCode,
                 onResumeTap: widget.onResumeTap,
                 onViewAnalysisTap: widget.onViewAnalysisTap,
-                showOnlySubmitted: false, // Pending Tab
-                onRefreshNeeded: widget.onRefreshNeeded, // PASS DOWN
               ),
               StudentAssignmentsList(
-                isStrict: widget.isStrict,
-                submittedCodes: widget.submittedCodes,
+                documents: widget.completedDocs, // Pass list directly
                 resumableAssignmentCode: widget.resumableAssignmentCode,
                 onResumeTap: widget.onResumeTap,
                 onViewAnalysisTap: widget.onViewAnalysisTap,
-                showOnlySubmitted: true, // Completed Tab
-                onRefreshNeeded: widget.onRefreshNeeded, // PASS DOWN
               ),
             ],
           ),
@@ -3401,7 +3512,7 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
 }
 
 // ---------------------------------------------------------------------------
-//  HELPER 2: ANALYSIS VIEW (Redesigned)
+//  HELPER 2: ANALYSIS VIEW (Unchanged)
 // ---------------------------------------------------------------------------
 
 class _AnalysisView extends StatefulWidget {
@@ -3463,11 +3574,7 @@ class _AnalysisViewState extends State<_AnalysisView> with SingleTickerProviderS
           child: TabBarView(
             controller: _mainTabController,
             children: [
-              // TAB A: ASSIGNMENTS (Nested Tabs)
               _buildAssignmentsAnalysisTab(),
-
-              // TAB B: TESTS (Single List)
-              // Strict tests are always 'Test' mode and onlySingleAttempt = true
               const AttemptListWidget(filterMode: 'Test', onlySingleAttempt: true),
             ],
           ),
@@ -3477,12 +3584,10 @@ class _AnalysisViewState extends State<_AnalysisView> with SingleTickerProviderS
   }
 
   Widget _buildAssignmentsAnalysisTab() {
-    // Nested DefaultTabController for the sub-tabs
     return DefaultTabController(
       length: 2,
       child: Column(
         children: [
-          // Sub-Tabs
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             height: 36,
@@ -3498,13 +3603,10 @@ class _AnalysisViewState extends State<_AnalysisView> with SingleTickerProviderS
               ],
             ),
           ),
-          // Sub-Tab Views
           const Expanded(
             child: TabBarView(
               children: [
-                // Assignments taken in Practice Mode
                 AttemptListWidget(filterMode: 'Practice', onlySingleAttempt: false),
-                // Assignments taken in Test Mode
                 AttemptListWidget(filterMode: 'Test', onlySingleAttempt: false),
               ],
             ),
@@ -3521,279 +3623,364 @@ FILE: lib/features/student/widgets/student_assignments_list.dart
 // lib/features/student/widgets/student_assignments_list.dart
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
-import 'package:study_smart_qc/models/test_enums.dart';
-import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
-import 'package:study_smart_qc/services/test_orchestration_service.dart';
+// WIDGETS
+import 'package:study_smart_qc/features/student/widgets/student_curation_preview_card.dart';
 
 class StudentAssignmentsList extends StatelessWidget {
-  final bool isStrict;
+  final List<QueryDocumentSnapshot> documents;
   final String? resumableAssignmentCode;
-  final VoidCallback? onResumeTap;
-  final List<String> submittedCodes;
-  final VoidCallback? onViewAnalysisTap;
-
-  // Refresh Callback to update parent UI state
-  final VoidCallback? onRefreshNeeded;
-
-  final bool showOnlySubmitted;
+  final Future<void> Function() onResumeTap;
+  final VoidCallback onViewAnalysisTap;
+  final bool isHistoryMode;
 
   const StudentAssignmentsList({
     super.key,
-    required this.isStrict,
-    this.resumableAssignmentCode,
-    this.onResumeTap,
-    this.submittedCodes = const [],
-    this.onViewAnalysisTap,
-    this.onRefreshNeeded,
-    this.showOnlySubmitted = false,
+    required this.documents,
+    required this.resumableAssignmentCode,
+    required this.onResumeTap,
+    required this.onViewAnalysisTap,
+    this.isHistoryMode = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return const SizedBox.shrink();
+    if (documents.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.assignment_turned_in_outlined,
+                size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            Text(
+              isHistoryMode
+                  ? "No completed assignments yet."
+                  : "No pending assignments!",
+              style: TextStyle(color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+      );
+    }
 
-    return StreamBuilder<QuerySnapshot>(
-      // We removed the .where('status', isEqualTo: 'assigned') filter.
-      // We now rely on local logic + the user's submittedCodes list for filtering.
-      stream: FirebaseFirestore.instance
-          .collection('questions_curation')
-          .where('studentUid', isEqualTo: user.uid)
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: documents.length,
+      itemBuilder: (context, index) {
+        final doc = documents[index];
+        final data = doc.data() as Map<String, dynamic>;
 
-        if (snapshot.hasError) {
-          return Center(child: Text("Error: ${snapshot.error}"));
-        }
+        final String assignmentCode = data['assignmentCode'] ?? '';
+        final bool isStrict = data['onlySingleAttempt'] ?? false;
+        final bool isResumable = (assignmentCode == resumableAssignmentCode);
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return _buildEmptyState();
-        }
-
-        final allDocs = snapshot.data!.docs;
-
-        // LOCAL FILTERING LOGIC
-        final filteredDocs = allDocs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-
-          // Filter A: Is it a Strict Test (Test) or Homework (Assignment)?
-          final bool docIsStrict = data['onlySingleAttempt'] ?? false;
-          if (docIsStrict != isStrict) return false;
-
-          // Filter B: Determine bucket based on submittedCodes array from User document
-          final String code = data['assignmentCode'] ?? '';
-          final bool isSubmitted = submittedCodes.contains(code);
-
-          if (showOnlySubmitted) {
-            return isSubmitted; // Show in Completed Tab
-          } else {
-            return !isSubmitted; // Show in Pending Tab
-          }
-        }).toList();
-
-        if (filteredDocs.isEmpty) {
-          return _buildEmptyState();
-        }
-
-        return ListView.builder(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          itemCount: filteredDocs.length,
-          itemBuilder: (context, index) {
-            final data = filteredDocs[index].data() as Map<String, dynamic>;
-            final docId = filteredDocs[index].id;
-
-            final String currentCode = data['assignmentCode'] ?? '----';
-            final bool isResumable = (resumableAssignmentCode != null && resumableAssignmentCode == currentCode);
-            final bool isSubmitted = submittedCodes.contains(currentCode);
-
-            return Column(
-              children: [
-                _buildAssignmentCard(context, data, docId, isResumable, isSubmitted),
-
-                // Resumable Session Banner (Pending View Only)
-                if (isResumable && !isSubmitted)
-                  _buildResumeBanner()
-
-                // Completed/Analysis Banner (Completed View Only)
-                else if (isSubmitted)
-                  _buildCompletedBanner(context, docId, data)
-
-                else
-                  const SizedBox(height: 12),
-              ],
-            );
-          },
+        // The Card now handles the "New Test" logic internally
+        return StudentCurationPreviewCard(
+          snapshot: doc,
+          isResumable: isResumable,
+          isSubmitted: isHistoryMode,
+          isStrict: isStrict,
+          onResumeTap: onResumeTap,
+          onViewAnalysisTap: onViewAnalysisTap,
         );
       },
     );
   }
+}
 
-  // --- HELPER BANNERS ---
+================================================================================
+FILE: lib/features/student/widgets/student_curation_preview_card.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
-  Widget _buildResumeBanner() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.deepPurple.shade50,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(12),
-          bottomRight: Radius.circular(12),
-        ),
-        border: Border.all(color: Colors.deepPurple.shade200),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text("Unfinished Session Found",
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple, fontSize: 13)),
-          ElevatedButton.icon(
-            onPressed: onResumeTap,
-            icon: const Icon(Icons.restore, size: 16),
-            label: const Text("Resume"),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepPurple,
-              foregroundColor: Colors.white,
-              visualDensity: VisualDensity.compact,
-            ),
-          ),
-        ],
-      ),
+// LOGIC IMPORTS
+import 'package:study_smart_qc/models/test_enums.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
+
+class StudentCurationPreviewCard extends StatelessWidget {
+  final QueryDocumentSnapshot snapshot;
+  final bool isResumable;
+  final bool isSubmitted;
+  final bool isStrict;
+
+  final VoidCallback onResumeTap;
+  final VoidCallback onViewAnalysisTap;
+
+  const StudentCurationPreviewCard({
+    super.key,
+    required this.snapshot,
+    required this.isResumable,
+    required this.isSubmitted,
+    required this.isStrict,
+    required this.onResumeTap,
+    required this.onViewAnalysisTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final String? uid = FirebaseAuth.instance.currentUser?.uid;
+    final data = snapshot.data() as Map<String, dynamic>;
+    final String assignmentCode = data['assignmentCode'] ?? '----';
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: uid != null
+          ? FirebaseFirestore.instance.collection('users').doc(uid).snapshots()
+          : null,
+      builder: (context, userSnap) {
+
+        // --- 1. DETERMINE TRUE STATUS ---
+        bool actuallySubmitted = isSubmitted;
+
+        // Check Backend Status
+        final String docStatus = data['status']?.toString() ?? '';
+        if (docStatus.toLowerCase() == 'submitted' || docStatus == 'Attempted') {
+          actuallySubmitted = true;
+        }
+
+        // Check User Profile (Real-time)
+        if (!actuallySubmitted && userSnap.hasData && userSnap.data!.exists) {
+          final userData = userSnap.data!.data() as Map<String, dynamic>;
+          final List<dynamic> submittedList = userData['assignmentCodesSubmitted'] ?? [];
+          if (submittedList.contains(assignmentCode)) {
+            actuallySubmitted = true;
+          }
+        }
+
+        return _buildCardUI(context, data, actuallySubmitted);
+      },
     );
   }
 
-  Widget _buildCompletedBanner(BuildContext context, String docId, Map<String, dynamic> data) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16, left: 4, right: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.teal.shade50,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(12),
-          bottomRight: Radius.circular(12),
-        ),
-        border: Border.all(color: Colors.teal.shade200),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text("Completed",
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal, fontSize: 13)),
-          Row(
-            children: [
-              if (!isStrict) // Only assignments allow re-attempts
-                Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: TextButton(
-                    onPressed: () => _showModeSelectionDialog(context, docId, data),
-                    child: const Text("Attempt Again",
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.teal)),
-                  ),
-                ),
-              ElevatedButton.icon(
-                onPressed: onViewAnalysisTap,
-                icon: const Icon(Icons.analytics, size: 16),
-                label: const Text("Analysis"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  foregroundColor: Colors.white,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    String message = showOnlySubmitted ? "No submission history yet" : (isStrict ? "No pending tests!" : "No pending assignments!");
-    IconData icon = showOnlySubmitted ? Icons.history_edu : (isStrict ? Icons.timer_off_outlined : Icons.assignment_turned_in_outlined);
-
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 64, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          Text(message, style: const TextStyle(color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAssignmentCard(BuildContext context, Map<String, dynamic> data, String docId, bool isResumable, bool isSubmitted) {
-    final Timestamp? ts = data['createdAt'];
-    final dateStr = ts != null ? DateFormat('MMM d, yyyy').format(ts.toDate()) : 'Unknown Date';
-    final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
+  Widget _buildCardUI(BuildContext context, Map<String, dynamic> data, bool actuallySubmitted) {
+    // --- 2. PARSE DATA ---
+    final Timestamp? createdAtTs = data['createdAt'];
+    final Timestamp? deadlineTs = data['deadline'];
+    final String title = data['title'] ?? "Untitled Assignment";
     final String code = data['assignmentCode'] ?? '----';
+    final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
     final int? storedTime = data['timeLimitMinutes'];
     final String timeDisplay = storedTime != null ? "${storedTime}m" : "${questionCount * 2}m (Est)";
 
-    Color codeBgColor = isSubmitted ? Colors.teal.shade50 : (isStrict ? Colors.red.shade50 : Colors.deepPurple.shade50);
-    Color codeTextColor = isSubmitted ? Colors.teal.shade900 : (isStrict ? Colors.red.shade900 : Colors.deepPurple.shade900);
-    Color borderColor = isSubmitted ? Colors.teal.shade300 : (isStrict ? Colors.red.shade200 : Colors.deepPurple.shade200);
+    String dateLabel;
+    bool isOverdue = false;
 
-    return Card(
-      elevation: (isResumable || isSubmitted) ? 4 : 2,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: (isResumable || isSubmitted)
-            ? const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12))
-            : BorderRadius.circular(12),
-        side: isResumable ? BorderSide(color: Colors.deepPurple.shade300, width: 1.5) : BorderSide.none,
+    if (deadlineTs != null) {
+      final date = deadlineTs.toDate();
+      final formatted = DateFormat('MMM d, h:mm a').format(date);
+      dateLabel = "Deadline: $formatted";
+      if (date.isBefore(DateTime.now()) && !actuallySubmitted) {
+        isOverdue = true;
+      }
+    } else {
+      final date = createdAtTs?.toDate();
+      dateLabel = date != null ? DateFormat('MMM d, yyyy').format(date) : 'Unknown Date';
+    }
+
+    // --- 3. THEME LOGIC ---
+    Color borderColor = Colors.transparent;
+    List<BoxShadow> shadows;
+    Widget? statusBadge;
+
+    // Default Shadow
+    shadows = [
+      BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4)),
+    ];
+
+    if (actuallySubmitted) {
+      // 🟢 COMPLETED: Green Glow & Border
+      borderColor = Colors.green.shade300;
+      shadows = [
+        BoxShadow(color: Colors.green.withOpacity(0.25), blurRadius: 12, spreadRadius: 2),
+        BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 3)),
+      ];
+      statusBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
+            const SizedBox(width: 4),
+            Text("Completed", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green.shade800)),
+          ],
+        ),
+      );
+    } else if (isResumable) {
+      // 🟠 RESUMABLE: Orange Glow
+      borderColor = Colors.orange.shade300;
+      shadows = [
+        BoxShadow(color: Colors.orange.withOpacity(0.2), blurRadius: 10, spreadRadius: 1),
+      ];
+      statusBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.timelapse, size: 16, color: Colors.orange.shade800),
+            const SizedBox(width: 4),
+            Text("In Progress", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade900)),
+          ],
+        ),
+      );
+    } else {
+      // ⚪ PENDING
+      borderColor = Colors.grey.shade200;
+      if (isOverdue) borderColor = Colors.red.shade200;
+      statusBadge = Text(
+        dateLabel,
+        style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isOverdue ? Colors.red : Colors.grey.shade500
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+        boxShadow: shadows,
       ),
       child: InkWell(
-        borderRadius: (isResumable || isSubmitted)
-            ? const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12))
-            : BorderRadius.circular(12),
-        onTap: () => _showModeSelectionDialog(context, docId, data),
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _handleTap(context, data, actuallySubmitted),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // --- HEADER ---
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(color: codeBgColor, borderRadius: BorderRadius.circular(4), border: Border.all(color: borderColor)),
-                    child: Text("CODE: $code", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: codeTextColor)),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      "CODE: $code",
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade700),
+                    ),
                   ),
-                  Text(dateStr, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  if (statusBadge != null) statusBadge!,
                 ],
               ),
-              const SizedBox(height: 10),
-              Text(data['title'] ?? "Untitled Assignment", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 5),
+
+              const SizedBox(height: 12),
+
+              // --- TITLE ---
+              Text(
+                title,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, height: 1.2),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+
+              const SizedBox(height: 8),
+
+              // --- DETAILS ROW ---
               Row(
                 children: [
-                  Icon(Icons.quiz, size: 14, color: Colors.grey.shade600),
+                  Icon(Icons.quiz_outlined, size: 16, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
                   Text("$questionCount Qs", style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
-                  const SizedBox(width: 15),
-                  Icon(Icons.timer, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 16),
+                  Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
                   const SizedBox(width: 4),
                   Text(timeDisplay, style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
-                  if (isSubmitted) ...[
-                    const Spacer(),
-                    const Icon(Icons.check_circle, size: 18, color: Colors.teal),
-                    const SizedBox(width: 4),
-                    Text("Done", style: TextStyle(color: Colors.teal.shade700, fontWeight: FontWeight.bold, fontSize: 12)),
-                  ]
+
+                  const Spacer(),
+                  if (isStrict && !actuallySubmitted)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.red.shade100)
+                      ),
+                      child: Text("STRICT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red)),
+                    ),
                 ],
               ),
+
+              const SizedBox(height: 16),
+
+              // --- ACTION BUTTONS ---
+              if (actuallySubmitted) ...[
+                Row(
+                  children: [
+                    // 1. View Analysis (Primary)
+                    Expanded(
+                      flex: 3,
+                      child: ElevatedButton.icon(
+                        onPressed: onViewAnalysisTap,
+                        icon: const Icon(Icons.analytics_outlined, size: 18),
+                        label: const Text("View Analysis"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6200EA),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+
+                    // 2. Attempt Again (Secondary) - Only if NOT strict
+                    if (!isStrict) ...[
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: OutlinedButton(
+                          onPressed: () => _initiateTestFlow(context, data),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.deepPurple,
+                            side: const BorderSide(color: Colors.deepPurple),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          child: const Text("Retake", style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ],
+                )
+              ] else if (isResumable) ...[
+                // Resume Button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: onResumeTap,
+                    icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                    label: const Text("Resume Test"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange.shade700,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -3801,109 +3988,100 @@ class StudentAssignmentsList extends StatelessWidget {
     );
   }
 
-  void _showModeSelectionDialog(BuildContext context, String docId, Map<String, dynamic> data) {
-    final questionIds = List<String>.from(data['questionIds'] ?? []);
-    final String code = data['assignmentCode'] ?? '----';
-    final String title = data['title'] ?? "Untitled Assignment";
-    final bool isStrictAssignment = data['onlySingleAttempt'] ?? false;
-    final int timeLimit = data['timeLimitMinutes'] ?? (questionIds.length * 2);
+  // ===========================================================================
+  //  LOGIC: HANDLE CLICKS & START TEST
+  // ===========================================================================
 
-    showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("Start Session"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("Title: $title"),
-              const SizedBox(height: 10),
-              Text("Questions: ${questionIds.length}"),
-              Text("Time Limit: $timeLimit mins"),
-              const SizedBox(height: 10),
-              if (isStrictAssignment)
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.shade200)),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.warning_amber_rounded, size: 16, color: Colors.red),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text("Single Attempt Only.", style: TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
+  void _handleTap(BuildContext context, Map<String, dynamic> data, bool actuallySubmitted) {
+    if (isResumable) {
+      onResumeTap();
+    } else if (actuallySubmitted) {
+      onViewAnalysisTap();
+    } else {
+      _initiateTestFlow(context, data);
+    }
+  }
+
+  Future<void> _initiateTestFlow(BuildContext context, Map<String, dynamic> data) async {
+    TestMode selectedMode = TestMode.test;
+    if (isStrict) {
+      selectedMode = TestMode.test;
+    } else {
+      final userChoice = await _showModeSelectionDialog(context);
+      if (userChoice == null) return;
+      selectedMode = userChoice;
+    }
+    if (context.mounted) {
+      _fetchAndLaunch(context, data, selectedMode);
+    }
+  }
+
+  Future<TestMode?> _showModeSelectionDialog(BuildContext context) async {
+    return showDialog<TestMode>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Start Assignment"),
+        content: const Text("How would you like to attempt this?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, TestMode.practice),
+            child: const Text("Practice Mode"),
           ),
-          actions: [
-            if (!isStrictAssignment)
-              OutlinedButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  _launchTest(context, docId, code, title, questionIds, TestMode.practice, timeLimit, isStrictAssignment);
-                },
-                child: const Text("Practice Mode"),
-              ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                _launchTest(context, docId, code, title, questionIds, TestMode.test, timeLimit, isStrictAssignment);
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
-              child: const Text("Test Mode"),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6200EA),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-          ],
-        )
+            onPressed: () => Navigator.pop(ctx, TestMode.test),
+            child: const Text("Test Mode"),
+          ),
+        ],
+      ),
     );
   }
 
-  Future<void> _launchTest(
-      BuildContext context,
-      String assignmentId,
-      String assignmentCode,
-      String title,
-      List<String> questionIds,
-      TestMode mode,
-      int timeLimit,
-      bool onlySingleAttempt,
-      ) async {
-    showDialog(context: context, barrierDismissible: false, builder: (ctx) => const Center(child: CircularProgressIndicator()));
-
+  Future<void> _fetchAndLaunch(BuildContext context, Map<String, dynamic> data, TestMode mode) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
     try {
-      final questions = await TestOrchestrationService().getQuestionsByIds(questionIds);
-      if (!context.mounted) return;
-      Navigator.pop(context);
+      final List<dynamic> rawIds = data['questionIds'] ?? [];
+      final List<String> qIds = rawIds.cast<String>();
 
-      if (questions.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Questions not found.")));
-        return;
-      }
+      if (qIds.isEmpty) throw Exception("No questions in this assignment.");
 
-      await Navigator.push(
+      final questions = await TestOrchestrationService().getQuestionsByIds(qIds);
+
+      if (context.mounted) {
+        Navigator.pop(context);
+        Navigator.push(
           context,
           MaterialPageRoute(
-              builder: (_) => TestScreen(
-                sourceId: assignmentId,
-                assignmentCode: assignmentCode,
-                title: title,
-                questions: questions,
-                timeLimitInMinutes: timeLimit,
-                testMode: mode,
-                onlySingleAttempt: onlySingleAttempt,
-              )
-          )
-      );
-
-      if (onRefreshNeeded != null) {
-        onRefreshNeeded!();
+            builder: (_) => TestScreen(
+              sourceId: snapshot.id,
+              assignmentCode: data['assignmentCode'] ?? 'UNKNOWN',
+              title: data['title'] ?? 'Assignment',
+              onlySingleAttempt: data['onlySingleAttempt'] ?? false,
+              questions: questions,
+              timeLimitInMinutes: data['timeLimitMinutes'] ?? 30,
+              testMode: mode,
+              resumedTimerSeconds: null,
+              resumedPageIndex: 0,
+              resumedResponses: const {},
+            ),
+          ),
+        );
       }
-
     } catch (e) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error launching test: $e")),
+        );
       }
     }
   }
@@ -3915,24 +4093,18 @@ FILE: lib/features/teacher/screens/curation_management_screen.dart
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For clipboard
+import 'package:intl/intl.dart';
 
 // MODELS
 import 'package:study_smart_qc/models/question_model.dart';
-import 'package:study_smart_qc/models/attempt_model.dart';
-import 'package:study_smart_qc/models/test_result.dart';
-import 'package:study_smart_qc/models/nta_test_models.dart';
-
-// SERVICES
 import 'package:study_smart_qc/services/teacher_service.dart';
-import 'package:study_smart_qc/services/test_orchestration_service.dart';
 
 // WIDGETS
 import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
-import 'package:study_smart_qc/features/analytics/widgets/attempt_display_card.dart';
-import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
 
 class CurationManagementScreen extends StatefulWidget {
-  final String curationId;
+  final String curationId; // This is the Firestore Document ID
   final String title;
 
   const CurationManagementScreen({
@@ -3946,37 +4118,44 @@ class CurationManagementScreen extends StatefulWidget {
       _CurationManagementScreenState();
 }
 
-class _CurationManagementScreenState extends State<CurationManagementScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _CurationManagementScreenState extends State<CurationManagementScreen> {
   final TeacherService _teacherService = TeacherService();
 
-  // --- DATA STATE (Content Tab) ---
+  // --- DATA STATE ---
   StreamSubscription<DocumentSnapshot>? _curationSubscription;
-  List<String> _questionIds = [];
+  List<String> _questionIds = []; // Stores Business IDs (e.g., "9338")
+  String _assignmentCode = ""; // Stores the display code
   bool _isLoaded = false;
 
-  // --- CACHE (Content Tab) ---
+  // --- METADATA STATE ---
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _timeLimitController = TextEditingController();
+  DateTime? _deadline;
+  bool _isSaving = false;
+
+  // --- QUESTION CACHE ---
   final Map<String, Question> _questionCache = {};
   final Set<String> _attemptedFetches = {};
+  final Set<String> _notFoundIds = {};
   bool _isLoadingQuestions = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _titleController.text = widget.title;
     _setupFirestoreListener();
   }
 
   @override
   void dispose() {
     _curationSubscription?.cancel();
-    _tabController.dispose();
+    _titleController.dispose();
+    _timeLimitController.dispose();
     super.dispose();
   }
 
   // ===========================================================================
-  // LOGIC: CONTENT MANAGEMENT
+  // 1. DATA LOADING & LISTENER
   // ===========================================================================
 
   void _setupFirestoreListener() {
@@ -3987,13 +4166,32 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
         .listen((snapshot) {
       if (snapshot.exists && mounted) {
         final data = snapshot.data() as Map<String, dynamic>;
-        final newIds = List<String>.from(data['questionIds'] ?? []);
+
+        // 1. Update List
+        final rawIds = List<String>.from(data['questionIds'] ?? []);
+        final newIds = rawIds.where((id) => id.isNotEmpty).toList();
+
+        // 2. Get Assignment Code
+        final code = data['assignmentCode'] ?? data['assignment_code'] ?? '';
+
+        // 3. Update Metadata (First load only)
+        if (!_isLoaded) {
+          _titleController.text = data['title'] ?? '';
+          if (data['timeLimitMinutes'] != null) {
+            _timeLimitController.text = data['timeLimitMinutes'].toString();
+          }
+          if (data['deadline'] != null) {
+            _deadline = (data['deadline'] as Timestamp).toDate();
+          }
+        }
 
         setState(() {
           _questionIds = newIds;
+          _assignmentCode = code;
           _isLoaded = true;
         });
 
+        // 4. Trigger Question Fetch
         _ensureQuestionsLoaded(newIds);
       }
     }, onError: (e) {
@@ -4003,78 +4201,136 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
 
   Future<void> _ensureQuestionsLoaded(List<String> questionIds) async {
     final idsToFetch = questionIds.where((id) =>
-    !_questionCache.containsKey(id) && !_attemptedFetches.contains(id)
+    !_questionCache.containsKey(id) &&
+        !_attemptedFetches.contains(id) &&
+        !_notFoundIds.contains(id)
     ).toList();
 
     if (idsToFetch.isEmpty) return;
     if (_isLoadingQuestions) return;
 
-    Future.microtask(() async {
-      if (!mounted) return;
-      setState(() => _isLoadingQuestions = true);
-      _attemptedFetches.addAll(idsToFetch);
+    setState(() => _isLoadingQuestions = true);
+    _attemptedFetches.addAll(idsToFetch);
 
-      try {
-        final questions = await TestOrchestrationService().getQuestionsByIds(idsToFetch);
+    try {
+      const int batchSize = 10;
+      for (var i = 0; i < idsToFetch.length; i += batchSize) {
+        final end = (i + batchSize < idsToFetch.length) ? i + batchSize : idsToFetch.length;
+        final batch = idsToFetch.sublist(i, end);
+
+        final QuerySnapshot querySnapshot = await FirebaseFirestore.instance
+            .collection('questions')
+            .where('question_id', whereIn: batch)
+            .get();
+
         if (mounted) {
           setState(() {
-            for (var q in questions) {
-              _questionCache[q.id] = q;
+            final foundIds = <String>{};
+
+            // A. Process found docs
+            for (var doc in querySnapshot.docs) {
+              try {
+                final data = doc.data() as Map<String, dynamic>;
+                // Get the Business ID (e.g. "9338") to map it correctly
+                final String qIdField = data['question_id']?.toString() ?? '';
+
+                if (qIdField.isNotEmpty) {
+                  foundIds.add(qIdField);
+
+                  // --- FIX: Pass qIdField as the ID so the UI shows "QID: 9338" ---
+                  // If we passed doc.id, it would show "QID: Ktc..."
+                  final q = Question.fromMap(data, qIdField);
+
+                  _questionCache[qIdField] = q;
+                }
+              } catch (e) {
+                debugPrint("Error parsing question ${doc.id}: $e");
+              }
+            }
+
+            // B. Identify missing
+            for (var id in batch) {
+              if (!foundIds.contains(id)) {
+                _notFoundIds.add(id);
+              }
             }
           });
         }
-      } catch (e) {
-        debugPrint("Error loading questions: $e");
-      } finally {
-        if (mounted) setState(() => _isLoadingQuestions = false);
       }
-    });
+    } catch (e) {
+      debugPrint("Error fetching questions batch: $e");
+    } finally {
+      if (mounted) setState(() => _isLoadingQuestions = false);
+    }
   }
 
-  Future<void> _handleReorder(int oldIndex, String newIndexStr) async {
-    int? newIndex = int.tryParse(newIndexStr);
-    if (newIndex == null) {
-      _showSafeSnackBar("Please enter a valid number");
-      return;
-    }
+  // ===========================================================================
+  // 2. ACTIONS
+  // ===========================================================================
 
-    int targetIndex = newIndex - 1;
-    if (targetIndex < 0 || targetIndex >= _questionIds.length) {
-      _showSafeSnackBar("Position must be between 1 and ${_questionIds.length}");
-      return;
-    }
-    if (targetIndex == oldIndex) return;
-
+  Future<void> _saveMetadata() async {
     FocusScope.of(context).unfocus();
-
-    final movedId = _questionIds[oldIndex];
-    final newList = List<String>.from(_questionIds);
-    newList.removeAt(oldIndex);
-    newList.insert(targetIndex, movedId);
-
-    setState(() => _questionIds = newList);
+    setState(() => _isSaving = true);
 
     try {
-      await _teacherService.updateQuestionOrder(widget.curationId, newList);
-      _showSafeSnackBar("Reordered successfully");
+      int? timeLimit = int.tryParse(_timeLimitController.text.trim());
+
+      await FirebaseFirestore.instance
+          .collection('questions_curation')
+          .doc(widget.curationId)
+          .update({
+        'title': _titleController.text.trim(),
+        'deadline': _deadline != null ? Timestamp.fromDate(_deadline!) : null,
+        'timeLimitMinutes': timeLimit,
+      });
+
+      _showSafeSnackBar("Updated successfully!");
     } catch (e) {
-      _showSafeSnackBar("Error saving order: $e");
+      _showSafeSnackBar("Error updating: $e");
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
-  Future<void> _promptAndRandomize() async {
-    if (_questionIds.isEmpty) return;
+  Future<void> _deleteCuration() async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Randomize Order"),
-        content: const Text("Are you sure you want to shuffle all questions? This cannot be undone."),
+        title: const Text("Delete Curation"),
+        content: const Text("Are you sure? This will permanently delete this assignment."),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("Shuffle"),
+            child: const Text("Delete Forever"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await FirebaseFirestore.instance.collection('questions_curation').doc(widget.curationId).delete();
+        if (mounted) Navigator.pop(context);
+      } catch (e) {
+        _showSafeSnackBar("Error deleting: $e");
+      }
+    }
+  }
+
+  Future<void> _removeQuestion(int index) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Remove Question"),
+        content: const Text("Remove this question from the assignment?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("Remove"),
           ),
         ],
       ),
@@ -4082,326 +4338,308 @@ class _CurationManagementScreenState extends State<CurationManagementScreen>
 
     if (confirm != true) return;
 
-    final shuffledList = List<String>.from(_questionIds)..shuffle();
-    setState(() => _questionIds = shuffledList);
+    final newList = List<String>.from(_questionIds);
+    newList.removeAt(index);
+    setState(() => _questionIds = newList);
 
     try {
-      await _teacherService.updateQuestionOrder(widget.curationId, shuffledList);
-      _showSafeSnackBar("Questions shuffled successfully!");
+      await _teacherService.updateQuestionOrder(widget.curationId, newList);
     } catch (e) {
-      _showSafeSnackBar("Error shuffling: $e");
+      _showSafeSnackBar("Error removing question: $e");
+    }
+  }
+
+  Future<void> _handleReorder(int oldIndex, String newIndexStr) async {
+    int? newIndex = int.tryParse(newIndexStr);
+    if (newIndex == null) return;
+
+    int targetIndex = newIndex - 1;
+    if (targetIndex < 0 || targetIndex >= _questionIds.length) {
+      _showSafeSnackBar("Invalid Position (1-${_questionIds.length})");
+      return;
+    }
+    if (targetIndex == oldIndex) return;
+
+    FocusScope.of(context).unfocus();
+    final movedId = _questionIds[oldIndex];
+    final newList = List<String>.from(_questionIds);
+    newList.removeAt(oldIndex);
+    newList.insert(targetIndex, movedId);
+
+    setState(() => _questionIds = newList);
+    await _teacherService.updateQuestionOrder(widget.curationId, newList);
+  }
+
+  Future<void> _promptAndRandomize() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Randomize Order"),
+        content: const Text("Shuffle all questions?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Shuffle"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final shuffled = List<String>.from(_questionIds)..shuffle();
+      setState(() => _questionIds = shuffled);
+      await _teacherService.updateQuestionOrder(widget.curationId, shuffled);
     }
   }
 
   // ===========================================================================
-  // LOGIC: PERFORMANCE TAB
+  // UI HELPERS
   // ===========================================================================
 
-  Future<void> _navigateToResults(AttemptModel attempt) async {
-    // 1. Show Loading
-    showDialog(
+  void _pickDeadline() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
       context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
+      initialDate: _deadline ?? now.add(const Duration(days: 1)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
     );
+    if (date == null) return;
 
-    try {
-      final service = TestOrchestrationService();
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_deadline ?? now),
+    );
+    if (time == null) return;
 
-      // 2. Fetch full question objects
-      // We assume attempt.responses contains all keys, but for safety we use the curation list if available
-      List<String> qIdsToFetch = attempt.responses.keys.toList();
-      if (qIdsToFetch.isEmpty) qIdsToFetch = _questionIds;
-
-      final questions = await service.getQuestionsByIds(qIdsToFetch);
-
-      // 3. Reconstruct Answer States
-      Map<int, AnswerState> answerStates = {};
-      for (int i = 0; i < questions.length; i++) {
-        final q = questions[i];
-        final response = attempt.responses[q.id];
-
-        AnswerStatus status = AnswerStatus.notVisited;
-        if (response != null) {
-          if (response.status == 'CORRECT' || response.status == 'INCORRECT') {
-            status = AnswerStatus.answered;
-          } else if (response.status == 'SKIPPED') {
-            status = AnswerStatus.notAnswered;
-          }
-        }
-
-        answerStates[i] = AnswerState(
-          status: status,
-          userAnswer: response?.selectedOption,
-        );
-      }
-
-      // 4. Build Result Object
-      final result = TestResult(
-        attemptId: attempt.id,
-        questions: questions,
-        answerStates: answerStates,
-        timeTaken: Duration(seconds: attempt.timeTakenSeconds),
-        totalMarks: questions.length * 4,
-        responses: attempt.responses,
-      );
-
-      if (mounted) {
-        Navigator.pop(context); // Close loader
-        // 5. Navigate
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => ResultsScreen(result: result)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        _showSafeSnackBar("Error opening results: $e");
-      }
-    }
+    setState(() {
+      _deadline = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    });
   }
 
   void _showSafeSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   // ===========================================================================
-  // UI BUILDERS
+  // MAIN BUILD
   // ===========================================================================
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      resizeToAvoidBottomInset: false,
       appBar: AppBar(
-        title: Text(widget.title),
+        // --- FIX: Display Code inline in Title ---
+        title: GestureDetector(
+          onTap: () {
+            if (_assignmentCode.isNotEmpty) {
+              Clipboard.setData(ClipboardData(text: _assignmentCode));
+              _showSafeSnackBar("Code copied!");
+            }
+          },
+          child: Text(
+            "Manage Assignment ${_assignmentCode.isNotEmpty ? '($_assignmentCode)' : ''}",
+            style: const TextStyle(fontSize: 18),
+          ),
+        ),
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.yellowAccent,
-          tabs: const [
-            Tab(icon: Icon(Icons.edit_note), text: "Manage Content"),
-            Tab(icon: Icon(Icons.bar_chart), text: "Performance"),
-          ],
-        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: "Delete Assignment",
+            onPressed: _deleteCuration,
+          )
+        ],
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: !_isLoaded
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
         children: [
-          _buildManageContentTab(),
-          _buildPerformanceTab(),
+          _buildSettingsSection(),
+          const Divider(height: 1, thickness: 1),
+          _buildListHeader(),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.only(bottom: 80),
+              itemCount: _questionIds.length,
+              itemBuilder: (context, index) {
+                final qId = _questionIds[index];
+                final question = _questionCache[qId];
+                final isNotFound = _notFoundIds.contains(qId);
+
+                return QuestionReorderTile(
+                  key: ValueKey(qId),
+                  index: index,
+                  questionId: qId,
+                  questionData: question,
+                  isNotFound: isNotFound,
+                  onReorder: (newPos) => _handleReorder(index, newPos),
+                  onRemove: () => _removeQuestion(index),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildManageContentTab() {
-    if (!_isLoaded) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_questionIds.isEmpty) {
-      return const Center(child: Text("No questions in this curation."));
-    }
-
-    return Column(
-      children: [
-        // Header
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+  Widget _buildSettingsSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _titleController,
+            decoration: const InputDecoration(
+              labelText: "Assignment Title",
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const SizedBox(height: 12),
+          Row(
             children: [
-              Text(
-                "${_questionIds.length} Questions",
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade700),
+              Expanded(
+                flex: 2,
+                child: InkWell(
+                  onTap: _pickDeadline,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: "Deadline",
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      prefixIcon: Icon(Icons.calendar_today, size: 18),
+                    ),
+                    child: Text(
+                      _deadline == null
+                          ? "Set Date"
+                          : DateFormat('MMM d, h:mm a').format(_deadline!),
+                      style: TextStyle(
+                        color: _deadline == null ? Colors.grey : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              ElevatedButton.icon(
-                onPressed: _promptAndRandomize,
-                icon: const Icon(Icons.shuffle, size: 18),
-                label: const Text("Randomize Order"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.shade600,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 1,
+                child: TextField(
+                  controller: _timeLimitController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: "Time (min)",
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    suffixText: "m",
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-
-        // List
-        Expanded(
-          child: ListView.builder(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 16,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 100,
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _isSaving ? null : _saveMetadata,
+            icon: _isSaving
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.check),
+            label: Text(_isSaving ? "Saving..." : "Update"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
             ),
-            itemCount: _questionIds.length,
-            itemBuilder: (context, index) {
-              final qId = _questionIds[index];
-              final question = _questionCache[qId];
-
-              return QuestionReorderTile(
-                key: ValueKey(qId),
-                index: index,
-                questionId: qId,
-                questionData: question,
-                onReorder: (newPos) => _handleReorder(index, newPos),
-              );
-            },
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildPerformanceTab() {
-    return FutureBuilder<AttemptModel?>(
-      future: _teacherService.getAttemptForCuration(widget.curationId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (snapshot.hasError) {
-          return Center(child: Text("Error: ${snapshot.error}"));
-        }
-
-        final attempt = snapshot.data;
-
-        if (attempt == null) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.pending_actions, size: 60, color: Colors.grey.shade300),
-                const SizedBox(height: 16),
-                const Text(
-                  "Student has not attempted this test yet.",
-                  style: TextStyle(color: Colors.grey, fontSize: 16),
-                ),
-              ],
-            ),
-          );
-        }
-
-        // REUSING EXISTING WIDGET
-        return Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            children: [
-              const Text(
-                "Latest Attempt",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.deepPurple),
-              ),
-              const SizedBox(height: 20),
-              AttemptDisplayCard(
-                attempt: attempt,
-                onTap: () => _navigateToResults(attempt),
-              ),
-            ],
+  Widget _buildListHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.grey.shade100,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            "Questions (${_questionIds.length})",
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
-        );
-      },
+          TextButton.icon(
+            onPressed: _promptAndRandomize,
+            icon: const Icon(Icons.shuffle, size: 16),
+            label: const Text("Shuffle Order"),
+          )
+        ],
+      ),
     );
   }
 }
-
-// --------------------------------------------------------------------------
-// ISOLATED TILE WIDGET (Kept same as before)
-// --------------------------------------------------------------------------
 
 class QuestionReorderTile extends StatefulWidget {
   final int index;
   final String questionId;
   final Question? questionData;
+  final bool isNotFound;
   final Function(String) onReorder;
+  final VoidCallback onRemove;
 
   const QuestionReorderTile({
     Key? key,
     required this.index,
     required this.questionId,
     required this.questionData,
+    this.isNotFound = false,
     required this.onReorder,
+    required this.onRemove,
   }) : super(key: key);
 
   @override
   State<QuestionReorderTile> createState() => _QuestionReorderTileState();
 }
 
-class _QuestionReorderTileState extends State<QuestionReorderTile>
-    with AutomaticKeepAliveClientMixin {
+class _QuestionReorderTileState extends State<QuestionReorderTile> {
   final TextEditingController _posController = TextEditingController();
 
   @override
-  bool get wantKeepAlive => true;
-
-  @override
-  void dispose() {
-    _posController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    super.build(context);
-
     return Card(
-      margin: const EdgeInsets.only(bottom: 24),
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      clipBehavior: Clip.antiAlias,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      elevation: 2,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Control Bar
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: Colors.grey.shade200,
-              border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
             ),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
-                    color: Colors.deepPurple,
-                    shape: BoxShape.circle,
-                  ),
+                CircleAvatar(
+                  radius: 12,
+                  backgroundColor: Colors.deepPurple,
                   child: Text(
                     "${widget.index + 1}",
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
-                const SizedBox(width: 10),
-                const Text(
-                  "Position",
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
-                ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 SizedBox(
-                  width: 50,
-                  height: 35,
+                  width: 40,
+                  height: 30,
                   child: TextField(
                     controller: _posController,
                     keyboardType: TextInputType.number,
                     textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12),
                     decoration: const InputDecoration(
                       hintText: "#",
                       contentPadding: EdgeInsets.zero,
@@ -4410,57 +4648,471 @@ class _QuestionReorderTileState extends State<QuestionReorderTile>
                       fillColor: Colors.white,
                     ),
                     onSubmitted: (val) {
-                      if (val.isNotEmpty) {
-                        widget.onReorder(val);
-                        _posController.clear();
-                      }
+                      if (val.isNotEmpty) widget.onReorder(val);
+                      _posController.clear();
                     },
                   ),
                 ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurple,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                    minimumSize: const Size(0, 35),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
+                const SizedBox(width: 4),
+                TextButton(
                   onPressed: () {
                     if (_posController.text.isNotEmpty) {
                       widget.onReorder(_posController.text);
                       _posController.clear();
                     }
                   },
-                  child: const Text("Move"),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(40, 30),
+                    padding: EdgeInsets.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text("Move", style: TextStyle(fontSize: 12)),
                 ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18, color: Colors.red),
+                  tooltip: "Remove from list",
+                  onPressed: widget.onRemove,
+                )
               ],
             ),
           ),
           if (widget.questionData != null)
-            QuestionPreviewCard(
-              question: widget.questionData!,
-              isExpanded: true,
+            Padding(
+              padding: const EdgeInsets.all(0),
+              child: QuestionPreviewCard(
+                question: widget.questionData!,
+              ),
+            )
+          else if (widget.isNotFound)
+            Container(
+              height: 80,
+              alignment: Alignment.center,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Question ID not found or deleted.\nID: ${widget.questionId}",
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ],
+              ),
             )
           else
             Container(
-              height: 150,
+              height: 100,
               alignment: Alignment.center,
-              child: Column(
+              child: const Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const SizedBox(
-                    width: 24, height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  const SizedBox(height: 10),
-                  Text("Loading QID: ${widget.questionId}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(height: 8),
+                  Text("Loading details...", style: TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
             ),
         ],
       ),
     );
+  }
+}
+
+================================================================================
+FILE: lib/features/teacher/screens/modify_question_screen.dart
+================================================================================
+// lib/features/teacher/screens/modify_question_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
+
+class ModifyQuestionScreen extends StatefulWidget {
+  final String questionId;
+  final Map<String, dynamic> questionData;
+  final Map<String, dynamic> syllabusTree;
+
+  const ModifyQuestionScreen({
+    Key? key,
+    required this.questionId,
+    required this.questionData,
+    required this.syllabusTree,
+  }) : super(key: key);
+
+  @override
+  State<ModifyQuestionScreen> createState() => _ModifyQuestionScreenState();
+}
+
+class _ModifyQuestionScreenState extends State<ModifyQuestionScreen> {
+  final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
+
+  late TextEditingController _pyqYearController;
+  late TextEditingController _difficultyScoreController;
+  late TextEditingController _correctAnswerController;
+
+  String? _selectedChapter;
+  String? _selectedTopic;
+  String? _selectedTopicL2;
+  String? _selectedQCStatus;
+  String? _selectedDifficulty;
+  String? _selectedPYQ;
+
+  List<String> _chapters = [];
+  List<String> _topics = [];
+  List<String> _topicL2s = [];
+
+  final List<String> _qcOptions = ['Pending QC', 'Accepted', 'Rejected'];
+  final List<String> _diffOptions = ['Easy', 'Medium', 'Hard'];
+  final List<String> _pyqOptions = ['Yes', 'No'];
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeFields();
+  }
+
+  void _initializeFields() {
+    final data = widget.questionData;
+
+    _pyqYearController = TextEditingController(text: (data['PYQ_Year'] ?? 0).toString());
+    _difficultyScoreController = TextEditingController(text: (data['Difficulty_score'] ?? 0).toString());
+    _correctAnswerController = TextEditingController(text: (data['Correct Answer'] ?? "").toString());
+
+    _selectedQCStatus = data['QC_Status'];
+    _selectedDifficulty = data['Difficulty'];
+    _selectedPYQ = data['PYQ'];
+
+    _selectedChapter = data['Chapter'];
+    _selectedTopic = data['Topic'];
+    _selectedTopicL2 = data['Topic_L2'];
+
+    _chapters = widget.syllabusTree.keys.toList();
+
+    if (_selectedChapter != null && _chapters.contains(_selectedChapter)) {
+      _updateTopicsList(_selectedChapter!);
+      if (_selectedTopic != null && _topics.contains(_selectedTopic)) {
+        _updateTopicL2List(_selectedChapter!, _selectedTopic!);
+      }
+    }
+  }
+
+  // --- FIX IS HERE ---
+  // We add 'questionNo' and 'type' because your Question model requires them.
+  Question _buildPreviewQuestion() {
+    return Question(
+      id: widget.questionId,
+      // Provide a fallback of 0 if missing, since it's required
+      questionNo: widget.questionData['questionNo'] ?? 0,
+      // Provide a fallback type (e.g. 'MCQ') if missing
+      type: widget.questionData['type'] ?? 'MCQ',
+
+      customId: widget.questionData['question_id'] ?? widget.questionId,
+
+      // Live State variables
+      chapter: _selectedChapter ?? "",
+      topic: _selectedTopic ?? "",
+      topicL2: _selectedTopicL2 ?? "",
+      difficulty: _selectedDifficulty ?? "Unknown",
+      correctAnswer: _correctAnswerController.text,
+
+      // Static Data
+      ocrText: widget.questionData['OCR_Text'] ?? "",
+      imageUrl: widget.questionData['image_url'] ?? "",
+      solutionUrl: widget.questionData['solution_url'],
+
+      // Metadata
+      qcStatus: _selectedQCStatus,
+      isPyq: _selectedPYQ == 'Yes',
+      pyqYear: int.tryParse(_pyqYearController.text) ?? 0,
+      difficultyScore: num.tryParse(_difficultyScoreController.text) ?? 0,
+
+      // Required defaults
+      exam: widget.questionData['Exam'] ?? "",
+      subject: widget.questionData['Subject'] ?? "",
+      chapterId: "",
+      topicId: "",
+      topicL2Id: "",
+    );
+  }
+
+  String? _getValidValue(String? value, List<String> items) {
+    if (value == null) return null;
+    if (items.contains(value)) return value;
+    return null;
+  }
+
+  void _updateTopicsList(String chapter) {
+    final chapterData = widget.syllabusTree[chapter];
+    setState(() {
+      if (chapterData is Map) {
+        _topics = chapterData.keys.map((e) => e.toString()).toList();
+      } else {
+        _topics = [];
+      }
+      if (!_topics.contains(_selectedTopic)) {
+        _selectedTopic = null;
+        _selectedTopicL2 = null;
+        _topicL2s = [];
+      }
+    });
+  }
+
+  void _updateTopicL2List(String chapter, String topic) {
+    final chapterData = widget.syllabusTree[chapter];
+    setState(() {
+      if (chapterData is Map && chapterData[topic] is List) {
+        _topicL2s = List<String>.from(chapterData[topic]);
+      } else {
+        _topicL2s = [];
+      }
+      if (!_topicL2s.contains(_selectedTopicL2)) {
+        _selectedTopicL2 = null;
+      }
+    });
+  }
+
+  Future<void> _updateQuestion() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isLoading = true);
+
+    try {
+      await FirebaseFirestore.instance.collection('questions').doc(widget.questionId).update({
+        'Chapter': _selectedChapter,
+        'Topic': _selectedTopic,
+        'Topic_L2': _selectedTopicL2 ?? "",
+        'QC_Status': _selectedQCStatus,
+        'Correct Answer': _correctAnswerController.text.trim(),
+        'Difficulty': _selectedDifficulty,
+        'Difficulty_score': num.tryParse(_difficultyScoreController.text) ?? 0,
+        'PYQ': _selectedPYQ,
+        'PYQ_Year': int.tryParse(_pyqYearController.text) ?? 0,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Updated successfully!'), backgroundColor: Colors.green));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _deleteQuestion() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Question?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isLoading = true);
+      try {
+        await FirebaseFirestore.instance.collection('questions').doc(widget.questionId).delete();
+        if (mounted) Navigator.pop(context);
+      } catch (e) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Modify Question'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete, color: Colors.red),
+            onPressed: _isLoading ? null : _deleteQuestion,
+          )
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // --- REUSED PREVIEW CARD ---
+              QuestionPreviewCard(
+                question: _buildPreviewQuestion(),
+              ),
+
+              const SizedBox(height: 30),
+              const Divider(thickness: 2),
+              const SizedBox(height: 10),
+
+              // --- SYLLABUS MAPPING ---
+              _buildSectionHeader("Syllabus Mapping"),
+              DropdownButtonFormField<String>(
+                value: _getValidValue(_selectedChapter, _chapters),
+                decoration: const InputDecoration(labelText: 'Chapter', border: OutlineInputBorder()),
+                isExpanded: true,
+                items: _chapters.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _selectedChapter = val;
+                    _updateTopicsList(val!);
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _getValidValue(_selectedTopic, _topics),
+                decoration: const InputDecoration(labelText: 'Topic', border: OutlineInputBorder()),
+                isExpanded: true,
+                items: _topics.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                onChanged: _selectedChapter == null
+                    ? null
+                    : (val) {
+                  setState(() {
+                    _selectedTopic = val;
+                    _updateTopicL2List(_selectedChapter!, val!);
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _getValidValue(_selectedTopicL2, _topicL2s),
+                decoration: const InputDecoration(labelText: 'Sub-Topic (L2)', border: OutlineInputBorder()),
+                isExpanded: true,
+                items: _topicL2s.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                onChanged: _selectedTopic == null ? null : (val) => setState(() => _selectedTopicL2 = val),
+              ),
+
+              const SizedBox(height: 30),
+
+              // --- METADATA ---
+              _buildSectionHeader("Metadata"),
+              DropdownButtonFormField<String>(
+                value: _getValidValue(_selectedQCStatus, _qcOptions),
+                decoration: const InputDecoration(labelText: 'QC Status', border: OutlineInputBorder()),
+                items: _qcOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                onChanged: (val) => setState(() => _selectedQCStatus = val),
+              ),
+              const SizedBox(height: 16),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _getValidValue(_selectedDifficulty, _diffOptions),
+                      decoration: const InputDecoration(labelText: 'Difficulty', border: OutlineInputBorder()),
+                      items: _diffOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                      onChanged: (val) => setState(() => _selectedDifficulty = val),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _correctAnswerController,
+                      decoration: const InputDecoration(
+                        labelText: 'Correct Ans',
+                        border: OutlineInputBorder(),
+                        hintText: 'e.g. A',
+                      ),
+                      onChanged: (val) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              TextFormField(
+                controller: _difficultyScoreController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Difficulty Score', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 16),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _getValidValue(_selectedPYQ, _pyqOptions),
+                      decoration: const InputDecoration(labelText: 'PYQ?', border: OutlineInputBorder()),
+                      items: _pyqOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                      onChanged: (val) => setState(() => _selectedPYQ = val),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _pyqYearController,
+                      enabled: _selectedPYQ == 'Yes',
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'PYQ Year', border: OutlineInputBorder()),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 40),
+
+              // --- UPDATE BUTTON ---
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.save),
+                  label: const Text("UPDATE QUESTION"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: _updateQuestion,
+                ),
+              ),
+              const SizedBox(height: 30),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Text(
+        title.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Colors.blueGrey,
+          letterSpacing: 1.0,
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pyqYearController.dispose();
+    _difficultyScoreController.dispose();
+    _correctAnswerController.dispose();
+    super.dispose();
   }
 }
 
@@ -4643,15 +5295,18 @@ class _TeacherCurationScreenState extends State<TeacherCurationScreen> {
 ================================================================================
 FILE: lib/features/teacher/screens/teacher_filter_screen.dart
 ================================================================================
-// lib/features/teacher/screens/teacher_filter_screen.dart
-
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
+
+
+// IMPORTANT: Ensure this import exists to navigate to the edit screen
+import 'package:study_smart_qc/features/teacher/screens/modify_question_screen.dart';
 
 // --- Helper Model to store parsed Syllabus Data ---
 class SyllabusChapter {
@@ -4699,7 +5354,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   // --- 3. SEARCH STATE ---
   bool _isSearching = false;
   List<Question> _searchResults = [];
-  int _totalMatchCount = 0; // <--- ADDED: To store total count from DB
+  int _totalMatchCount = 0;
 
   // --- 4. SELECTION STATE (The Cart) ---
   final Map<String, Question> _selectedQuestions = {};
@@ -4717,7 +5372,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     super.dispose();
   }
 
-  // --- DATA FETCHING & PARSING (Kept same as previous working version) ---
+  // --- DATA FETCHING & PARSING ---
   Future<void> _fetchFilterData() async {
     try {
       final firestore = FirebaseFirestore.instance;
@@ -4756,10 +5411,10 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           });
         }
       }
-      setState(() { _isLoadingFilters = false; });
+      if (mounted) setState(() { _isLoadingFilters = false; });
     } catch (e) {
       debugPrint("Error loading filters: $e");
-      setState(() { _isLoadingFilters = false; });
+      if (mounted) setState(() { _isLoadingFilters = false; });
     }
   }
 
@@ -4803,7 +5458,87 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     });
   }
 
-  // --- SEARCH LOGIC (UPDATED WITH COUNT) ---
+  // --- NAVIGATION LOGIC (THE FIX) ---
+
+  // 1. Helper to generate tree for ANY subject (not just the currently filtered one)
+  Map<String, dynamic> _buildTreeForSubject(String subjectName) {
+    String key = _normalizeSubject(subjectName);
+    // If we don't have this subject in cache, return empty map
+    if (!_syllabusCache.containsKey(key)) return {};
+
+    final chapters = _syllabusCache[key] ?? [];
+    Map<String, dynamic> tree = {};
+
+    for (var chap in chapters) {
+      Map<String, dynamic> topicMap = {};
+      // Flatten topics (ModifyQuestionScreen expects Map<Topic, List<SubTopic>>)
+      for (var topicName in chap.topics.values) {
+        topicMap[topicName] = <String>[];
+      }
+      tree[chap.name] = topicMap;
+    }
+    return tree;
+  }
+
+// 2. The function that handles the "Edit" click
+  void _navigateToEdit(Question q) {
+    // A. Generate the specific syllabus tree for THIS question's subject
+    final Map<String, dynamic> specificTree = _buildTreeForSubject(q.subject);
+
+    // B. Reconstruct the raw Map data from the Question object
+    final Map<String, dynamic> manualDataMap = {
+      'id': q.id,
+      'customId': q.customId,
+
+      // --- EXAM & SUBJECT ---
+      'Exam': q.exam,
+      'Subject': q.subject,
+      'Chapter': q.chapter,
+      'Topic': q.topic,
+      'TopicL2': q.topicL2,
+
+      // --- CRITICAL FIX: QUESTION TYPE ---
+      // Pass the Enum directly. We pass it with TWO keys to be safe
+      // because your Model uses 'Question type' but the Screen might use 'QuestionType'.
+      'QuestionType': q.type,
+      'Question type': q.type,
+
+      // --- IMAGES ---
+      // We map to 'image_url' because that is the first key your Model looks for.
+      'image_url': q.imageUrl,
+      'solution_url': q.solutionUrl,
+
+      // --- DATA ---
+      'Difficulty': q.difficulty,
+      'Correct Answer': q.correctAnswer,
+
+      // --- PYQ FIX ---
+      // Your model looks for "Yes", so we convert the boolean back to "Yes"/"No"
+      'PYQ': q.isPyq ? "Yes" : "No",
+      'PYQ_Year': q.pyqYear,
+
+      // --- NUMERICALS ---
+      'Question No.': q.questionNo,
+      'Difficulty_score': q.difficultyScore,
+    };
+
+    // C. Navigate
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ModifyQuestionScreen(
+          questionId: q.id,
+          questionData: manualDataMap, // Now contains the actual Enum
+          syllabusTree: specificTree,
+        ),
+      ),
+    ).then((_) {
+      // Optional: Refresh search results if needed
+      // setState(() {});
+    });
+  }
+
+  // --- SEARCH LOGIC ---
   String _generateRandomId() {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final rnd = Random();
@@ -4819,13 +5554,12 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     setState(() {
       _isSearching = true;
       _searchResults = [];
-      _totalMatchCount = 0; // Reset count
+      _totalMatchCount = 0;
     });
 
     try {
       Query query = FirebaseFirestore.instance.collection('questions');
 
-      // 1. Build Base Query (Exact Matching)
       query = query.where('Exam', isEqualTo: _selectedExam);
       query = query.where('Subject', isEqualTo: _selectedSubject);
 
@@ -4839,19 +5573,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         query = query.where('PYQ', isEqualTo: "Yes");
       }
 
-      // --- ADDED: Fetch Total Count ---
-      // We run this separately to get the total number of documents matching filters
       AggregateQuerySnapshot countSnapshot = await query.count().get();
       int totalCount = countSnapshot.count ?? 0;
-      // --------------------------------
 
-      // 2. Randomization Logic
       String randomAnchor = _generateRandomId();
       Query randomQuery = query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(50);
 
       QuerySnapshot snapshot = await randomQuery.get();
       if (snapshot.docs.isEmpty) {
-        // Fallback to start if random index hit the end
         snapshot = await query.limit(50).get();
       }
 
@@ -4859,11 +5588,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           .map((doc) => Question.fromFirestore(doc))
           .toList();
 
-      // 3. Client-side filtering (if > 10 items selected)
       if (_selectedChapters.length > 10) {
         fetched = fetched.where((q) => _selectedChapters.contains(q.chapter)).toList();
-        // Note: If filtering client-side, the 'totalCount' from server might be higher
-        // than actual local matches, but it's the best approximation without expensive reads.
       }
       if (_selectedTopics.length > 10) {
         fetched = fetched.where((q) => _selectedTopics.contains(q.topic)).toList();
@@ -4874,7 +5600,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
       setState(() {
         _searchResults = fetched;
-        _totalMatchCount = totalCount; // Update State
+        _totalMatchCount = totalCount;
       });
 
     } catch (e) {
@@ -4899,15 +5625,37 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     });
   }
 
-  // --- ASSIGNMENT LOGIC (Kept same) ---
+  // --- ASSIGNMENT LOGIC ---
   Future<void> _onAssign() async {
     if (_selectedQuestions.isEmpty) return;
     final teacher = FirebaseAuth.instance.currentUser;
     if (teacher == null) return;
 
-    final titleCtrl = TextEditingController(text: "Homework - ${DateTime.now().toString().split(' ')[0]}");
+    final titleCtrl = TextEditingController();
     final timeCtrl = TextEditingController(text: "${_selectedQuestions.length * 2}");
     bool isSingleAttempt = false;
+    DateTime? selectedDeadline;
+
+    Future<void> pickDateTime(StateSetter setDialogState, BuildContext ctx) async {
+      final date = await showDatePicker(
+        context: ctx,
+        initialDate: DateTime.now().add(const Duration(days: 1)),
+        firstDate: DateTime.now(),
+        lastDate: DateTime.now().add(const Duration(days: 365)),
+      );
+      if (date == null) return;
+
+      if (!ctx.mounted) return;
+      final time = await showTimePicker(
+        context: ctx,
+        initialTime: const TimeOfDay(hour: 17, minute: 0),
+      );
+      if (time == null) return;
+
+      setDialogState(() {
+        selectedDeadline = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      });
+    }
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -4918,12 +5666,40 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Assigning ${_selectedQuestions.length} questions."),
+                  Text("Assigning ${_selectedQuestions.length} questions.", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: titleCtrl,
+                    decoration: InputDecoration(
+                      labelText: "Assignment Title",
+                      hintText: "e.g. Optics Homework",
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(icon: const Icon(Icons.clear), onPressed: () => titleCtrl.clear()),
+                    ),
+                  ),
                   const SizedBox(height: 15),
-                  TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: "Assignment Title", border: OutlineInputBorder())),
+                  TextField(
+                    controller: timeCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: "Time Limit (Min)",
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(icon: const Icon(Icons.clear), onPressed: () => timeCtrl.clear()),
+                    ),
+                  ),
                   const SizedBox(height: 15),
-                  TextField(controller: timeCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Time Limit (Min)", border: OutlineInputBorder())),
+                  InkWell(
+                    onTap: () => pickDateTime(setDialogState, ctx),
+                    child: InputDecorator(
+                      decoration: const InputDecoration(labelText: "Deadline (Optional)", border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
+                      child: Text(
+                        selectedDeadline == null ? "Tap to select date & time" : DateFormat('MMM d, yyyy h:mm a').format(selectedDeadline!),
+                        style: TextStyle(color: selectedDeadline == null ? Colors.grey : Colors.black),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 10),
                   CheckboxListTile(
                     title: const Text("Strict Mode (Single Attempt)"),
@@ -4953,9 +5729,10 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         questions: _selectedQuestions.values.toList(),
         teacherUid: teacher.uid,
         targetAudience: widget.audienceType,
-        assignmentTitle: titleCtrl.text,
+        assignmentTitle: titleCtrl.text.trim(),
         onlySingleAttempt: isSingleAttempt,
         timeLimitMinutes: customTime,
+        deadline: selectedDeadline,
       );
 
       if (mounted) {
@@ -5029,6 +5806,9 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
   @override
   Widget build(BuildContext context) {
+    // We removed the _getSyllabusTreeForCurrentSubject call here because
+    // we now generate it specifically per question inside _navigateToEdit
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Filter & Search"),
@@ -5064,9 +5844,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildFilters(),
-
           const SizedBox(height: 20),
-
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -5076,27 +5854,17 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
               onPressed: _performSearch,
             ),
           ),
-
           const Divider(height: 40),
-
           if (_isSearching)
             const Center(child: CircularProgressIndicator())
           else if (_searchResults.isEmpty && _totalMatchCount == 0)
-          // Only show 'No questions' if we haven't searched yet or truly found nothing
             const Center(child: Text("Adjust filters and click Search.", style: TextStyle(color: Colors.grey)))
           else
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // --- ADDED: Display Total Count ---
-                Text(
-                    "Showing ${_searchResults.length} of $_totalMatchCount Results (Randomized)",
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16)
-                ),
+                Text("Showing ${_searchResults.length} of $_totalMatchCount Results (Randomized)", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16)),
                 const SizedBox(height: 10),
-                if (_searchResults.isEmpty)
-                  const Padding(padding: EdgeInsets.all(8.0), child: Text("No items fetched. Try searching again.", style: TextStyle(color: Colors.red))),
-
                 ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -5104,23 +5872,43 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                   itemBuilder: (context, index) {
                     final q = _searchResults[index];
                     final isSelected = _selectedQuestions.containsKey(q.id);
+
                     return Card(
                       elevation: 2,
                       margin: const EdgeInsets.only(bottom: 12),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Checkbox(value: isSelected, onChanged: (val) => _toggleSelection(q)),
-                            Expanded(
-                              child: QuestionPreviewCard(question: q),
-                            ),
-                          ],
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => _toggleSelection(q),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              IgnorePointer(
+                                child: Checkbox(value: isSelected, onChanged: (val) {}),
+                              ),
+                              Expanded(
+                                // --- CHANGE HERE: Added onEditPressed ---
+                                child: QuestionPreviewCard(
+                                  question: q
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );
                   },
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.refresh),
+                    label: const Text("Get More Questions"),
+                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), side: const BorderSide(color: Colors.deepPurple)),
+                    onPressed: _performSearch,
+                  ),
                 ),
               ],
             ),
@@ -5130,22 +5918,16 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   }
 
   Widget _buildSelectedTab() {
-    if (_selectedQuestions.isEmpty) {
-      return const Center(child: Text("No questions selected."));
-    }
-
-    // Convert map values to list for display
+    if (_selectedQuestions.isEmpty) return const Center(child: Text("No questions selected."));
     final selectedList = _selectedQuestions.values.toList();
 
     return Stack(
       children: [
         ListView.builder(
-          // Add padding at bottom so the list isn't hidden behind the Assign button
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
           itemCount: selectedList.length,
           itemBuilder: (context, index) {
             final q = selectedList[index];
-
             return Card(
               elevation: 2,
               margin: const EdgeInsets.only(bottom: 12),
@@ -5154,13 +5936,12 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Checkbox is always checked here. Unchecking it removes from list.
-
                     Expanded(
-                      child: QuestionPreviewCard(question: q),
+                      // --- CHANGE HERE: Added onEditPressed ---
+                      child: QuestionPreviewCard(
+                        question: q,
+                      ),
                     ),
-                    // Optional: Keep a delete icon for explicit removal if preferred,
-                    // but the checkbox does the same thing.
                     IconButton(
                       icon: const Icon(Icons.delete_outline, color: Colors.red),
                       onPressed: () => _toggleSelection(q),
@@ -5171,34 +5952,22 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
             );
           },
         ),
-
-        // Assign Button (Floating at bottom)
         Positioned(
           bottom: 20,
           left: 20,
           right: 20,
           child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              elevation: 4,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), elevation: 4),
             onPressed: _onAssign,
-            child: Text(
-                "Assign ${_selectedQuestions.length} Questions",
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
-            ),
+            child: Text("Assign ${_selectedQuestions.length} Questions", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
         ),
       ],
     );
   }
 
-
   Widget _buildFilters() {
     final decoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));
-
     return Column(
       children: [
         DropdownButtonFormField<String>(
@@ -5262,18 +6031,258 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 ================================================================================
 FILE: lib/features/teacher/screens/teacher_history_screen.dart
 ================================================================================
-// lib/features/teacher/screens/teacher_history_screen.dart
-
+//lib/features/teacher/screens/teacher_history_screen.dart
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
-// IMPORT THE NEW SCREEN
 import 'package:study_smart_qc/features/teacher/screens/curation_management_screen.dart';
+import 'package:study_smart_qc/features/teacher/widgets/teacher_curation_preview_card.dart';
 
-class TeacherHistoryScreen extends StatelessWidget {
+class TeacherHistoryScreen extends StatefulWidget {
   const TeacherHistoryScreen({super.key});
+
+  @override
+  State<TeacherHistoryScreen> createState() => _TeacherHistoryScreenState();
+}
+
+class _TeacherHistoryScreenState extends State<TeacherHistoryScreen> {
+
+  String _generateAssignmentCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rnd = Random();
+    return String.fromCharCodes(Iterable.generate(
+        6, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
+  }
+
+  void _showCloneBottomSheet(BuildContext parentContext, DocumentSnapshot sourceDoc) {
+    final data = sourceDoc.data() as Map<String, dynamic>;
+    final TextEditingController studentIdController = TextEditingController();
+    final TextEditingController deadlineController = TextEditingController();
+
+    DateTime selectedDateTime = DateTime.now().add(const Duration(days: 1));
+    if (data['deadline'] != null && data['deadline'] is Timestamp) {
+      selectedDateTime = (data['deadline'] as Timestamp).toDate();
+    }
+
+    deadlineController.text = DateFormat('MMM d, y  •  h:mm a').format(selectedDateTime);
+
+    showModalBottomSheet(
+      context: parentContext,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        bool isLoading = false;
+        String? errorMessage;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+
+            Future<void> pickFullDateTime() async {
+              final date = await showDatePicker(
+                context: context,
+                initialDate: selectedDateTime,
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (date == null) return;
+
+              if (!context.mounted) return;
+              final time = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay.fromDateTime(selectedDateTime),
+              );
+              if (time == null) return;
+
+              final combined = DateTime(
+                  date.year, date.month, date.day,
+                  time.hour, time.minute
+              );
+
+              setSheetState(() {
+                selectedDateTime = combined;
+                deadlineController.text = DateFormat('MMM d, y  •  h:mm a').format(combined);
+              });
+            }
+
+            Future<void> handleClone() async {
+              setSheetState(() {
+                errorMessage = null;
+                isLoading = true;
+              });
+
+              final rawInput = studentIdController.text.trim();
+
+              if (rawInput.isEmpty) {
+                setSheetState(() {
+                  errorMessage = "Please enter a Student ID";
+                  isLoading = false;
+                });
+                return;
+              }
+
+              final int? targetId = int.tryParse(rawInput);
+
+              if (targetId == null) {
+                setSheetState(() {
+                  errorMessage = "Student ID must be a valid number";
+                  isLoading = false;
+                });
+                return;
+              }
+
+              try {
+                // Correct Query using camelCase 'studentId' and integer targetId
+                final userQuery = await FirebaseFirestore.instance
+                    .collection('users')
+                    .where('studentId', isEqualTo: targetId)
+                    .limit(1)
+                    .get();
+
+                if (userQuery.docs.isEmpty) {
+                  setSheetState(() {
+                    errorMessage = "Student ID '$targetId' not found.";
+                    isLoading = false;
+                  });
+                  return;
+                }
+
+                final userDoc = userQuery.docs.first;
+                final userData = userDoc.data();
+
+                // --- DUPLICATION LOGIC ---
+                // 1. Create a clean copy of the source data
+                final Map<String, dynamic> cleanData = Map.from(data);
+
+                // 2. Remove 'progress' fields from this COPY so the new student starts fresh.
+                // This replaces the 'FieldValue.delete()' which caused the error.
+                cleanData.remove('submittedAt');
+                cleanData.remove('score');
+                cleanData.remove('feedback');
+                cleanData.remove('status');
+
+                // 3. Generate new unique code
+                final newCode = _generateAssignmentCode();
+
+
+                cleanData['studentId'] = targetId;
+                cleanData['studentUid'] = userDoc.id;
+                cleanData['studentName'] = userData['name'] ?? 'Unknown';
+                cleanData['status'] = 'Assigned';
+                cleanData['createdAt'] = FieldValue.serverTimestamp();
+                cleanData['deadline'] = Timestamp.fromDate(selectedDateTime);
+
+                // 5. Save the new document
+                await FirebaseFirestore.instance.collection('questions_curation').add(cleanData);
+
+                if (mounted) {
+                  Navigator.pop(sheetContext);
+                  ScaffoldMessenger.of(parentContext).showSnackBar(
+                      SnackBar(
+                        content: Text("Cloned successfully! Code: $newCode"),
+                        backgroundColor: Colors.green,
+                        duration: const Duration(seconds: 4),
+                      )
+                  );
+                }
+
+              } catch (e) {
+                setSheetState(() {
+                  errorMessage = "Error: $e";
+                  isLoading = false;
+                });
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    "Clone Assignment",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text("Copying: ${data['title'] ?? 'Untitled'}",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+
+                  const SizedBox(height: 20),
+
+                  TextField(
+                    controller: studentIdController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: "New Student ID",
+                      hintText: "e.g. 2602",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.badge_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextField(
+                    controller: deadlineController,
+                    readOnly: true,
+                    onTap: pickFullDateTime,
+                    decoration: const InputDecoration(
+                      labelText: "New Deadline",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.calendar_month_outlined),
+                      suffixIcon: Icon(Icons.arrow_drop_down),
+                      hintText: "Tap to set date & time",
+                    ),
+                  ),
+
+                  if (errorMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        errorMessage!,
+                        style: const TextStyle(color: Colors.red, fontSize: 13),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+
+                  const SizedBox(height: 24),
+
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: isLoading ? null : handleClone,
+                    child: isLoading
+                        ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                    )
+                        : const Text("Clone Assignment"),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5315,75 +6324,25 @@ class TeacherHistoryScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             itemCount: docs.length,
             itemBuilder: (context, index) {
-              final docId = docs[index].id; // Capture the Doc ID for navigation
-              final data = docs[index].data() as Map<String, dynamic>;
-
+              final DocumentSnapshot doc = docs[index];
+              final data = doc.data() as Map<String, dynamic>;
               final String title = data['title'] ?? 'Untitled';
-              final String code = data['assignmentCode'] ?? '----';
-              final String status = data['status'] ?? 'assigned';
-              final bool isStrict = data['onlySingleAttempt'] ?? false;
-              final int questionCount = (data['questionIds'] as List?)?.length ?? 0;
+              final String docId = doc.id;
 
-              // Format Date
-              final Timestamp? ts = data['createdAt'];
-              final String dateStr = ts != null
-                  ? DateFormat('MMM d, yyyy').format(ts.toDate())
-                  : 'Unknown Date';
-
-              return Card(
-                elevation: 2,
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  title: Text(
-                    title,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 4),
-                      Text("$questionCount Questions • $dateStr"),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          _buildStatusChip(status),
-                          const SizedBox(width: 8),
-                          if (isStrict)
-                            _buildMiniLabel("STRICT", Colors.red.shade100, Colors.red.shade800),
-                        ],
+              return TeacherCurationPreviewCard(
+                doc: doc,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CurationManagementScreen(
+                        curationId: docId,
+                        title: title,
                       ),
-                    ],
-                  ),
-                  trailing: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const Text("CODE", style: TextStyle(fontSize: 10, color: Colors.grey)),
-                      Text(
-                        code,
-                        style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.0,
-                            color: Colors.deepPurple
-                        ),
-                      ),
-                    ],
-                  ),
-                  onTap: () {
-                    // Navigate to the Management Screen
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => CurationManagementScreen(
-                          curationId: docId,
-                          title: title,
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
+                onClone: () => _showCloneBottomSheet(context, doc),
               );
             },
           );
@@ -5391,32 +6350,194 @@ class TeacherHistoryScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildStatusChip(String status) {
-    Color color = Colors.grey.shade100;
-    Color textColor = Colors.black87;
+================================================================================
+FILE: lib/features/teacher/widgets/teacher_curation_preview_card.dart
+================================================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
-    if (status == 'submitted') {
-      color = Colors.green.shade100;
-      textColor = Colors.green.shade800;
-    } else if (status == 'assigned') {
-      color = Colors.blue.shade100;
-      textColor = Colors.blue.shade800;
+class TeacherCurationPreviewCard extends StatelessWidget {
+  final DocumentSnapshot doc;
+  final VoidCallback? onTap;
+  final VoidCallback? onClone; // New Callback
+
+  const TeacherCurationPreviewCard({
+    super.key,
+    required this.doc,
+    this.onTap,
+    this.onClone,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    final String title = data['title'] ?? 'Untitled Assignment';
+    final String code = data['assignmentCode'] ?? '----';
+    final String status = data['status'] ?? 'Draft';
+    final String audience = data['targetAudience'] ?? 'General';
+
+    // FIX: Ensure we display the readable ID if available, else fall back gracefully
+    // Assuming 'studentId' field stores the readable ID (e.g., STU-100)
+    String studentInfo = "N/A";
+    if (data['studentId'] != null && data['studentId'].toString().isNotEmpty) {
+      studentInfo = "${data['studentId']}";
+    } else if (data['studentUid'] != null) {
+      // Fallback to UID substring if readable ID is missing
+      studentInfo = "UID: ${data['studentUid'].toString().substring(0, 5)}..";
     }
 
-    return _buildMiniLabel(status.toUpperCase(), color, textColor);
+    final DateFormat formatter = DateFormat('d MMM y, h:mm a');
+
+    String formattedCreated = "Unknown";
+    if (data['createdAt'] is Timestamp) {
+      formattedCreated = formatter.format((data['createdAt'] as Timestamp).toDate());
+    }
+
+    String formattedDeadline = "No Deadline";
+    if (data['deadline'] is Timestamp) {
+      formattedDeadline = formatter.format((data['deadline'] as Timestamp).toDate());
+    }
+
+    Color statusColor = Colors.grey;
+    if (status.toLowerCase() == 'assigned') statusColor = Colors.blue;
+    if (status.toLowerCase() == 'submitted') statusColor = Colors.green;
+    if (status.toLowerCase() == 'draft') statusColor = Colors.orange;
+
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // HEADER: Title + Clone Button + Status
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.deepPurple.shade50,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.deepPurple.shade100),
+                          ),
+                          child: Text(
+                            "Code: $code",
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.deepPurple.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // --- CLONE BUTTON ---
+                  IconButton(
+                    icon: const Icon(Icons.copy, size: 20, color: Colors.deepPurple),
+                    tooltip: "Clone Assignment",
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    onPressed: onClone,
+                  ),
+
+                  // --- STATUS BADGE ---
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      status.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: statusColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+
+              // DETAILS GRID
+              Row(
+                children: [
+                  _buildDetailCol(Icons.people_outline, "Audience", audience),
+                  _buildDetailCol(Icons.badge_outlined, "Student ID", studentInfo),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _buildDetailCol(Icons.calendar_today_outlined, "Created", formattedCreated),
+                  _buildDetailCol(Icons.timer_outlined, "Deadline", formattedDeadline, isDate: true),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
-  Widget _buildMiniLabel(String text, Color bg, Color fg) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: fg),
+  Widget _buildDetailCol(IconData icon, String label, String value, {bool isDate = false}) {
+    return Expanded(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: Colors.grey.shade600),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: isDate && value == "No Deadline" ? Colors.grey : Colors.black87,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -6253,6 +7374,9 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   late Duration _overallTimeCounter;
   bool _isPaused = false;
 
+  // ADDED: Scroll Controller for NTA Palette
+  final ScrollController _paletteController = ScrollController();
+
   final Map<int, AnswerState> _answerStates = {};
   final Map<int, int> _visitCounts = {};
   final Map<int, Stopwatch> _timeTrackers = {};
@@ -6330,6 +7454,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _timer.cancel();
     _pageController.dispose();
+    _paletteController.dispose(); // Dispose the palette controller
     super.dispose();
   }
 
@@ -6427,6 +7552,22 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         _answerStates[page]?.status = AnswerStatus.notAnswered;
       }
     });
+
+    // --- ADDED: Auto-scroll the top palette to keep the current number in view ---
+    if (_paletteController.hasClients) {
+      // 50.0 is approx width of item + margins.
+      // This centers the selected item.
+      double targetOffset = (page * 60.0) - (MediaQuery.of(context).size.width / 2) + 30;
+      if (targetOffset < 0) targetOffset = 0;
+
+      _paletteController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+    // -----------------------------------------------------------------------------
+
     if (_timeTrackers.containsKey(page)) {
       _timeTrackers[page]!.start();
     }
@@ -6517,8 +7658,11 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     if (state.userAnswer is Map && (state.userAnswer as Map).isEmpty) isEmpty = true;
 
     if (isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Please select an answer first!")));
+      // FIX: Check mounted before using context
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Please select an answer first!")));
+      }
       return;
     }
     setState(() {
@@ -6565,7 +7709,11 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     } else {
       setState(() => state.status = AnswerStatus.notAnswered);
     }
-    _triggerLocalSave().then((_) => _moveToNextPage());
+
+    // FIX: Check mounted before moving to next page
+    _triggerLocalSave().then((_) {
+      if (mounted) _moveToNextPage();
+    });
   }
 
   void _handleSaveAndMarkForReview() {
@@ -6576,11 +7724,17 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
 
     if (hasAnswer) {
       setState(() => state.status = AnswerStatus.answeredAndMarked);
-      _triggerLocalSave().then((_) => _moveToNextPage());
+      // FIX: Check mounted inside the .then() callback
+      _triggerLocalSave().then((_) {
+        if (mounted) _moveToNextPage();
+      });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select an answer to Save & Mark for Review")),
-      );
+      // FIX: Check mounted before showing SnackBar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please select an answer to Save & Mark for Review")),
+        );
+      }
     }
   }
 
@@ -6588,9 +7742,11 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     setState(() {
       _answerStates[_currentPage]!.status = AnswerStatus.markedForReview;
     });
-    _triggerLocalSave().then((_) => _moveToNextPage());
+    // FIX: Check mounted
+    _triggerLocalSave().then((_) {
+      if (mounted) _moveToNextPage();
+    });
   }
-
   void _handleClearResponse() {
     setState(() {
       _answerStates[_currentPage]!.userAnswer = null;
@@ -6605,9 +7761,12 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       _pageController.nextPage(
           duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("You are on the last question. Click Submit to finish.")),
-      );
+      // FIX: Check mounted before showing SnackBar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("You are on the last question. Click Submit to finish.")),
+        );
+      }
     }
   }
 
@@ -6765,6 +7924,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         ),
         body: Column(
           children: [
+            // CHANGED: Correct NTA Palette Function
             _buildNTAQuestionPalette(),
             const Divider(height: 1),
             Expanded(
@@ -6875,12 +8035,14 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     );
   }
 
+  // UPDATED: NTA Standard Palette
   Widget _buildNTAQuestionPalette() {
     return Container(
       height: 70,
       padding: const EdgeInsets.symmetric(vertical: 10),
-      color: Colors.grey.shade50,
+      color: Colors.white, // Standard white background for palette strip
       child: ListView.builder(
+        controller: _paletteController, // Attached ScrollController
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 10),
         itemCount: widget.questions.length,
@@ -6888,36 +8050,59 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
           final state = _answerStates[index]!;
           final isCurrent = index == _currentPage;
 
+          // NTA Defaults
           BoxShape shape = BoxShape.rectangle;
-          Color color = Colors.white;
-          Border? border = Border.all(color: Colors.grey.shade300);
+          Color fillColor = Colors.white;
+          Color textColor = Colors.black;
+          Border? border = Border.all(color: Colors.grey.shade300); // Default border
           Widget? badge;
 
           switch (state.status) {
             case AnswerStatus.notVisited:
-              color = Colors.white;
+            // White Box
+              fillColor = Colors.white;
+              textColor = Colors.black;
+              border = Border.all(color: Colors.grey.shade400);
+              shape = BoxShape.rectangle;
               break;
             case AnswerStatus.notAnswered:
-              color = Colors.red;
+            // Red Box
+              fillColor = Colors.red.shade600;
+              textColor = Colors.white;
               border = null;
+              shape = BoxShape.rectangle;
               break;
             case AnswerStatus.answered:
-              color = Colors.green;
+            // Green Box
+              fillColor = Colors.green.shade600;
+              textColor = Colors.white;
               border = null;
+              shape = BoxShape.rectangle;
               break;
             case AnswerStatus.markedForReview:
-              shape = BoxShape.circle;
-              color = Colors.purple;
+            // Purple Circle
+              fillColor = Colors.purple.shade700;
+              textColor = Colors.white;
               border = null;
+              shape = BoxShape.circle;
               break;
             case AnswerStatus.answeredAndMarked:
-              shape = BoxShape.circle;
-              color = Colors.purple;
+            // Purple Circle + Green Badge
+              fillColor = Colors.purple.shade700;
+              textColor = Colors.white;
               border = null;
-              badge = const Positioned(
+              shape = BoxShape.circle;
+              badge = Positioned(
                 bottom: 0,
                 right: 0,
-                child: Icon(Icons.check_circle, size: 14, color: Colors.green),
+                child: Container(
+                  padding: const EdgeInsets.all(1),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check_circle, size: 12, color: Colors.green),
+                ),
               );
               break;
           }
@@ -6929,26 +8114,32 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
               margin: const EdgeInsets.symmetric(horizontal: 5),
               child: Stack(
                 alignment: Alignment.center,
+                clipBehavior: Clip.none,
                 children: [
                   Container(
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: color,
+                      color: fillColor,
                       shape: shape,
+                      // Highlight current question with Blue Border
                       border: isCurrent
                           ? Border.all(color: Colors.blueAccent, width: 3)
                           : border,
                       borderRadius: shape == BoxShape.rectangle
                           ? BorderRadius.circular(4)
                           : null,
+                      boxShadow: isCurrent
+                          ? [BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 4, spreadRadius: 1)]
+                          : null,
                     ),
                     child: Center(
                       child: Text(
                         "${index + 1}",
                         style: TextStyle(
-                          color: (color == Colors.white) ? Colors.black : Colors.white,
+                          color: textColor,
                           fontWeight: FontWeight.bold,
+                          fontSize: 16,
                         ),
                       ),
                     ),
@@ -7217,7 +8408,8 @@ class ResponseObject {
   });
 
   Map<String, dynamic> toJson() => toMap();
-  factory ResponseObject.fromJson(Map<String, dynamic> json) => ResponseObject.fromMap(json);
+  factory ResponseObject.fromJson(Map<String, dynamic> json) =>
+      ResponseObject.fromMap(json);
 
   factory ResponseObject.fromMap(Map<String, dynamic> map) {
     return ResponseObject(
@@ -7345,8 +8537,9 @@ class AttemptModel {
     if (data['responses'] is Map) {
       (data['responses'] as Map).forEach((key, value) {
         if (value is Map) {
-          parsedResponses[key] =
-              ResponseObject.fromMap(value as Map<String, dynamic>);
+          parsedResponses[key] = ResponseObject.fromMap(
+            value as Map<String, dynamic>,
+          );
         }
       });
     }
@@ -7385,7 +8578,9 @@ class AttemptModel {
       smartTimeAnalysisCounts: parseIntMap(data['smartTimeAnalysisCounts']),
       responses: parsedResponses,
       secondsBreakdownHighLevel: parseIntMap(data['secondsBreakdownHighLevel']),
-      secondsBreakdownSmartTimeAnalysis: parseIntMap(data['secondsBreakdownSmartTimeAnalysis']),
+      secondsBreakdownSmartTimeAnalysis: parseIntMap(
+        data['secondsBreakdownSmartTimeAnalysis'],
+      ),
     );
   }
 
@@ -7414,66 +8609,6 @@ class AttemptModel {
       'secondsBreakdownHighLevel': secondsBreakdownHighLevel,
       'secondsBreakdownSmartTimeAnalysis': secondsBreakdownSmartTimeAnalysis,
       'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
-    };
-  }
-}
-
-================================================================================
-FILE: lib/models/custom_test_model.dart
-================================================================================
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-// Represents a test that has been generated and potentially saved.
-class CustomTest {
-  final String id;
-  final String userId;
-  final String testName;
-  final String status; // e.g., 'Not Attempted', 'Attempted'
-  final List<String> questionIds;
-  final int totalQuestions;
-  final int timeLimitInMinutes;
-  final Timestamp createdAt;
-  final List<String> chapterNames;
-
-  CustomTest({
-    required this.id,
-    required this.userId,
-    required this.testName,
-    required this.status,
-    required this.questionIds,
-    required this.totalQuestions,
-    required this.timeLimitInMinutes,
-    required this.createdAt,
-    required this.chapterNames,
-  });
-
-  // Factory to create a CustomTest from a Firestore document.
-  factory CustomTest.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-    return CustomTest(
-      id: doc.id,
-      userId: data['userId'] ?? '',
-      testName: data['testName'] ?? 'Custom Test',
-      status: data['status'] ?? 'Not Attempted',
-      questionIds: List<String>.from(data['questionIds'] ?? []),
-      totalQuestions: data['totalQuestions'] ?? 0,
-      timeLimitInMinutes: data['timeLimitInMinutes'] ?? 0,
-      createdAt: data['createdAt'] ?? Timestamp.now(),
-      chapterNames: List<String>.from(data['chapterNames'] ?? []),
-    );
-  }
-
-  // Method to convert a CustomTest instance to a map for Firestore.
-  Map<String, dynamic> toFirestore() {
-    return {
-      'userId': userId,
-      'testName': testName,
-      'status': status,
-      'questionIds': questionIds,
-      'totalQuestions': totalQuestions,
-      'timeLimitInMinutes': timeLimitInMinutes,
-      'createdAt': createdAt,
-      'chapterNames': chapterNames,
     };
   }
 }
@@ -7521,45 +8656,44 @@ class AnswerState {
 ================================================================================
 FILE: lib/models/question_model.dart
 ================================================================================
-// lib/models/question_model.dart
+//lib/models/question_model.dart
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-enum QuestionType {
-  singleCorrect,   // Matches Firestore 'Single Correct'
-  numerical,       // Matches Firestore 'Numerical type'
-  multipleCorrect, // Matches Firestore 'One or more options correct'
-  matrixSingle,    // Matches Firestore 'Single Matrix Match'
-  matrixMulti,     // Matches Firestore 'Multi Matrix Match'
-  unknown          // Safety fallback
-}
+import 'package:flutter/foundation.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
 
 class Question {
-  final String id;
+  final String id; // Firestore Document ID
+  final String customId; // Custom ID (e.g., "17813")
 
-  // IDs
+  // --- Hierarchy / Syllabus Fields ---
   final String chapterId;
   final String topicId;
   final String topicL2Id;
-
-  // Names / Context
   final String subject;
   final String chapter;
   final String topic;
   final String topicL2;
 
-  // Question Details
+  // --- Question Metadata ---
   final QuestionType type;
   final String imageUrl;
   final String? solutionUrl;
   final dynamic correctAnswer;
   final String difficulty;
-  final String exam; // Matches 'Exam' field
+  final String exam;
   final bool isPyq;
   final int questionNo;
 
+  // --- NEWLY ADDED FIELDS ---
+  final String? qcStatus;      // e.g., "Pending QC", "Accepted"
+  final num? difficultyScore;  // e.g., 0.5, 10, etc.
+  final int? pyqYear;          // e.g., 2022
+  final String? ocrText;       // The raw text of the question
+
   Question({
     required this.id,
+    required this.customId,
     required this.chapterId,
     required this.topicId,
     required this.topicL2Id,
@@ -7575,55 +8709,78 @@ class Question {
     required this.exam,
     required this.isPyq,
     required this.questionNo,
+    // Initialize new fields
+    this.qcStatus,
+    this.difficultyScore,
+    this.pyqYear,
+    this.ocrText,
   });
 
-  factory Question.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
+  factory Question.fromMap(Map<String, dynamic> data, String docId) {
     return Question(
-      id: doc.id,
-      // IDs
-      chapterId: data['chapterId'] ?? '',
-      topicId: data['topicId'] ?? '', // Default if missing in doc
-      topicL2Id: data['topicL2Id'] ?? '',
+      id: docId,
+      // CAPTURE THE CUSTOM ID (Fallback to docId if missing)
+      customId: (data['question_id'] ?? data['id'] ?? docId).toString(),
 
-      // Names
-      subject: data['Subject'] ?? 'Physics',
+      chapterId: data['chapterId'] ?? '',
+      topicId: data['topicId'] ?? '',
+      topicL2Id: data['topicL2Id'] ?? '',
+      subject: data['Subject'] ?? 'Physics', // Default to Physics if missing
       chapter: data['Chapter'] ?? '',
       topic: data['Topic'] ?? '',
       topicL2: data['Topic_L2'] ?? '',
 
-      // Details
       type: _mapStringToType(data['Question type']),
-      imageUrl: data['image_url'] ?? '',
-      solutionUrl: data['solution_url'],
+
+      // CORRECT IMAGE FIELD (Matches your Firestore doc: 'image_url')
+      imageUrl: data['image_url'] ?? data['imageUrl'] ?? data['Image'] ?? '',
+
+      solutionUrl: data['solution_url'] ?? data['solutionUrl'],
       correctAnswer: data['Correct Answer'],
-      difficulty: data['Difficulty_tag'] ?? 'Medium',
+
+      // Look for 'Difficulty' first (per your Firestore doc), fallback to 'Difficulty_tag'
+      difficulty: data['Difficulty'] ?? data['Difficulty_tag'] ?? 'Medium',
+
       exam: data['Exam'] ?? '',
-      isPyq: (data['PYQ'] ?? '') == 'Yes',
+
+      // Updated Logic: Check if String is 'Yes' (Case insensitive safe check)
+      isPyq: (data['PYQ'] ?? '').toString().toLowerCase() == 'yes',
+
       questionNo: data['Question No.'] is int
           ? data['Question No.']
           : int.tryParse(data['Question No.']?.toString() ?? '0') ?? 0,
+
+      // --- MAPPING NEW FIELDS ---
+      qcStatus: data['QC_Status'],
+      ocrText: data['OCR_Text'],
+
+      // Handle potential String vs Number mismatches safely
+      difficultyScore: data['Difficulty_score'] is num
+          ? data['Difficulty_score']
+          : num.tryParse(data['Difficulty_score']?.toString() ?? '0'),
+
+      pyqYear: data['PYQ_Year'] is int
+          ? data['PYQ_Year']
+          : int.tryParse(data['PYQ_Year']?.toString() ?? '0'),
     );
   }
 
-  // Helper to convert Firestore String -> Enum
+  factory Question.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return Question.fromMap(data, doc.id);
+  }
+
   static QuestionType _mapStringToType(String? typeString) {
     switch (typeString) {
-      case 'Single Correct':
-        return QuestionType.singleCorrect;
-      case 'Numerical type':
-        return QuestionType.numerical;
-      case 'One or more options correct':
-        return QuestionType.multipleCorrect;
-      case 'Single Matrix Match':
-        return QuestionType.matrixSingle;
-      case 'Multi Matrix Match':
-        return QuestionType.matrixMulti;
-      default:
-        return QuestionType.unknown;
+      case 'Single Correct': return QuestionType.singleCorrect;
+      case 'Numerical type': return QuestionType.numerical;
+      case 'One or more options correct': return QuestionType.multipleCorrect;
+      case 'Single Matrix Match': return QuestionType.matrixSingle;
+      case 'Multi Matrix Match': return QuestionType.matrixMulti;
+      default: return QuestionType.unknown;
     }
   }
+
 }
 
 ================================================================================
@@ -7631,23 +8788,34 @@ FILE: lib/models/test_enums.dart
 ================================================================================
 // lib/models/test_enums.dart
 enum TestMode {
-  test,      // Timer counts down, no feedback, auto-submit
-  practice,  // Timer counts up (or hidden), instant feedback, solution access, pause allowed
+  test, // Timer counts down, no feedback, auto-submit
+  practice, // Timer counts up (or hidden), instant feedback, solution access, pause allowed
 }
 
 enum PerformanceCategory {
-  mastery,      // Correct & Fast (Ideal)
-  needsSpeed,   // Correct & Slow (Knowledge is there, speed is not)
-  rushed,       // Incorrect & Fast (Likely a silly mistake or guess)
-  struggle,     // Incorrect & Slow (Conceptual gap)
-  skipped,      // Not attempted
-  notVisited    // Didn't reach
+  mastery, // Correct & Fast (Ideal)
+  needsSpeed, // Correct & Slow (Knowledge is there, speed is not)
+  rushed, // Incorrect & Fast (Likely a silly mistake or guess)
+  struggle, // Incorrect & Slow (Conceptual gap)
+  skipped, // Not attempted
+  notVisited, // Didn't reach
 }
+
+// THIS IS THE CRITICAL MISSING PIECE
+enum QuestionType {
+  singleCorrect,
+  numerical,
+  multipleCorrect,
+  matrixSingle,
+  matrixMulti,
+  unknown,
+}
+
 
 ================================================================================
 FILE: lib/models/test_model.dart
 ================================================================================
-
+//lib/models/test_model.dart
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -7655,10 +8823,7 @@ class TestConfig {
   final int durationSeconds;
   final int totalQuestions;
 
-  TestConfig({
-    required this.durationSeconds,
-    required this.totalQuestions,
-  });
+  TestConfig({required this.durationSeconds, required this.totalQuestions});
 
   factory TestConfig.fromMap(Map<String, dynamic> map) {
     return TestConfig(
@@ -7770,6 +8935,7 @@ class TestResult {
   });
 }
 
+
 ================================================================================
 FILE: lib/models/user_model.dart
 ================================================================================
@@ -7860,7 +9026,9 @@ class UserModel {
       createdAt: data['createdAt'] ?? Timestamp.now(),
 
       // Map New Submission Tracking Field
-      assignmentCodesSubmitted: List<String>.from(data['assignmentCodesSubmitted'] ?? []),
+      assignmentCodesSubmitted: List<String>.from(
+        data['assignmentCodesSubmitted'] ?? [],
+      ),
 
       // Map Onboarding Fields
       role: data['role'] ?? 'student',
@@ -7901,6 +9069,7 @@ class UserModel {
     };
   }
 }
+
 
 ================================================================================
 FILE: lib/Screens/teacher/curation_management_screen.dart
@@ -8048,66 +9217,6 @@ class AuthService {
     await _auth.signOut();
   }
 }
-
-================================================================================
-FILE: lib/services/custom_test_service.dart
-================================================================================
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:study_smart_qc/models/custom_test_model.dart';
-
-class CustomTestService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  // Get the current user's ID
-  String? get _userId => _auth.currentUser?.uid;
-
-  // Save a generated test to Firestore
-  Future<void> saveTest(CustomTest test) async {
-    if (_userId == null) return;
-
-    final docRef = _firestore
-        .collection('users')
-        .doc(_userId)
-        .collection('custom_tests')
-        .doc(); // Auto-generate ID
-
-    await docRef.set(test.toFirestore());
-  }
-
-  // Retrieve all tests for the current user
-  Stream<List<CustomTest>> getCustomTests() {
-    if (_userId == null) return Stream.value([]);
-
-    return _firestore
-        .collection('users')
-        .doc(_userId)
-        .collection('custom_tests')
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-          return snapshot.docs
-              .map((doc) => CustomTest.fromFirestore(doc))
-              .toList();
-        });
-  }
-
-  // Fetch the full Question objects for a saved test
-  Future<List<Map<String, dynamic>>> getQuestionsForTest(
-    List<String> questionIds,
-  ) async {
-    if (questionIds.isEmpty) return [];
-
-    final querySnapshot = await _firestore
-        .collection('questions')
-        .where(FieldPath.documentId, whereIn: questionIds)
-        .get();
-
-    return querySnapshot.docs.map((doc) => doc.data()).toList();
-  }
-}
-
 
 ================================================================================
 FILE: lib/services/local_session_service.dart
@@ -8372,7 +9481,6 @@ class TeacherService {
   }
 
   // --- 2. ADVANCED SEARCH (PAGINATED) ---
-
   Future<PaginatedQuestions> fetchQuestionsPaged({
     required String audienceType,
     int? studentId,
@@ -8380,49 +9488,31 @@ class TeacherService {
     String? subject,
     List<String>? chapterIds,
     List<String>? topicIds,
-    int limit = 20, // Default reduced to 20
-    DocumentSnapshot? startAfter, // Cursor for pagination
+    int limit = 20,
+    DocumentSnapshot? startAfter,
   }) async {
-    // 1. Determine Source (Tracker vs General Pool)
-    // Note: Tracker-based fetching (Smart Filter) is hard to paginate via Firestore query
-    // because it reads a list of IDs. For now, we fetch the list and handle slicing manually
-    // if needed, or just return all since tracker buckets usually aren't massive.
-    // For 'General' search, we use true Firestore pagination.
-
     if (audienceType == 'Particular Student' && smartFilter != null && smartFilter != 'New Questions') {
-      // Logic for Tracker (Pre-existing logic, simplified return)
       final allQuestions = await _fetchFromTracker(studentId!, smartFilter);
-      // We simulate pagination or just return all for tracker buckets
       return PaginatedQuestions(allQuestions, null);
     }
 
-    // 2. General Pool Query Construction
     Query query = _firestore.collection('questions');
 
     if (chapterIds != null && chapterIds.isNotEmpty) {
-      // 'whereIn' limits to 10. If more, we might need multiple queries,
-      // but assuming the UI restricts or we take first 10.
       query = query.where('chapterId', whereIn: chapterIds.take(10).toList());
     }
 
-    // Apply Cursor
     if (startAfter != null) {
       query = query.startAfterDocument(startAfter);
     }
 
-    // Apply Limit
     final snap = await query.limit(limit).get();
-
-    // Convert
     List<Question> questions = snap.docs.map((d) => Question.fromFirestore(d)).toList();
 
-    // 3. Filter by Topic (Client-side)
-    // Firestore can't do whereIn(chapters) AND whereIn(topics) easily.
     if (topicIds != null && topicIds.isNotEmpty) {
       questions = questions.where((q) => topicIds.contains(q.topicId)).toList();
     }
 
-    // 4. Exclude History (Client-side)
     if (audienceType == 'Particular Student' && studentId != null) {
       final historyIds = await _getStudentHistory(studentId);
       questions = questions.where((q) => !historyIds.contains(q.id)).toList();
@@ -8487,15 +9577,16 @@ class TeacherService {
     });
   }
 
-  // --- 5. ASSIGNMENT LOGIC ---
+  // --- 5. ASSIGNMENT LOGIC (Fixed Signature) ---
   Future<void> assignQuestionsToStudent({
     required int studentId,
     required List<Question> questions,
     required String teacherUid,
     required String targetAudience,
-    String assignmentTitle = "Teacher Assignment",
+    String assignmentTitle = "",
     bool onlySingleAttempt = false,
     int? timeLimitMinutes,
+    DateTime? deadline, // <--- ADDED PARAMETER HERE
   }) async {
     final studentUid = await _findUidByStudentId(studentId);
     if (studentUid == null) throw Exception("Student not found");
@@ -8505,18 +9596,31 @@ class TeacherService {
     final batch = _firestore.batch();
 
     final assignmentCode = _generateAssignmentCode();
-    final questionIds = questions.map((q) => q.id).toList();
-    final subjects = questions.map((q) => q.chapterId.split('_').first).toSet().toList();
-    final hierarchy = _buildHierarchy(questions);
-    final int finalTimeLimit = timeLimitMinutes ?? (questions.length * 2);
+    // Using q.id because in your model Question.id is mapped to the real question_id
+    final questionIds = questions.map((q) => q.customId).toList();
 
-    batch.set(newAssignmentRef, {
+    // FIXED: Subjects Logic
+    final subjects = questions
+        .map((q) => q.subject.isNotEmpty ? q.subject : (q.chapterId.split('_').first))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toSet()
+        .toList();
+
+    // FIXED: Meta Hierarchy Logic
+    final hierarchy = _buildHierarchy(questions);
+
+    final int finalTimeLimit = timeLimitMinutes ?? (questions.length * 2);
+    final String finalTitle = assignmentTitle.isEmpty ? "New Assignment" : assignmentTitle;
+
+    Map<String, dynamic> curationData = {
       'assignmentId': newAssignmentRef.id,
       'assignmentCode': assignmentCode,
       'targetAudience': targetAudience,
+      'studentId': studentId,
       'studentUid': studentUid,
       'teacherUid': teacherUid,
-      'title': assignmentTitle,
+      'title': finalTitle,
       'questionIds': questionIds,
       'createdAt': FieldValue.serverTimestamp(),
       'status': 'assigned',
@@ -8524,7 +9628,14 @@ class TeacherService {
       'timeLimitMinutes': finalTimeLimit,
       'subjects': subjects,
       'meta_hierarchy': hierarchy,
-    });
+    };
+
+    // Add deadline if present
+    if (deadline != null) {
+      curationData['deadline'] = Timestamp.fromDate(deadline);
+    }
+
+    batch.set(newAssignmentRef, curationData);
 
     batch.update(trackerRef, {
       'assigned_history': FieldValue.arrayUnion(questionIds),
@@ -8572,7 +9683,7 @@ class TeacherService {
     final ids = List<String>.from(buckets[dbKey] ?? []);
     if (ids.isEmpty) return [];
 
-    final safeIds = ids.take(20).toList(); // Limit tracker fetch too
+    final safeIds = ids.take(20).toList();
     final query = await _firestore.collection('questions').where(FieldPath.documentId, whereIn: safeIds).get();
     return query.docs.map((d) => Question.fromFirestore(d)).toList();
   }
@@ -8597,13 +9708,16 @@ class TeacherService {
     return String.fromCharCodes(Iterable.generate(4, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
   }
 
+  // UPDATED: Hierarchy Builder using Names
   Map<String, dynamic> _buildHierarchy(List<Question> questions) {
     Map<String, dynamic> hierarchy = {};
     for (var q in questions) {
-      final exam = q.exam.isEmpty ? 'Unknown Exam' : q.exam;
-      final subject = 'Physics';
-      final chapter = q.chapterId.isEmpty ? 'Unknown Chapter' : q.chapterId;
-      final topic = q.topicId.isEmpty ? 'Unknown Topic' : q.topicId;
+      final exam = q.exam.isEmpty ? 'General' : q.exam;
+      final subject = q.subject.isEmpty ? 'General' : q.subject;
+
+      // Prefer Names -> Fallback to IDs -> Fallback to Unknown
+      String chapter = q.chapter.isNotEmpty ? q.chapter : (q.chapterId.isNotEmpty ? q.chapterId : 'Unknown Chapter');
+      String topic = q.topic.isNotEmpty ? q.topic : (q.topicId.isNotEmpty ? q.topicId : 'Unknown Topic');
 
       hierarchy.putIfAbsent(exam, () => <String, dynamic>{});
       hierarchy[exam].putIfAbsent(subject, () => <String, dynamic>{});
@@ -9025,14 +10139,68 @@ class TestOrchestrationService {
 
   Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
     if (questionIds.isEmpty) return [];
+
+    final uniqueIds = questionIds.where((id) => id.isNotEmpty).toSet().toList();
     final List<Question> fetchedQuestions = [];
-    for (var i = 0; i < questionIds.length; i += 10) {
-      final chunk = questionIds.sublist(i, min(i + 10, questionIds.length));
-      final querySnapshot = await _firestore.collection('questions').where(FieldPath.documentId, whereIn: chunk).get();
-      fetchedQuestions.addAll(querySnapshot.docs.map((doc) => Question.fromFirestore(doc)));
+
+    // 1. Fetch
+    for (var i = 0; i < uniqueIds.length; i += 10) {
+      final chunk = uniqueIds.sublist(i, min(i + 10, uniqueIds.length));
+      try {
+        // Try String Match (Primary)
+        var snapshot = await _firestore
+            .collection('questions')
+            .where('question_id', whereIn: chunk)
+            .get();
+
+        // Try Integer Match (Fallback)
+        if (snapshot.docs.isEmpty) {
+          final intChunk = chunk.map((e) => int.tryParse(e)).whereType<int>().toList();
+          if (intChunk.isNotEmpty) {
+            snapshot = await _firestore
+                .collection('questions')
+                .where('question_id', whereIn: intChunk)
+                .get();
+          }
+        }
+
+        fetchedQuestions.addAll(
+            snapshot.docs.map((doc) => Question.fromFirestore(doc))
+        );
+      } catch (e) {
+        print("Error fetching chunk: $e");
+      }
     }
-    final questionMap = {for (var q in fetchedQuestions) q.id: q};
-    return questionIds.map((id) => questionMap[id]).whereType<Question>().toList();
+
+    // 2. Map & Sort (THE FIX)
+    List<Question> orderedResult = [];
+
+    for (String requestedId in questionIds) {
+      try {
+        final match = fetchedQuestions.firstWhere((q) {
+          // CHECK 1: The New Custom ID (Matches "5743")
+          if (q.customId == requestedId) return true;
+
+          // CHECK 2: The Document Key (Matches "NpV5...")
+          if (q.id == requestedId) return true;
+
+          // CHECK 3: The Question No (Matches "83")
+          if (q.questionNo.toString() == requestedId) return true;
+
+          return false;
+        });
+        orderedResult.add(match);
+      } catch (e) {
+        print("⚠️ [WARN] Question ID $requestedId not found in fetched results.");
+      }
+    }
+
+    // Fallback if matching logic was too strict but we have data
+    if (orderedResult.isEmpty && fetchedQuestions.isNotEmpty) {
+      return fetchedQuestions;
+    }
+
+    return orderedResult;
   }
 
   // ===========================================================================
@@ -9073,9 +10241,11 @@ class TestOrchestrationService {
 ================================================================================
 FILE: lib/services/test_service.dart
 ================================================================================
+// lib/services/test_service.dart
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
 
 class TestService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -9276,45 +10446,52 @@ class ExpandableImage extends StatelessWidget {
 FILE: lib/widgets/question_input_widget.dart
 ================================================================================
 import 'package:flutter/material.dart';
-import '../models/question_model.dart';
+import 'package:flutter/services.dart';
+import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
 
 class QuestionInputWidget extends StatefulWidget {
   final Question question;
   final dynamic currentAnswer;
-  final Function(dynamic) onAnswerChanged;
+  final ValueChanged<dynamic> onAnswerChanged;
 
   const QuestionInputWidget({
-    Key? key,
+    super.key,
     required this.question,
     required this.currentAnswer,
     required this.onAnswerChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<QuestionInputWidget> createState() => _QuestionInputWidgetState();
 }
 
 class _QuestionInputWidgetState extends State<QuestionInputWidget> {
-  late TextEditingController _textController;
+  late TextEditingController _numericalController;
 
   @override
   void initState() {
     super.initState();
-    _textController = TextEditingController();
+    _numericalController = TextEditingController(
+        text: widget.currentAnswer?.toString() ?? ''
+    );
   }
 
   @override
-  void didUpdateWidget(QuestionInputWidget oldWidget) {
+  void didUpdateWidget(covariant QuestionInputWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Refresh text field if the question changes or answer is externally reset
-    if (widget.question.id != oldWidget.question.id || widget.currentAnswer == null) {
-      _textController.text = widget.currentAnswer?.toString() ?? '';
+    if (widget.question.id != oldWidget.question.id ||
+        widget.currentAnswer != oldWidget.currentAnswer) {
+      String newText = widget.currentAnswer?.toString() ?? '';
+      if (_numericalController.text != newText) {
+        _numericalController.text = newText;
+      }
     }
   }
 
   @override
   void dispose() {
-    _textController.dispose();
+    _numericalController.dispose();
     super.dispose();
   }
 
@@ -9322,219 +10499,145 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
   Widget build(BuildContext context) {
     switch (widget.question.type) {
       case QuestionType.singleCorrect:
-        return _buildSingleCorrectUI();
+        return _buildSingleCorrect();
       case QuestionType.numerical:
-        return _buildNumericalUI();
+        return _buildNumerical();
       case QuestionType.multipleCorrect:
-        return _buildMultiCorrectUI();
+        return _buildMultipleCorrect();
       case QuestionType.matrixSingle:
       case QuestionType.matrixMulti:
-        return _buildMatrixUI();
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text("Matrix Match is not supported in this view yet."),
+          ),
+        );
+      case QuestionType.unknown:
       default:
         return const Center(child: Text("Unknown Question Type"));
     }
   }
 
-  // =========================================================
-  // TYPE 1: SINGLE CORRECT (Radio Tiles)
-  // =========================================================
-  Widget _buildSingleCorrectUI() {
+  // ===========================================================================
+  // 1. SINGLE CORRECT (Row of 4 Rectangles)
+  // ===========================================================================
+  Widget _buildSingleCorrect() {
     final options = ['A', 'B', 'C', 'D'];
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: options.map((option) {
-        final isSelected = widget.currentAnswer == option;
-        return Expanded(
-          child: GestureDetector(
-            onTap: () => widget.onAnswerChanged(option),
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                color: isSelected ? Colors.blue : Colors.white,
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+      child: Row(
+        children: options.map((opt) {
+          final bool isSelected = (widget.currentAnswer?.toString() == opt);
+
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6.0),
+              child: InkWell(
+                onTap: () => widget.onAnswerChanged(opt),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                    color: isSelected ? Colors.blue : Colors.grey.shade300
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  option,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.black,
-                    fontWeight: FontWeight.bold,
+                child: Container(
+                  height: 50, // Fixed height for the rectangle
+                  decoration: BoxDecoration(
+                    color: Colors.white, // Fill stays white
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      // Green if selected, Grey if not
+                      color: isSelected ? Colors.green : Colors.grey.shade400,
+                      // Thick border if selected (3.0 vs 1.0)
+                      width: isSelected ? 3.0 : 1.0,
+                    ),
                   ),
-                ),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  // =========================================================
-  // TYPE 2: NUMERICAL (Text Field)
-  // =========================================================
-  Widget _buildNumericalUI() {
-    return TextField(
-      controller: _textController,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: const InputDecoration(
-        border: OutlineInputBorder(),
-        hintText: 'Enter numerical answer (e.g. 5.5)',
-      ),
-      onChanged: (val) => widget.onAnswerChanged(val),
-    );
-  }
-
-  // =========================================================
-  // TYPE 3: MULTIPLE CORRECT (Checkboxes)
-  // =========================================================
-  Widget _buildMultiCorrectUI() {
-    final options = ['A', 'B', 'C', 'D'];
-    final List<dynamic> currentSelection = (widget.currentAnswer is List)
-        ? widget.currentAnswer
-        : [];
-
-    return Row(
-      children: options.map((option) {
-        final isSelected = currentSelection.contains(option);
-        return Expanded(
-          child: GestureDetector(
-            onTap: () {
-              List<dynamic> newSel = List.from(currentSelection);
-              if (isSelected) {
-                newSel.remove(option);
-              } else {
-                newSel.add(option);
-              }
-              widget.onAnswerChanged(newSel);
-            },
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                color: isSelected ? Colors.green.shade100 : Colors.white,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                    color: isSelected ? Colors.green : Colors.grey.shade300,
-                    width: 2
-                ),
-              ),
-              child: Center(child: Text(option)),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  // =========================================================
-  // TYPE 4: MATRIX MATCH (The Grid)
-  // =========================================================
-  Widget _buildMatrixUI() {
-    // Standard JEE Matrix setup
-    final rows = ['A', 'B', 'C', 'D'];
-    final cols = ['P', 'Q', 'R', 'S', 'T'];
-
-    // Safe Cast: Ensure answer is a Map. If null/wrong type, start empty.
-    Map<String, List<String>> matrixAns = {};
-    if (widget.currentAnswer is Map) {
-      (widget.currentAnswer as Map).forEach((key, value) {
-        if (value is List) {
-          matrixAns[key.toString()] = List<String>.from(value);
-        }
-      });
-    }
-
-    return Column(
-      children: [
-        // 1. Header Row (Labels P, Q, R, S, T)
-        Row(
-          children: [
-            const SizedBox(width: 40), // Empty space for row labels column
-            ...cols.map((col) => Expanded(
-              child: Center(
-                child: Text(col, style: const TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            )),
-          ],
-        ),
-        const Divider(),
-
-        // 2. The Data Rows (A, B, C, D)
-        ...rows.map((rowLabel) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            child: Row(
-              children: [
-                // Row Label
-                SizedBox(
-                  width: 40,
-                  child: Center(
-                    child: Text(
-                      rowLabel,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  alignment: Alignment.center,
+                  child: Text(
+                    opt,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      // Text turns green to match border, or stays grey
+                      color: isSelected ? Colors.green : Colors.grey.shade700,
                     ),
                   ),
                 ),
-
-                // The Interactive Bubbles
-                ...cols.map((colLabel) {
-                  final rowSelections = matrixAns[rowLabel] ?? [];
-                  final isSelected = rowSelections.contains(colLabel);
-
-                  return Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        // Create a copy of the current row's selection to modify
-                        List<String> newRowSel = List.from(rowSelections);
-
-                        if (widget.question.type == QuestionType.matrixSingle) {
-                          // LOGIC: Single Matrix (One choice per row)
-                          newRowSel.clear();
-                          if (!isSelected) {
-                            newRowSel.add(colLabel);
-                          }
-                        } else {
-                          // LOGIC: Multi Matrix (Multiple choices per row)
-                          if (isSelected) {
-                            newRowSel.remove(colLabel);
-                          } else {
-                            newRowSel.add(colLabel);
-                          }
-                        }
-
-                        // Update the Main Map
-                        Map<String, List<String>> newMatrixAns = Map.from(matrixAns);
-                        newMatrixAns[rowLabel] = newRowSel;
-
-                        // Send back to Controller
-                        widget.onAnswerChanged(newMatrixAns);
-                      },
-                      child: Container(
-                        height: 36, // Tap target size
-                        margin: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: isSelected ? Colors.deepPurple : Colors.grey.shade100,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                              color: isSelected ? Colors.deepPurple : Colors.grey.shade400
-                          ),
-                        ),
-                        child: isSelected
-                            ? const Icon(Icons.check, size: 20, color: Colors.white)
-                            : null,
-                      ),
-                    ),
-                  );
-                }),
-              ],
+              ),
             ),
           );
         }).toList(),
-      ],
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // 2. NUMERICAL TYPE
+  // ===========================================================================
+  Widget _buildNumerical() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Enter your numerical answer:",
+            style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _numericalController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            ],
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              hintText: "e.g. 5 or 2.5",
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF6200EA), width: 2),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            ),
+            onChanged: (val) {
+              widget.onAnswerChanged(val);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // 3. MULTIPLE CORRECT
+  // ===========================================================================
+  Widget _buildMultipleCorrect() {
+    final options = ['A', 'B', 'C', 'D'];
+
+    List<String> selected = [];
+    if (widget.currentAnswer is List) {
+      selected = List<String>.from(widget.currentAnswer);
+    } else if (widget.currentAnswer is String) {
+      selected = [widget.currentAnswer];
+    }
+
+    return Column(
+      children: options.map((opt) {
+        final isSelected = selected.contains(opt);
+        return CheckboxListTile(
+          title: Text("Option $opt"),
+          value: isSelected,
+          activeColor: const Color(0xFF6200EA),
+          onChanged: (bool? checked) {
+            final newSelection = List<String>.from(selected);
+            if (checked == true) {
+              newSelection.add(opt);
+            } else {
+              newSelection.remove(opt);
+            }
+            newSelection.sort();
+            widget.onAnswerChanged(newSelection);
+          },
+        );
+      }).toList(),
     );
   }
 }

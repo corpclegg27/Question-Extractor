@@ -1,3 +1,5 @@
+// lib/features/student/widgets/student_curation_preview_card.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -72,19 +74,21 @@ class StudentCurationPreviewCard extends StatelessWidget {
     final int? storedTime = data['timeLimitMinutes'];
     final String timeDisplay = storedTime != null ? "${storedTime}m" : "${questionCount * 2}m (Est)";
 
-    String dateLabel;
+    // Date Strings
+    final String assignedDateText = createdAtTs != null
+        ? DateFormat('MMM d, yyyy').format(createdAtTs.toDate())
+        : 'Unknown';
+
+    String? deadlineLabel;
     bool isOverdue = false;
 
     if (deadlineTs != null) {
       final date = deadlineTs.toDate();
       final formatted = DateFormat('MMM d, h:mm a').format(date);
-      dateLabel = "Deadline: $formatted";
+      deadlineLabel = "Due: $formatted";
       if (date.isBefore(DateTime.now()) && !actuallySubmitted) {
         isOverdue = true;
       }
-    } else {
-      final date = createdAtTs?.toDate();
-      dateLabel = date != null ? DateFormat('MMM d, yyyy').format(date) : 'Unknown Date';
     }
 
     // --- 3. THEME LOGIC ---
@@ -144,14 +148,26 @@ class StudentCurationPreviewCard extends StatelessWidget {
       // ⚪ PENDING
       borderColor = Colors.grey.shade200;
       if (isOverdue) borderColor = Colors.red.shade200;
-      statusBadge = Text(
-        dateLabel,
-        style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: isOverdue ? Colors.red : Colors.grey.shade500
-        ),
-      );
+
+      // Only show badge if there is a deadline
+      if (deadlineLabel != null) {
+        statusBadge = Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: isOverdue ? Colors.red.shade50 : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(8),
+            border: isOverdue ? Border.all(color: Colors.red.shade200) : null,
+          ),
+          child: Text(
+            deadlineLabel,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isOverdue ? Colors.red : Colors.grey.shade600
+            ),
+          ),
+        );
+      }
     }
 
     return Container(
@@ -170,7 +186,7 @@ class StudentCurationPreviewCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- HEADER ---
+              // --- HEADER: CODE + BADGE ---
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -189,7 +205,15 @@ class StudentCurationPreviewCard extends StatelessWidget {
                 ],
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 6),
+
+              // --- ASSIGNED DATE ---
+              Text(
+                "Assigned on: $assignedDateText",
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic),
+              ),
+
+              const SizedBox(height: 8),
 
               // --- TITLE ---
               Text(
@@ -232,9 +256,8 @@ class StudentCurationPreviewCard extends StatelessWidget {
               if (actuallySubmitted) ...[
                 Row(
                   children: [
-                    // 1. View Analysis (Primary)
+                    // 1. View Analysis (Equal Width)
                     Expanded(
-                      flex: 3,
                       child: ElevatedButton.icon(
                         onPressed: onViewAnalysisTap,
                         icon: const Icon(Icons.analytics_outlined, size: 18),
@@ -249,20 +272,20 @@ class StudentCurationPreviewCard extends StatelessWidget {
                       ),
                     ),
 
-                    // 2. Attempt Again (Secondary) - Only if NOT strict
+                    // 2. Attempt Again (Equal Width) - Only if NOT strict
                     if (!isStrict) ...[
                       const SizedBox(width: 10),
                       Expanded(
-                        flex: 2,
-                        child: OutlinedButton(
+                        child: OutlinedButton.icon(
                           onPressed: () => _initiateTestFlow(context, data),
+                          icon: const Icon(Icons.refresh, size: 18), // Added Icon
+                          label: const Text("Retake", style: TextStyle(fontWeight: FontWeight.bold)),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.deepPurple,
                             side: const BorderSide(color: Colors.deepPurple),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
-                          child: const Text("Retake", style: TextStyle(fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ],

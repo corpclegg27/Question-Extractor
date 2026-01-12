@@ -394,7 +394,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
   // --- CHARTS ---
 
   Widget _buildPerformanceDistributionChart() {
-    int total = widget.result.questions.length;
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
@@ -402,31 +401,17 @@ class _ResultsScreenState extends State<ResultsScreen> {
         children: [
           SizedBox(
             height: 200,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                PieChart(
-                  PieChartData(
-                    sectionsSpace: 2,
-                    centerSpaceRadius: 40,
-                    startDegreeOffset: 270,
-                    sections: [
-                      _buildSection(correctIndices.length.toDouble(), '${correctIndices.length}', Colors.green),
-                      _buildSection(incorrectIndices.length.toDouble(), '${incorrectIndices.length}', Colors.red),
-                      _buildSection(skippedIndices.length.toDouble(), '${skippedIndices.length}', Colors.grey.shade300, textColor: Colors.black54),
-                    ],
-                  ),
-                ),
-                FittedBox(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                        "$total",
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)
-                    ),
-                  ),
-                )
-              ],
+            child: PieChart(
+              PieChartData(
+                sectionsSpace: 2,
+                centerSpaceRadius: 40,
+                startDegreeOffset: 270,
+                sections: [
+                  _buildSection(correctIndices.length.toDouble(), '${correctIndices.length}', Colors.green),
+                  _buildSection(incorrectIndices.length.toDouble(), '${incorrectIndices.length}', Colors.red),
+                  _buildSection(skippedIndices.length.toDouble(), '${skippedIndices.length}', Colors.grey.shade300, textColor: Colors.black54),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -458,29 +443,15 @@ class _ResultsScreenState extends State<ResultsScreen> {
         children: [
           SizedBox(
             height: 200,
-            child: total == 0 ? const Center(child: Text("No data")) : Stack(
-              alignment: Alignment.center,
-              children: [
-                PieChart(
-                  PieChartData(
-                    sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
-                    sections: [
-                      _buildTimeSection(timeMap["CORRECT"]!, total, Colors.green),
-                      _buildTimeSection(timeMap["INCORRECT"]!, total, Colors.red),
-                      _buildTimeSection(timeMap["SKIPPED"]!, total, Colors.grey.shade300, textColor: Colors.black54),
-                    ],
-                  ),
-                ),
-                FittedBox(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                        _formatDurationCompact(total),
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)
-                    ),
-                  ),
-                )
-              ],
+            child: total == 0 ? const Center(child: Text("No data")) : PieChart(
+              PieChartData(
+                sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
+                sections: [
+                  _buildTimeSection(timeMap["CORRECT"]!, total, Colors.green),
+                  _buildTimeSection(timeMap["INCORRECT"]!, total, Colors.red),
+                  _buildTimeSection(timeMap["SKIPPED"]!, total, Colors.grey.shade300, textColor: Colors.black54),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -517,25 +488,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
         children: [
           SizedBox(
             height: 200,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                PieChart(
-                  PieChartData(
-                    sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
-                    sections: sections,
-                  ),
-                ),
-                FittedBox(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                        "$totalCount",
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)
-                    ),
-                  ),
-                )
-              ],
+            child: PieChart(
+              PieChartData(
+                sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
+                sections: sections,
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -575,25 +532,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
         children: [
           SizedBox(
             height: 200,
-            child: total == 0 ? const Center(child: Text("No data")) : Stack(
-              alignment: Alignment.center,
-              children: [
-                PieChart(
-                  PieChartData(
-                    sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
-                    sections: sections,
-                  ),
-                ),
-                FittedBox(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                        _formatDurationCompact(total),
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)
-                    ),
-                  ),
-                )
-              ],
+            child: total == 0 ? const Center(child: Text("No data")) : PieChart(
+              PieChartData(
+                sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
+                sections: sections,
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -613,7 +556,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
     return Column(
       children: _behavioralOrder.map((key) {
         final indices = _smartAnalysisGroups[key] ?? [];
-        if (indices.isEmpty) return const SizedBox.shrink();
+        // REMOVED THE CHECK: if (indices.isEmpty) return const SizedBox.shrink();
+
         final color = _getSmartColor(key);
 
         return Container(
@@ -655,22 +599,33 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   style: TextStyle(fontSize: 13, color: Colors.grey.shade600, height: 1.5)
               ),
               const SizedBox(height: 16),
-              Wrap(
-                spacing: 8, runSpacing: 8,
-                children: indices.map((idx) => GestureDetector(
-                  onTap: () => _showSolutionSheet(idx),
-                  child: Container(
-                    width: 44, height: 34, alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(color: color.withOpacity(0.5)),
-                        borderRadius: BorderRadius.circular(8),
-                        boxShadow: [BoxShadow(color: color.withOpacity(0.05), blurRadius: 2, offset: const Offset(0, 1))]
+
+              // LOGIC TO SHOW CONTENT OR "NO QUESTIONS" PLACEHOLDER
+              if (indices.isNotEmpty)
+                Wrap(
+                  spacing: 8, runSpacing: 8,
+                  children: indices.map((idx) => GestureDetector(
+                    onTap: () => _showSolutionSheet(idx),
+                    child: Container(
+                      width: 44, height: 34, alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(color: color.withOpacity(0.5)),
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [BoxShadow(color: color.withOpacity(0.05), blurRadius: 2, offset: const Offset(0, 1))]
+                      ),
+                      child: Text("Q${idx + 1}", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
                     ),
-                    child: Text("Q${idx + 1}", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+                  )).toList(),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: Text(
+                    "No questions in this category.",
+                    style: TextStyle(color: Colors.grey.shade400, fontStyle: FontStyle.italic, fontSize: 13),
                   ),
-                )).toList(),
-              ),
+                )
             ],
           ),
         );

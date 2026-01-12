@@ -1,13 +1,15 @@
-// lib/features/teacher/screens/teacher_filter_screen.dart
-
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // Ensure intl is in pubspec
+import 'package:intl/intl.dart';
 import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
+
+
+// IMPORTANT: Ensure this import exists to navigate to the edit screen
+import 'package:study_smart_qc/features/teacher/screens/modify_question_screen.dart';
 
 // --- Helper Model to store parsed Syllabus Data ---
 class SyllabusChapter {
@@ -112,10 +114,10 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           });
         }
       }
-      setState(() { _isLoadingFilters = false; });
+      if (mounted) setState(() { _isLoadingFilters = false; });
     } catch (e) {
       debugPrint("Error loading filters: $e");
-      setState(() { _isLoadingFilters = false; });
+      if (mounted) setState(() { _isLoadingFilters = false; });
     }
   }
 
@@ -156,6 +158,86 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
       } else if (level == 'Chapter') {
         _selectedTopics.clear();
       }
+    });
+  }
+
+  // --- NAVIGATION LOGIC (THE FIX) ---
+
+  // 1. Helper to generate tree for ANY subject (not just the currently filtered one)
+  Map<String, dynamic> _buildTreeForSubject(String subjectName) {
+    String key = _normalizeSubject(subjectName);
+    // If we don't have this subject in cache, return empty map
+    if (!_syllabusCache.containsKey(key)) return {};
+
+    final chapters = _syllabusCache[key] ?? [];
+    Map<String, dynamic> tree = {};
+
+    for (var chap in chapters) {
+      Map<String, dynamic> topicMap = {};
+      // Flatten topics (ModifyQuestionScreen expects Map<Topic, List<SubTopic>>)
+      for (var topicName in chap.topics.values) {
+        topicMap[topicName] = <String>[];
+      }
+      tree[chap.name] = topicMap;
+    }
+    return tree;
+  }
+
+// 2. The function that handles the "Edit" click
+  void _navigateToEdit(Question q) {
+    // A. Generate the specific syllabus tree for THIS question's subject
+    final Map<String, dynamic> specificTree = _buildTreeForSubject(q.subject);
+
+    // B. Reconstruct the raw Map data from the Question object
+    final Map<String, dynamic> manualDataMap = {
+      'id': q.id,
+      'customId': q.customId,
+
+      // --- EXAM & SUBJECT ---
+      'Exam': q.exam,
+      'Subject': q.subject,
+      'Chapter': q.chapter,
+      'Topic': q.topic,
+      'TopicL2': q.topicL2,
+
+      // --- CRITICAL FIX: QUESTION TYPE ---
+      // Pass the Enum directly. We pass it with TWO keys to be safe
+      // because your Model uses 'Question type' but the Screen might use 'QuestionType'.
+      'QuestionType': q.type,
+      'Question type': q.type,
+
+      // --- IMAGES ---
+      // We map to 'image_url' because that is the first key your Model looks for.
+      'image_url': q.imageUrl,
+      'solution_url': q.solutionUrl,
+
+      // --- DATA ---
+      'Difficulty': q.difficulty,
+      'Correct Answer': q.correctAnswer,
+
+      // --- PYQ FIX ---
+      // Your model looks for "Yes", so we convert the boolean back to "Yes"/"No"
+      'PYQ': q.isPyq ? "Yes" : "No",
+      'PYQ_Year': q.pyqYear,
+
+      // --- NUMERICALS ---
+      'Question No.': q.questionNo,
+      'Difficulty_score': q.difficultyScore,
+    };
+
+    // C. Navigate
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ModifyQuestionScreen(
+          questionId: q.id,
+          questionData: manualDataMap, // Now contains the actual Enum
+          syllabusTree: specificTree,
+        ),
+      ),
+    ).then((_) {
+      // Optional: Refresh search results if needed
+      // setState(() {});
     });
   }
 
@@ -246,19 +328,17 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     });
   }
 
-  // --- ASSIGNMENT LOGIC (UPDATED UI) ---
+  // --- ASSIGNMENT LOGIC ---
   Future<void> _onAssign() async {
     if (_selectedQuestions.isEmpty) return;
     final teacher = FirebaseAuth.instance.currentUser;
     if (teacher == null) return;
 
-    // NO Default text
     final titleCtrl = TextEditingController();
     final timeCtrl = TextEditingController(text: "${_selectedQuestions.length * 2}");
     bool isSingleAttempt = false;
     DateTime? selectedDeadline;
 
-    // Pick Date Helper
     Future<void> pickDateTime(StateSetter setDialogState, BuildContext ctx) async {
       final date = await showDatePicker(
         context: ctx,
@@ -271,7 +351,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
       if (!ctx.mounted) return;
       final time = await showTimePicker(
         context: ctx,
-        initialTime: const TimeOfDay(hour: 17, minute: 0), // Default 5 PM
+        initialTime: const TimeOfDay(hour: 17, minute: 0),
       );
       if (time == null) return;
 
@@ -293,56 +373,37 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                 children: [
                   Text("Assigning ${_selectedQuestions.length} questions.", style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 20),
-
-                  // TITLE FIELD with Clear Icon
                   TextField(
                     controller: titleCtrl,
                     decoration: InputDecoration(
                       labelText: "Assignment Title",
                       hintText: "e.g. Optics Homework",
                       border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () => titleCtrl.clear(),
-                      ),
+                      suffixIcon: IconButton(icon: const Icon(Icons.clear), onPressed: () => titleCtrl.clear()),
                     ),
                   ),
                   const SizedBox(height: 15),
-
-                  // TIME LIMIT FIELD with Clear Icon
                   TextField(
                     controller: timeCtrl,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
                       labelText: "Time Limit (Min)",
                       border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () => timeCtrl.clear(),
-                      ),
+                      suffixIcon: IconButton(icon: const Icon(Icons.clear), onPressed: () => timeCtrl.clear()),
                     ),
                   ),
                   const SizedBox(height: 15),
-
-                  // DEADLINE PICKER
                   InkWell(
                     onTap: () => pickDateTime(setDialogState, ctx),
                     child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: "Deadline (Optional)",
-                        border: OutlineInputBorder(),
-                        suffixIcon: Icon(Icons.calendar_today),
-                      ),
+                      decoration: const InputDecoration(labelText: "Deadline (Optional)", border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
                       child: Text(
-                        selectedDeadline == null
-                            ? "Tap to select date & time"
-                            : DateFormat('MMM d, yyyy h:mm a').format(selectedDeadline!),
+                        selectedDeadline == null ? "Tap to select date & time" : DateFormat('MMM d, yyyy h:mm a').format(selectedDeadline!),
                         style: TextStyle(color: selectedDeadline == null ? Colors.grey : Colors.black),
                       ),
                     ),
                   ),
                   const SizedBox(height: 10),
-
                   CheckboxListTile(
                     title: const Text("Strict Mode (Single Attempt)"),
                     value: isSingleAttempt,
@@ -355,10 +416,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text("Assign"),
-              ),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Assign")),
             ],
           );
         },
@@ -377,7 +435,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         assignmentTitle: titleCtrl.text.trim(),
         onlySingleAttempt: isSingleAttempt,
         timeLimitMinutes: customTime,
-        deadline: selectedDeadline, // Pass the new parameter
+        deadline: selectedDeadline,
       );
 
       if (mounted) {
@@ -451,6 +509,9 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
   @override
   Widget build(BuildContext context) {
+    // We removed the _getSyllabusTreeForCurrentSubject call here because
+    // we now generate it specifically per question inside _navigateToEdit
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Filter & Search"),
@@ -486,9 +547,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildFilters(),
-
           const SizedBox(height: 20),
-
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -498,9 +557,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
               onPressed: _performSearch,
             ),
           ),
-
           const Divider(height: 40),
-
           if (_isSearching)
             const Center(child: CircularProgressIndicator())
           else if (_searchResults.isEmpty && _totalMatchCount == 0)
@@ -509,14 +566,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                    "Showing ${_searchResults.length} of $_totalMatchCount Results (Randomized)",
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16)
-                ),
+                Text("Showing ${_searchResults.length} of $_totalMatchCount Results (Randomized)", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16)),
                 const SizedBox(height: 10),
-                if (_searchResults.isEmpty)
-                  const Padding(padding: EdgeInsets.all(8.0), child: Text("No items fetched. Try searching again.", style: TextStyle(color: Colors.red))),
-
                 ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -537,13 +588,13 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               IgnorePointer(
-                                child: Checkbox(
-                                  value: isSelected,
-                                  onChanged: (val) {},
-                                ),
+                                child: Checkbox(value: isSelected, onChanged: (val) {}),
                               ),
                               Expanded(
-                                child: QuestionPreviewCard(question: q),
+                                // --- CHANGE HERE: Added onEditPressed ---
+                                child: QuestionPreviewCard(
+                                  question: q
+                                ),
                               ),
                             ],
                           ),
@@ -552,18 +603,13 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                     );
                   },
                 ),
-
                 const SizedBox(height: 20),
-
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.refresh),
                     label: const Text("Get More Questions"),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      side: const BorderSide(color: Colors.deepPurple),
-                    ),
+                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), side: const BorderSide(color: Colors.deepPurple)),
                     onPressed: _performSearch,
                   ),
                 ),
@@ -575,9 +621,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   }
 
   Widget _buildSelectedTab() {
-    if (_selectedQuestions.isEmpty) {
-      return const Center(child: Text("No questions selected."));
-    }
+    if (_selectedQuestions.isEmpty) return const Center(child: Text("No questions selected."));
     final selectedList = _selectedQuestions.values.toList();
 
     return Stack(
@@ -596,7 +640,10 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: QuestionPreviewCard(question: q),
+                      // --- CHANGE HERE: Added onEditPressed ---
+                      child: QuestionPreviewCard(
+                        question: q,
+                      ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -608,23 +655,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
             );
           },
         ),
-
         Positioned(
           bottom: 20,
           left: 20,
           right: 20,
           child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              elevation: 4,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), elevation: 4),
             onPressed: _onAssign,
-            child: Text(
-                "Assign ${_selectedQuestions.length} Questions",
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
-            ),
+            child: Text("Assign ${_selectedQuestions.length} Questions", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
         ),
       ],
@@ -633,7 +671,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
   Widget _buildFilters() {
     final decoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));
-
     return Column(
       children: [
         DropdownButtonFormField<String>(

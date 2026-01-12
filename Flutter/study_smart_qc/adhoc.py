@@ -358,7 +358,7 @@ def main():
             add_ids_to_existing_questions()
 
         if choice == '4':
-            clearCollections(['users','attempts','attempt_items','questions_curation','student_question_tracker'])
+            clearCollections(['attempts','attempt_items','questions_curation'])
 
 
         elif choice == '0':

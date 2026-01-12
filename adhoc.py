@@ -509,6 +509,50 @@ def sanitize_correct_answers(file_path):
     else:
         print(f"⚠️ Warning: Required columns ('Correct Answer' or 'Question type') not found.")
 
+
+
+
+# --- Delete NEET Questions ---
+
+
+def delete_neet_questions():
+
+    collection_ref = db.collection('questions')
+    
+    # 2. Query for the documents
+    # Note: Ensure 'Exam' matches the exact case in your DB ('NEET' vs 'neet')
+    query = collection_ref.where('Exam', '==', 'NEET')
+    docs = query.stream()
+
+    # 3. Batch deletion logic
+    batch = db.batch()
+    count = 0
+    total_deleted = 0
+    
+    print("⏳ Querying and preparing to delete...")
+
+    for doc in docs:
+        batch.delete(doc.reference)
+        count += 1
+
+        # Firestore batches allow up to 500 operations. 
+        # We commit every 400 to be safe.
+        if count >= 400:
+            batch.commit()
+            print(f"   Deleted a batch of {count} questions...")
+            total_deleted += count
+            batch = db.batch() # Start a new batch
+            count = 0
+
+    # 4. Commit any remaining documents in the final batch
+    if count > 0:
+        batch.commit()
+        total_deleted += count
+        print(f"   Deleted final batch of {count} questions.")
+
+    print(f"✅ Operations complete. Total documents deleted: {total_deleted}")
+
+
 # --- MAIN MENU ---
 
 def main():
@@ -524,6 +568,7 @@ def main():
         print ("6. Delete all user records from auth system")
         print ("7. Add ideal time per question map")
         print ("8. Sanitize answer key of csv provided")
+        print ("9. Delete NEET Questions")
         print("0. Exit")
         print("-" * 40)
         
@@ -552,6 +597,12 @@ def main():
 
         if choice == '8':
             sanitize_correct_answers(file_path=r"D:\Main\3. Work - Teaching\Projects\Question extractor\DB Master Firebase.csv")
+
+
+        if choice == '9':
+            delete_neet_questions()
+
+
 
         elif choice == '0':
             print("Bye! 👋")

@@ -342,85 +342,104 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: false,
       ),
       drawer: _buildDrawer(context),
-      body: StreamBuilder<QuerySnapshot>(
+
+      // OUTER STREAM: Listen to User Profile (For real-time 'Completed' updates)
+      body: StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
-              .collection('questions_curation')
-          // CORRECTED: Matching the single number field 'studentId'
-              .where('studentId', isEqualTo: _userModel!.studentId)
+              .collection('users')
+              .doc(_userModel!.uid)
               .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+          builder: (context, userSnapshot) {
 
-          if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
-          }
+            // 1. Get Live Submitted Codes
+            // Fallback to static _userModel if stream is loading/empty to prevent flicker
+            List<String> liveSubmittedCodes = _userModel!.assignmentCodesSubmitted;
 
-          final allDocs = snapshot.data?.docs ?? [];
-          final submittedCodes = _userModel!.assignmentCodesSubmitted;
-
-          // 1. Filter: Strict (Test) vs Non-Strict (Assignment)
-          final strictDocs = <QueryDocumentSnapshot>[];
-          final normalDocs = <QueryDocumentSnapshot>[];
-
-          for (var doc in allDocs) {
-            final data = doc.data() as Map<String, dynamic>;
-            final bool isStrict = data['onlySingleAttempt'] ?? false;
-            if (isStrict) {
-              strictDocs.add(doc);
-            } else {
-              normalDocs.add(doc);
+            if (userSnapshot.hasData && userSnapshot.data!.exists) {
+              final userData = userSnapshot.data!.data() as Map<String, dynamic>;
+              liveSubmittedCodes = List<String>.from(userData['assignmentCodesSubmitted'] ?? []);
             }
+
+            return StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('questions_curation')
+              // CORRECTED: Matching the single number field 'studentId'
+                  .where('studentId', isEqualTo: _userModel!.studentId)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (snapshot.hasError) {
+                  return Center(child: Text("Error: ${snapshot.error}"));
+                }
+
+                final allDocs = snapshot.data?.docs ?? [];
+
+                // 1. Filter: Strict (Test) vs Non-Strict (Assignment)
+                final strictDocs = <QueryDocumentSnapshot>[];
+                final normalDocs = <QueryDocumentSnapshot>[];
+
+                for (var doc in allDocs) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final bool isStrict = data['onlySingleAttempt'] ?? false;
+                  if (isStrict) {
+                    strictDocs.add(doc);
+                  } else {
+                    normalDocs.add(doc);
+                  }
+                }
+
+                // 2. Filter: Pending vs Completed using LIVE CODES
+                // 3. Sort: Apply Deadline->CreatedAt Logic
+
+                // -- ASSIGNMENTS --
+                final pendingAssignments = normalDocs
+                    .where((d) => !liveSubmittedCodes.contains(d['assignmentCode']))
+                    .toList()..sort(_deadlineAwareSort);
+
+                final completedAssignments = normalDocs
+                    .where((d) => liveSubmittedCodes.contains(d['assignmentCode']))
+                    .toList()..sort(_deadlineAwareSort);
+
+                // -- TESTS --
+                final pendingTests = strictDocs
+                    .where((d) => !liveSubmittedCodes.contains(d['assignmentCode']))
+                    .toList()..sort(_deadlineAwareSort);
+
+                final completedTests = strictDocs
+                    .where((d) => liveSubmittedCodes.contains(d['assignmentCode']))
+                    .toList()..sort(_deadlineAwareSort);
+
+                return IndexedStack(
+                  index: _currentTabIndex,
+                  children: [
+                    // Tab 0: Assignments
+                    _AssignmentTabContainer(
+                      pendingDocs: pendingAssignments,
+                      completedDocs: completedAssignments,
+                      resumableAssignmentCode: _pendingAssignmentCode,
+                      onResumeTap: _handleResumePending,
+                      onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
+                    ),
+
+                    // Tab 1: Tests
+                    _AssignmentTabContainer(
+                      pendingDocs: pendingTests,
+                      completedDocs: completedTests,
+                      resumableAssignmentCode: _pendingAssignmentCode,
+                      onResumeTap: _handleResumePending,
+                      onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
+                    ),
+
+                    // Tab 2: Analysis
+                    const _AnalysisView(),
+                  ],
+                );
+              },
+            );
           }
-
-          // 2. Filter: Pending vs Completed
-          // 3. Sort: Apply Deadline->CreatedAt Logic
-
-          // -- ASSIGNMENTS --
-          final pendingAssignments = normalDocs
-              .where((d) => !submittedCodes.contains(d['assignmentCode']))
-              .toList()..sort(_deadlineAwareSort);
-
-          final completedAssignments = normalDocs
-              .where((d) => submittedCodes.contains(d['assignmentCode']))
-              .toList()..sort(_deadlineAwareSort);
-
-          // -- TESTS --
-          final pendingTests = strictDocs
-              .where((d) => !submittedCodes.contains(d['assignmentCode']))
-              .toList()..sort(_deadlineAwareSort);
-
-          final completedTests = strictDocs
-              .where((d) => submittedCodes.contains(d['assignmentCode']))
-              .toList()..sort(_deadlineAwareSort);
-
-          return IndexedStack(
-            index: _currentTabIndex,
-            children: [
-              // Tab 0: Assignments
-              _AssignmentTabContainer(
-                pendingDocs: pendingAssignments,
-                completedDocs: completedAssignments,
-                resumableAssignmentCode: _pendingAssignmentCode,
-                onResumeTap: _handleResumePending,
-                onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
-              ),
-
-              // Tab 1: Tests
-              _AssignmentTabContainer(
-                pendingDocs: pendingTests,
-                completedDocs: completedTests,
-                resumableAssignmentCode: _pendingAssignmentCode,
-                onResumeTap: _handleResumePending,
-                onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
-              ),
-
-              // Tab 2: Analysis
-              const _AnalysisView(),
-            ],
-          );
-        },
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentTabIndex,

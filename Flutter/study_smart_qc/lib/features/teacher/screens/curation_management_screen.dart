@@ -590,7 +590,6 @@ class _QuestionReorderTileState extends State<QuestionReorderTile> {
               padding: const EdgeInsets.all(0),
               child: QuestionPreviewCard(
                 question: widget.questionData!,
-                isExpanded: true,
               ),
             )
           else if (widget.isNotFound)
