@@ -163,7 +163,7 @@ except Exception as e:
     exit()
 
 stats = {"skipped": 0, "success": 0, "error": 0, "new_images": 0}
-cum_count=len(PROCESSED_IDS)
+cum_count=0
 for index, row in df.iterrows():
     try:
         q_id = str(row['question_id']).strip()

@@ -9,6 +9,7 @@ import 'package:study_smart_qc/widgets/solution_detail_sheet.dart';
 class ResultsScreen extends StatefulWidget {
   final TestResult result;
 
+  // CLEANED: No extra parameters needed.
   const ResultsScreen({super.key, required this.result});
 
   @override
@@ -16,38 +17,25 @@ class ResultsScreen extends StatefulWidget {
 }
 
 class _ResultsScreenState extends State<ResultsScreen> {
-  // Stats
   int marksObtained = 0;
   double accuracy = 0.0;
   double attemptPercentage = 0.0;
 
-  // Consistent ordering for behavioral analysis
   final List<String> _behavioralOrder = [
-    "Perfect Attempt",
-    "Overtime Correct",
-    "Careless Mistake",
-    "Wasted Attempt",
-    "Good Skip",
-    "Time Wasted"
+    "Perfect Attempt", "Overtime Correct", "Careless Mistake",
+    "Wasted Attempt", "Good Skip", "Time Wasted"
   ];
 
-  // Basic Categories
   List<int> correctIndices = [];
   List<int> incorrectIndices = [];
   List<int> skippedIndices = [];
   List<int> reviewIndices = [];
 
-  // Smart Analysis Categories
   final Map<String, List<int>> _smartAnalysisGroups = {
-    "Perfect Attempt": [],
-    "Overtime Correct": [],
-    "Careless Mistake": [],
-    "Wasted Attempt": [],
-    "Good Skip": [],
-    "Time Wasted": [],
+    "Perfect Attempt": [], "Overtime Correct": [], "Careless Mistake": [],
+    "Wasted Attempt": [], "Good Skip": [], "Time Wasted": [],
   };
 
-  // Friendly coaching descriptions
   final Map<String, String> _categoryDescriptions = {
     "Perfect Attempt": "You nailed it! Correct answer within ideal time.",
     "Overtime Correct": "Correct, but took longer than ideal.",
@@ -79,7 +67,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     for (int i = 0; i < widget.result.questions.length; i++) {
       final question = widget.result.questions[i];
       final qId = question.id;
-
       String basicStatus = 'SKIPPED';
 
       if (widget.result.responses.containsKey(qId)) {
@@ -95,27 +82,15 @@ class _ResultsScreenState extends State<ResultsScreen> {
       }
 
       switch (basicStatus) {
-        case 'CORRECT':
-          correctIndices.add(i);
-          tempCorrectCount++;
-          break;
-        case 'INCORRECT':
-          incorrectIndices.add(i);
-          tempIncorrectCount++;
-          break;
-        case 'REVIEW':
-          reviewIndices.add(i);
-          skippedIndices.add(i);
-          break;
-        default:
-          skippedIndices.add(i);
-          break;
+        case 'CORRECT': correctIndices.add(i); tempCorrectCount++; break;
+        case 'INCORRECT': incorrectIndices.add(i); tempIncorrectCount++; break;
+        case 'REVIEW': reviewIndices.add(i); skippedIndices.add(i); break;
+        default: skippedIndices.add(i); break;
       }
 
       if (widget.result.responses.containsKey(qId)) {
         final response = widget.result.responses[qId]!;
         final tag = response.smartTimeAnalysis;
-
         for (var key in _behavioralOrder) {
           if (tag.contains(key)) {
             _smartAnalysisGroups[key]!.add(i);
@@ -142,37 +117,24 @@ class _ResultsScreenState extends State<ResultsScreen> {
       builder: (context) {
         return SizedBox(
           height: MediaQuery.of(context).size.height * 0.9,
-          child: SolutionDetailSheet(
-            result: widget.result,
-            initialIndex: initialIndex,
-          ),
+          child: SolutionDetailSheet(result: widget.result, initialIndex: initialIndex),
         );
       },
     );
   }
 
-  // --- HELPERS ---
-
-  /// Standard Card Decoration (Grey Border)
   BoxDecoration get _standardCardDecoration => BoxDecoration(
     color: Colors.white,
     borderRadius: BorderRadius.circular(16),
     border: Border.all(color: Colors.grey.shade300, width: 1.5),
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withOpacity(0.05),
-        blurRadius: 10,
-        offset: const Offset(0, 4),
-      ),
-    ],
+    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
   );
 
   String _formatDurationCompact(int totalSeconds) {
     if (totalSeconds == 0) return "0s";
     final duration = Duration(seconds: totalSeconds);
-    if (totalSeconds < 60) {
-      return "${totalSeconds}s";
-    } else if (totalSeconds < 3600) {
+    if (totalSeconds < 60) return "${totalSeconds}s";
+    else if (totalSeconds < 3600) {
       int m = duration.inMinutes;
       int s = totalSeconds % 60;
       return s > 0 ? "${m}m ${s}s" : "${m}m";
@@ -205,10 +167,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
   ({Color bar, Color text}) _getDynamicColors(double score, double max) {
     if (score < 0) return (bar: const Color(0xFFD32F2F), text: const Color(0xFFB71C1C));
     if (max == 0) return (bar: Colors.grey, text: Colors.grey.shade700);
-
     final double percentage = (score / max).clamp(0.0, 1.0);
     Color color;
-
     if (percentage < 0.4) {
       final t = percentage / 0.4;
       color = Color.lerp(Colors.deepOrange, Colors.orange, t)!;
@@ -219,7 +179,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
       final t = (percentage - 0.75) / 0.25;
       color = Color.lerp(Colors.green, const Color(0xFF1B5E20), t)!;
     }
-
     final HSLColor hsl = HSLColor.fromColor(color);
     final Color textColor = hsl.withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0)).toColor();
     return (bar: color, text: textColor);
@@ -244,32 +203,22 @@ class _ResultsScreenState extends State<ResultsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Score Card
             _buildScoreCard(),
             const SizedBox(height: 24),
-
-            // Stats Row
             _buildStatsRow(),
             const SizedBox(height: 32),
-
-            // Charts
             _buildHeader("# Questions by Result"),
             _buildPerformanceDistributionChart(),
             const SizedBox(height: 32),
-
             _buildHeader("Time spent by Result"),
             _buildTimeSpentByResultChart(),
             const SizedBox(height: 32),
-
             _buildHeader("# Questions by Behavior"),
             _buildSmartAnalysisChart(),
             const SizedBox(height: 32),
-
             _buildHeader("Time spent by Behavior"),
             _buildTimeSpentByBehaviorChart(),
             const SizedBox(height: 32),
-
-            // Detailed List
             _buildHeader("Questions Breakdown"),
             _buildSmartAnalysisList(),
           ],
@@ -289,7 +238,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- SCORE CARD ---
   Widget _buildScoreCard() {
     final double maxScore = widget.result.totalMarks.toDouble();
     final double score = marksObtained.toDouble();
@@ -323,8 +271,17 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- STATS ROW ---
   Widget _buildStatsRow() {
+    // --- UPDATED LOGIC: Read from Model ---
+    double timePercentage = 1.0;
+    final int? limitMin = widget.result.timeLimitMinutes;
+
+    // Only calculate actual % if we have a valid limit (Test Mode)
+    if (limitMin != null && limitMin > 0) {
+      int limitSeconds = limitMin * 60;
+      timePercentage = (widget.result.timeTaken.inSeconds / limitSeconds).clamp(0.0, 1.0);
+    }
+
     return Row(
       children: [
         _buildStatCard(
@@ -346,7 +303,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
         _buildStatCard(
           title: 'Time Taken',
           value: _formatDurationCompact(widget.result.timeTaken.inSeconds),
-          percentage: 1.0,
+          // USE CALCULATED PERCENTAGE HERE
+          percentage: timePercentage,
           color: Colors.purple,
           icon: Icons.timer_outlined,
         ),
@@ -391,8 +349,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- CHARTS ---
-
+  // ... (Charts and Helpers remain unchanged)
   Widget _buildPerformanceDistributionChart() {
     return Container(
       decoration: _standardCardDecoration,
@@ -478,9 +435,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
         totalCount += count;
       }
     }
-
     if (sections.isEmpty) return Container(decoration: _standardCardDecoration, padding: const EdgeInsets.all(20), child: const Center(child: Text("No behavioral data")));
-
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
@@ -514,17 +469,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
       String tag = resp.smartTimeAnalysis.split(' (').first.trim();
       if (tag.isNotEmpty) timeMap[tag] = (timeMap[tag] ?? 0) + resp.timeSpent;
     }
-
     final total = timeMap.values.fold(0, (sum, item) => sum + item);
     List<PieChartSectionData> sections = [];
-
     for (var key in _behavioralOrder) {
       final time = timeMap[key] ?? 0;
       if (time > 0) {
         sections.add(_buildTimeSection(time, total, _getSmartColor(key)));
       }
     }
-
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
@@ -556,14 +508,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
     return Column(
       children: _behavioralOrder.map((key) {
         final indices = _smartAnalysisGroups[key] ?? [];
-        // REMOVED THE CHECK: if (indices.isEmpty) return const SizedBox.shrink();
-
         final color = _getSmartColor(key);
-
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
-          // SPECIFIC DECORATION FOR LIST ITEMS
-          // White background, Colored Border (2.0 width), Soft Shadow
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
@@ -582,7 +529,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.label, size: 20, color: color), // COLORED ICON
+                  Icon(Icons.label, size: 20, color: color),
                   const SizedBox(width: 12),
                   Text(key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
                   const Spacer(),
@@ -599,8 +546,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   style: TextStyle(fontSize: 13, color: Colors.grey.shade600, height: 1.5)
               ),
               const SizedBox(height: 16),
-
-              // LOGIC TO SHOW CONTENT OR "NO QUESTIONS" PLACEHOLDER
               if (indices.isNotEmpty)
                 Wrap(
                   spacing: 8, runSpacing: 8,
@@ -633,7 +578,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- CHART HELPERS ---
   PieChartSectionData _buildSection(double value, String title, Color color, {Color textColor = Colors.white}) {
     return PieChartSectionData(
       value: value, title: title, color: color, radius: 50,

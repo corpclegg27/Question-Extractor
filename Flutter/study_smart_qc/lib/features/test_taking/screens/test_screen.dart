@@ -145,7 +145,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _timer.cancel();
     _pageController.dispose();
-    _paletteController.dispose(); // Dispose the palette controller
+    _paletteController.dispose();
     super.dispose();
   }
 
@@ -244,10 +244,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       }
     });
 
-    // --- ADDED: Auto-scroll the top palette to keep the current number in view ---
     if (_paletteController.hasClients) {
-      // 50.0 is approx width of item + margins.
-      // This centers the selected item.
       double targetOffset = (page * 60.0) - (MediaQuery.of(context).size.width / 2) + 30;
       if (targetOffset < 0) targetOffset = 0;
 
@@ -257,7 +254,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         curve: Curves.easeInOut,
       );
     }
-    // -----------------------------------------------------------------------------
 
     if (_timeTrackers.containsKey(page)) {
       _timeTrackers[page]!.start();
@@ -349,7 +345,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     if (state.userAnswer is Map && (state.userAnswer as Map).isEmpty) isEmpty = true;
 
     if (isEmpty) {
-      // FIX: Check mounted before using context
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Please select an answer first!")));
@@ -401,7 +396,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       setState(() => state.status = AnswerStatus.notAnswered);
     }
 
-    // FIX: Check mounted before moving to next page
     _triggerLocalSave().then((_) {
       if (mounted) _moveToNextPage();
     });
@@ -415,12 +409,10 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
 
     if (hasAnswer) {
       setState(() => state.status = AnswerStatus.answeredAndMarked);
-      // FIX: Check mounted inside the .then() callback
       _triggerLocalSave().then((_) {
         if (mounted) _moveToNextPage();
       });
     } else {
-      // FIX: Check mounted before showing SnackBar
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Please select an answer to Save & Mark for Review")),
@@ -433,7 +425,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     setState(() {
       _answerStates[_currentPage]!.status = AnswerStatus.markedForReview;
     });
-    // FIX: Check mounted
     _triggerLocalSave().then((_) {
       if (mounted) _moveToNextPage();
     });
@@ -452,7 +443,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       _pageController.nextPage(
           duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
     } else {
-      // FIX: Check mounted before showing SnackBar
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("You are on the last question. Click Submit to finish.")),
@@ -462,7 +452,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   }
 
   // =================================================================
-  //  CORE SUBMISSION LOGIC (UPDATED)
+  //  CORE SUBMISSION LOGIC
   // =================================================================
   void _handleSubmit() async {
     _timer.cancel();
@@ -474,27 +464,54 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
+    // FETCH AUTHORITATIVE DATA FOR RESUMED SESSIONS
+    String actualTitle = widget.title;
+    int actualTimeLimit = widget.timeLimitInMinutes;
+
+    if (widget.sourceId.isNotEmpty) {
+      try {
+        DocumentSnapshot doc = await FirebaseFirestore.instance.collection('questions_curation').doc(widget.sourceId).get();
+
+        if (doc.exists) {
+          final data = doc.data() as Map<String, dynamic>;
+          if (data['title'] != null) actualTitle = data['title'];
+          if (data['timeLimitMinutes'] != null) actualTimeLimit = data['timeLimitMinutes'];
+        } else {
+          doc = await FirebaseFirestore.instance.collection('tests').doc(widget.sourceId).get();
+          if (doc.exists) {
+            final data = doc.data() as Map<String, dynamic>;
+            if (data['testName'] != null) actualTitle = data['testName'];
+            if (data['config'] != null && data['config'] is Map) {
+              final config = data['config'] as Map<String, dynamic>;
+              if (config['durationSeconds'] != null) {
+                actualTimeLimit = (config['durationSeconds'] / 60).round();
+              }
+            }
+          }
+        }
+      } catch (e) {
+        print("Error fetching source details for submission: $e");
+      }
+    }
+
     Map<String, ResponseObject> initialResponses = _buildResponseMap();
 
     final score = (initialResponses.values.where((r) => r.status == 'CORRECT').length * 4) -
         (initialResponses.values.where((r) => r.status == 'INCORRECT').length * 1);
 
     final finalTime = widget.testMode == TestMode.test
-        ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter).inSeconds
+        ? (Duration(minutes: actualTimeLimit) - _overallTimeCounter).inSeconds
         : _overallTimeCounter.inSeconds;
 
     final int? limitToSave = widget.testMode == TestMode.test
-        ? widget.timeLimitInMinutes
+        ? actualTimeLimit
         : null;
 
     final enrichedAttempt = await TestOrchestrationService().submitAttempt(
       sourceId: widget.sourceId,
       assignmentCode: widget.assignmentCode,
-      title: widget.title,
-
-      // PASS NEW FIELD
+      title: actualTitle,
       onlySingleAttempt: widget.onlySingleAttempt,
-
       mode: widget.testMode == TestMode.test ? 'Test' : 'Practice',
       questions: widget.questions,
       score: score,
@@ -516,10 +533,15 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
           timeTaken: Duration(seconds: finalTime),
           totalMarks: widget.questions.length * 4,
           responses: enrichedAttempt.responses,
+
+          // UPDATED: Pass the limit inside the Model as requested
+          timeLimitMinutes: limitToSave,
         );
 
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
+          MaterialPageRoute(
+            builder: (context) => ResultsScreen(result: result),
+          ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -615,7 +637,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         ),
         body: Column(
           children: [
-            // CHANGED: Correct NTA Palette Function
             _buildNTAQuestionPalette(),
             const Divider(height: 1),
             Expanded(
@@ -676,7 +697,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     );
   }
 
-  // ... (Remainder of the widget logic for timers/palettes/UI remains unchanged)
   Widget _buildOverallTimerWidget() {
     String twoDigits(int n) => n.toString().padLeft(2, "0");
     final minutes = twoDigits(_overallTimeCounter.inMinutes.remainder(60));
@@ -726,59 +746,51 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     );
   }
 
-  // UPDATED: NTA Standard Palette
   Widget _buildNTAQuestionPalette() {
     return Container(
       height: 70,
       padding: const EdgeInsets.symmetric(vertical: 10),
-      color: Colors.white, // Standard white background for palette strip
+      color: Colors.white,
       child: ListView.builder(
-        controller: _paletteController, // Attached ScrollController
+        controller: _paletteController,
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 10),
         itemCount: widget.questions.length,
         itemBuilder: (context, index) {
           final state = _answerStates[index]!;
           final isCurrent = index == _currentPage;
-
-          // NTA Defaults
           BoxShape shape = BoxShape.rectangle;
           Color fillColor = Colors.white;
           Color textColor = Colors.black;
-          Border? border = Border.all(color: Colors.grey.shade300); // Default border
+          Border? border = Border.all(color: Colors.grey.shade300);
           Widget? badge;
 
           switch (state.status) {
             case AnswerStatus.notVisited:
-            // White Box
               fillColor = Colors.white;
               textColor = Colors.black;
               border = Border.all(color: Colors.grey.shade400);
               shape = BoxShape.rectangle;
               break;
             case AnswerStatus.notAnswered:
-            // Red Box
               fillColor = Colors.red.shade600;
               textColor = Colors.white;
               border = null;
               shape = BoxShape.rectangle;
               break;
             case AnswerStatus.answered:
-            // Green Box
               fillColor = Colors.green.shade600;
               textColor = Colors.white;
               border = null;
               shape = BoxShape.rectangle;
               break;
             case AnswerStatus.markedForReview:
-            // Purple Circle
               fillColor = Colors.purple.shade700;
               textColor = Colors.white;
               border = null;
               shape = BoxShape.circle;
               break;
             case AnswerStatus.answeredAndMarked:
-            // Purple Circle + Green Badge
               fillColor = Colors.purple.shade700;
               textColor = Colors.white;
               border = null;
@@ -813,7 +825,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
                     decoration: BoxDecoration(
                       color: fillColor,
                       shape: shape,
-                      // Highlight current question with Blue Border
                       border: isCurrent
                           ? Border.all(color: Colors.blueAccent, width: 3)
                           : border,

@@ -207,7 +207,7 @@ def run_batch_extraction(row_data, source_pdf):
 
 # --- 5. MAIN LOOP ---
 if __name__ == "__main__":
-    SOURCE_PDF = "ALLEN PHYSICS CLASS 11TH 2026 MODULE.pdf"
+    SOURCE_PDF = "ALLEN PHYSICS CLASS 12TH 2026 MODULE.pdf"
     
     if not os.path.exists(INPUT_CSV_PATH):
         print(f"❌ Error: Input CSV not found at {INPUT_CSV_PATH}")

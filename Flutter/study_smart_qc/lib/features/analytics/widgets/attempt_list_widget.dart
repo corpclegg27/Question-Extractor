@@ -9,27 +9,20 @@ import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
 import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
-import 'package:study_smart_qc/services/test_orchestration_service.dart';
 
 class AttemptListWidget extends StatelessWidget {
-  final String? filterMode; // 'Practice', 'Test', or null (for all)
-  final String? targetUserId; // Optional: If provided (by Teacher), fetches specific student data
-
-  // NEW PARAMETER: To distinguish between "Strict Tests" and "Assignments taken as Test"
+  final String? filterMode;
+  final String? targetUserId;
   final bool onlySingleAttempt;
 
   const AttemptListWidget({
     super.key,
     this.filterMode,
     this.targetUserId,
-    // Default to false so existing calls elsewhere don't break
     this.onlySingleAttempt = false,
   });
 
-  // --- NAVIGATION LOGIC ---
-  // This helper function fetches the full question data needed for the ResultsScreen
   Future<void> _navigateToAnalysis(BuildContext context, AttemptModel attempt) async {
-    // 1. Show Loading Indicator
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -37,15 +30,31 @@ class AttemptListWidget extends StatelessWidget {
     );
 
     try {
-      final service = TestOrchestrationService();
+      List<String> docIds = attempt.responses.keys.toList();
+      List<Question> questions = [];
 
-      // 2. Extract Question IDs from the attempt responses
-      List<String> questionIds = attempt.responses.keys.toList();
+      for (var i = 0; i < docIds.length; i += 10) {
+        final end = (i + 10 < docIds.length) ? i + 10 : docIds.length;
+        final chunk = docIds.sublist(i, end);
 
-      // 3. Fetch Full Question Objects from Firestore
-      List<Question> questions = await service.getQuestionsByIds(questionIds);
+        if (chunk.isNotEmpty) {
+          final snapshot = await FirebaseFirestore.instance
+              .collection('questions')
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get();
 
-      // 4. Reconstruct AnswerStates for the UI
+          questions.addAll(
+              snapshot.docs.map((d) => Question.fromFirestore(d))
+          );
+        }
+      }
+
+      questions.sort((a, b) {
+        int seqA = attempt.responses[a.id]?.q_no ?? 999;
+        int seqB = attempt.responses[b.id]?.q_no ?? 999;
+        return seqA.compareTo(seqB);
+      });
+
       Map<int, AnswerState> answerStates = {};
       for (int i = 0; i < questions.length; i++) {
         final q = questions[i];
@@ -57,6 +66,8 @@ class AttemptListWidget extends StatelessWidget {
             status = AnswerStatus.answered;
           } else if (response.status == 'SKIPPED') {
             status = AnswerStatus.notAnswered;
+          } else if (response.status == 'REVIEW') {
+            status = AnswerStatus.markedForReview;
           }
         }
 
@@ -66,7 +77,6 @@ class AttemptListWidget extends StatelessWidget {
         );
       }
 
-      // 5. Create TestResult object
       final result = TestResult(
         attemptId: attempt.id,
         questions: questions,
@@ -74,9 +84,10 @@ class AttemptListWidget extends StatelessWidget {
         timeTaken: Duration(seconds: attempt.timeTakenSeconds),
         totalMarks: questions.length * 4,
         responses: attempt.responses,
+        // ADDED: Pass the time limit from the attempt model
+        timeLimitMinutes: attempt.timeLimitMinutes,
       );
 
-      // 6. Navigate
       if (context.mounted) {
         Navigator.pop(context); // Close loader
         Navigator.push(
@@ -86,7 +97,7 @@ class AttemptListWidget extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        Navigator.pop(context); // Close loader on error
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Error loading analysis: $e")),
         );
@@ -96,15 +107,12 @@ class AttemptListWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Determine which User ID to fetch
     final currentUser = FirebaseAuth.instance.currentUser;
-    // If targetUserId is passed (by Teacher via Drawer), use it. Otherwise use logged-in user.
     final String? uidToQuery = targetUserId ?? currentUser?.uid;
 
     if (uidToQuery == null) return const SizedBox.shrink();
 
     return StreamBuilder<QuerySnapshot>(
-      // Fetch all attempts for the specific user (Student or Teacher Target), ordered by most recent
       stream: FirebaseFirestore.instance
           .collection('attempts')
           .where('userId', isEqualTo: uidToQuery)
@@ -123,23 +131,14 @@ class AttemptListWidget extends StatelessWidget {
           return _buildEmptyState();
         }
 
-        // --- CLIENT SIDE FILTERING ---
-        // We filter here instead of in the query to avoid complex composite index requirements
         final docs = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
-
-          // 1. Filter by Mode (Practice vs Test)
           if (filterMode != null) {
             final String mode = data['mode'] ?? '';
             if (mode.toLowerCase() != filterMode!.toLowerCase()) return false;
           }
-
-          // 2. Filter by Strictness (onlySingleAttempt)
-          // We check if the attempt document has this flag matching what we want
           final bool docSingleAttempt = data['onlySingleAttempt'] ?? false;
-
           if (docSingleAttempt != onlySingleAttempt) return false;
-
           return true;
         }).toList();
 
@@ -152,7 +151,6 @@ class AttemptListWidget extends StatelessWidget {
           itemCount: docs.length,
           itemBuilder: (context, index) {
             final attempt = AttemptModel.fromFirestore(docs[index]);
-
             return AttemptDisplayCard(
               attempt: attempt,
               onTap: () => _navigateToAnalysis(context, attempt),

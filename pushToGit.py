@@ -5,7 +5,7 @@ import os
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "MVP Release: Included OCR Models and updated logic"
+COMMIT_MESSAGE = "MVP Release: Finally, first student release!"
 # ==========================================
 
 def run_command(command, step_name):
