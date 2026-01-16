@@ -1,9 +1,7 @@
-//lib/features/analytics/screens/analysis_screen.dart
-
 import 'package:flutter/material.dart';
-import 'package:study_smart_qc/features/analytics/widgets/attempt_list_widget.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:study_smart_qc/features/common/widgets/display_results_for_student_id.dart';
 
 class AnalysisScreen extends StatefulWidget {
   final String? targetStudentUid; // The specific student to view (optional)
@@ -14,22 +12,14 @@ class AnalysisScreen extends StatefulWidget {
   State<AnalysisScreen> createState() => _AnalysisScreenState();
 }
 
-class _AnalysisScreenState extends State<AnalysisScreen> with SingleTickerProviderStateMixin {
+class _AnalysisScreenState extends State<AnalysisScreen> {
   bool _isTeacher = false;
   bool _isLoadingRole = true;
-  late TabController _mainTabController;
 
   @override
   void initState() {
     super.initState();
-    _mainTabController = TabController(length: 2, vsync: this);
     _checkRole();
-  }
-
-  @override
-  void dispose() {
-    _mainTabController.dispose();
-    super.dispose();
   }
 
   Future<void> _checkRole() async {
@@ -59,6 +49,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> with SingleTickerProvid
 
     // --- TEACHER GUARD ---
     // Condition: I am a Teacher AND I did not come from the Drawer (targetStudentUid is null)
+    // This forces the teacher to select a student first.
     if (_isTeacher && widget.targetStudentUid == null) {
       return Scaffold(
         appBar: AppBar(
@@ -103,101 +94,9 @@ class _AnalysisScreenState extends State<AnalysisScreen> with SingleTickerProvid
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
       ),
-      body: Column(
-        children: [
-          // 1. MAIN TAB BAR (Assignments vs Tests)
-          Container(
-            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: TabBar(
-              controller: _mainTabController,
-              indicator: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              labelColor: const Color(0xFF6200EA),
-              unselectedLabelColor: Colors.grey.shade600,
-              labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-              indicatorSize: TabBarIndicatorSize.tab,
-              dividerColor: Colors.transparent,
-              indicatorPadding: const EdgeInsets.all(4),
-              tabs: const [
-                Tab(text: "Assignments"),
-                Tab(text: "Tests"),
-              ],
-            ),
-          ),
-
-          // 2. TAB VIEW
-          Expanded(
-            child: TabBarView(
-              controller: _mainTabController,
-              children: [
-                // Tab 1: Assignments Analysis (Has nested tabs)
-                _buildAssignmentsAnalysisTab(),
-
-                // Tab 2: Tests (Strict Mode)
-                AttemptListWidget(
-                  filterMode: 'Test',
-                  onlySingleAttempt: true,
-                  targetUserId: widget.targetStudentUid,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAssignmentsAnalysisTab() {
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        children: [
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            height: 36,
-            child: const TabBar(
-              isScrollable: false,
-              labelColor: Colors.deepPurple,
-              unselectedLabelColor: Colors.grey,
-              indicatorColor: Colors.deepPurple,
-              labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              tabs: [
-                Tab(text: "Practice Mode"),
-                Tab(text: "Test Mode"),
-              ],
-            ),
-          ),
-          Expanded(
-            child: TabBarView(
-              children: [
-                AttemptListWidget(
-                  filterMode: 'Practice',
-                  onlySingleAttempt: false,
-                  targetUserId: widget.targetStudentUid,
-                ),
-                AttemptListWidget(
-                  filterMode: 'Test',
-                  onlySingleAttempt: false,
-                  targetUserId: widget.targetStudentUid,
-                ),
-              ],
-            ),
-          ),
-        ],
+      // The shared widget handles the Tabs (Assignments/Tests) and Lists
+      body: DisplayResultsForStudentId(
+        targetStudentUid: widget.targetStudentUid,
       ),
     );
   }

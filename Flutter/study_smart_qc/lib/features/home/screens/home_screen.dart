@@ -1,5 +1,3 @@
-// lib/features/home/screens/home_screen.dart
-
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,7 +15,9 @@ import 'package:study_smart_qc/features/student/widgets/student_assignments_list
 import 'package:study_smart_qc/features/teacher/screens/teacher_curation_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_history_screen.dart';
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
-import 'package:study_smart_qc/features/analytics/widgets/attempt_list_widget.dart';
+// Note: attempt_list_widget is likely used inside DisplayResultsForStudentId now,
+// so we import the new common widget instead.
+import 'package:study_smart_qc/features/common/widgets/display_results_for_student_id.dart';
 import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
 
 // SERVICES
@@ -433,8 +433,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
                     ),
 
-                    // Tab 2: Analysis
-                    const _AnalysisView(),
+                    // Tab 2: Analysis (REPLACED WITH NEW WIDGET)
+                    const DisplayResultsForStudentId(
+                      // No student ID passed means it defaults to current logged-in user
+                    ),
                   ],
                 );
               },
@@ -682,112 +684,6 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
           ),
         ),
       ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-//  HELPER 2: ANALYSIS VIEW (Unchanged)
-// ---------------------------------------------------------------------------
-
-class _AnalysisView extends StatefulWidget {
-  const _AnalysisView();
-
-  @override
-  State<_AnalysisView> createState() => _AnalysisViewState();
-}
-
-class _AnalysisViewState extends State<_AnalysisView> with SingleTickerProviderStateMixin {
-  late TabController _mainTabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _mainTabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // 1. MAIN TAB BAR (Assignments vs Tests)
-        Container(
-          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          height: 48,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade200,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: TabBar(
-            controller: _mainTabController,
-            indicator: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            labelColor: const Color(0xFF6200EA),
-            unselectedLabelColor: Colors.grey.shade600,
-            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-            indicatorSize: TabBarIndicatorSize.tab,
-            dividerColor: Colors.transparent,
-            indicatorPadding: const EdgeInsets.all(4),
-            tabs: const [
-              Tab(text: "Assignments"),
-              Tab(text: "Tests"),
-            ],
-          ),
-        ),
-
-        // 2. TAB VIEW
-        Expanded(
-          child: TabBarView(
-            controller: _mainTabController,
-            children: [
-              _buildAssignmentsAnalysisTab(),
-              const AttemptListWidget(filterMode: 'Test', onlySingleAttempt: true),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAssignmentsAnalysisTab() {
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        children: [
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            height: 36,
-            child: const TabBar(
-              isScrollable: false,
-              labelColor: Colors.deepPurple,
-              unselectedLabelColor: Colors.grey,
-              indicatorColor: Colors.deepPurple,
-              labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              tabs: [
-                Tab(text: "Practice Mode"),
-                Tab(text: "Test Mode"),
-              ],
-            ),
-          ),
-          const Expanded(
-            child: TabBarView(
-              children: [
-                AttemptListWidget(filterMode: 'Practice', onlySingleAttempt: false),
-                AttemptListWidget(filterMode: 'Test', onlySingleAttempt: false),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
