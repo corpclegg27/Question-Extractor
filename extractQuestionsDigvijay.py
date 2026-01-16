@@ -23,7 +23,94 @@ PROCESSED_BASE = os.path.join(BASE_PATH, 'Processed_Database')
 os.makedirs(TRIMMED_DIR, exist_ok=True)
 os.makedirs(PROCESSED_BASE, exist_ok=True)
 
-# --- 2. UTILITIES ---
+# --- 2. IMAGE UTILITIES ---
+
+def smart_left_number_trim(img):
+    """
+    NEW LOGIC: Left-to-Right Vertical Strip Scan.
+    Target: Remove Question Numbers (which appear at top-left).
+    1. Scan vertical strips (columns) from Left to Right.
+    2. Check the BOTTOM HALF of the strip.
+    3. If Bottom Half density < 5% (implies just a number at top or whitespace), CROP.
+    4. Stop when we hit main text (dense bottom).
+    """
+    try:
+        gray = img.convert('L')
+        # Binarize: Ink=1, White=0
+        bw = gray.point(lambda p: 0 if p > 150 else 1, mode='1')
+        data = np.array(bw)
+        
+        height, width = data.shape
+        mid_h = height // 2
+        
+        crop_x = 0
+        
+        # SAFETY LIMIT: Only scan the first 25% of width to avoid deleting
+        # short one-line questions that might have empty bottoms across the whole page.
+        scan_limit = int(width * 0.25)
+        
+        for x in range(scan_limit):
+            # Extract vertical strip
+            col = data[:, x]
+            
+            # Focus on BOTTOM HALF of that strip
+            bottom_half = col[mid_h:]
+            
+            # Calculate Density
+            ink = np.count_nonzero(bottom_half)
+            density = ink / bottom_half.size if bottom_half.size > 0 else 0
+            
+            # If density is low (< 5%), it's margin or number zone. Remove it.
+            if density < 0.05:
+                crop_x = x
+            else:
+                # We hit the text body (which usually fills lines). Stop.
+                break
+        
+        # Apply Crop (Add 2px buffer)
+        if crop_x > 0:
+            return img.crop((crop_x + 2, 0, width, height))
+            
+        return img
+        
+    except:
+        return img
+
+def smart_bottom_trim(img):
+    """
+    STRICT BOTTOM TRIM (Previous Logic):
+    1. Scan image row-wise from bottom.
+    2. Look for % of black text in RIGHT 50% of image.
+    3. If it is less than 5%, we crop that row.
+    """
+    try:
+        gray = img.convert('L')
+        bw = gray.point(lambda p: 0 if p > 150 else 1, mode='1')
+        data = np.array(bw)
+        
+        height, width = data.shape
+        midpoint = width // 2
+        
+        crop_y = height
+        
+        for y in range(height - 1, -1, -1):
+            # Right Half Analysis
+            right_strip = data[y, midpoint:]
+            right_ink = np.count_nonzero(right_strip)
+            right_density = right_ink / right_strip.size if right_strip.size > 0 else 0
+            
+            # Strict Cut
+            if right_density < 0.05:
+                crop_y = y
+            else:
+                break
+        
+        if crop_y < height:
+            return img.crop((0, 0, width, min(height, crop_y + 2)))
+        return img
+        
+    except: return img
+
 def trim_whitespace(im):
     try:
         bg = Image.new(im.mode, im.size, im.getpixel((0,0)))
@@ -37,50 +124,89 @@ def compress_and_clean(img):
     gray = img.convert('L')
     return gray.point(lambda p: 255 if p > 180 else p)
 
+def is_bold(word_dict):
+    font = word_dict.get('fontname', '').lower()
+    return 'bold' in font or 'bd' in font or 'black' in font or 'medi' in font
+
 # --- 3. STRUCTURE PARSING ---
 
-def get_answer_key(page_text):
-    """Parses '1 (c) 2 (a)' or '1\n(c)' formats."""
+def get_answer_key(full_text):
     ans_map = {}
-    # Matches: 1 (a), 1(a), 1\n(a)
-    matches = re.findall(r'(\d+)\s*[\n\r]*\(([a-d])\)', page_text.lower())
+    target_text = ""
+    
+    if "Answers" in full_text and "Explanations" in full_text:
+        start_idx = full_text.find("Answers") + len("Answers")
+        end_idx = full_text.find("Explanations")
+        if end_idx > start_idx:
+            target_text = full_text[start_idx:end_idx].strip()
+
+    if not target_text:
+        for marker in ["Answers", "Explanations", "Hints & Solutions"]:
+            if marker in full_text:
+                target_text = full_text.split(marker)[-1]
+                if marker == "Answers" and "Explanations" in target_text:
+                    target_text = target_text.split("Explanations")[0]
+                break
+            
+    matches = re.findall(r'(?:^|\s)(\d+)\s*[\.\-\)]?\s*[\(\[]([a-e])[\]\)]', target_text, re.IGNORECASE)
     for q, opt in matches:
         ans_map[int(q)] = opt.upper()
+        
     return ans_map
 
-def extract_anchors(page, col_bbox, current_topic_id):
-    """Scans a vertical column strip for Question Numbers."""
+def extract_column_anchors(page, col_bbox):
     anchors = []
     try:
         col_crop = page.within_bbox(col_bbox)
-        words = col_crop.extract_words()
+        words = col_crop.extract_words(extra_attrs=["fontname"])
         
         for w in words:
             text = w['text'].strip().replace('.', '')
+            if not text.isdigit(): continue
+            num = int(text)
+            if num > 2000: continue 
             
-            # Validation: Digits only, 1-3 chars (avoids years like 2019)
-            if re.match(r'^\d{1,3}$', text):
-                rel_x = w['x0'] - col_bbox[0]
-                
-                # Indentation check: Q numbers are usually on the left edge (< 35px)
-                if rel_x < 35: 
+            rel_x = w['x0'] - col_bbox[0]
+            
+            if is_bold(w):
+                if rel_x < 100: 
                     anchors.append({
-                        'q_num': int(text),
+                        'q_num': num,
                         'top': w['top'],
                         'bottom': w['bottom'],
                         'col_x': col_bbox[0],
                         'col_w': col_bbox[2] - col_bbox[0],
-                        'topic_id': current_topic_id
+                        'confidence': 'high'
                     })
-    except Exception as e:
-        pass 
+    except: pass 
     return anchors
 
-def parse_pdf_structure(pdf_path):
-    structure = []
+def filter_sequential_anchors(raw_anchors):
+    if not raw_anchors: return []
+    raw_anchors.sort(key=lambda x: (x['page'], x['col_idx'], x['top']))
     
-    # State Variables
-    topic_counter = 0  # Will become Topic_1, Topic_2...
+    clean_anchors = []
+    last_num = 0
+    seen = set()
+    
+    for anchor in raw_anchors:
+        q = anchor['q_num']
+        if q in seen: continue
+        
+        if last_num == 0:
+            if q < 100: 
+                clean_anchors.append(anchor); last_num = q; seen.add(q)
+        else:
+            if 0 < (q - last_num) < 20:
+                clean_anchors.append(anchor); last_num = q; seen.add(q)
+            elif q == 1: 
+                 clean_anchors.append(anchor); last_num = q; seen.add(q)
+
+    return clean_anchors
+
+def parse_pdf_structure(pdf_path):
+    raw_structure = []
+    topic_name = "Unknown"
     
     with pdfplumber.open(pdf_path) as pdf:
         for p_idx, page in enumerate(pdf.pages):
@@ -88,158 +214,134 @@ def parse_pdf_structure(pdf_path):
             height = page.height
             text = page.extract_text() or ""
             
-            # --- 1. DETECT TOPIC ---
-            # Simple check: If "Topic" appears, increment counter
-            # We ignore the actual text name to avoid parsing errors
-            if re.search(r'Topic\s+\d+', text, re.IGNORECASE):
-                topic_counter += 1
-            
-            current_topic_slug = f"Topic_{max(1, topic_counter)}" # Default to Topic_1 if none found yet
+            topic_match = re.search(r'Topic\s+\d+\s+([A-Za-z\s]+)', text)
+            if topic_match: topic_name = topic_match.group(1).strip()
 
-            # --- 2. DETECT BOUNDARIES (Questions Only) ---
-            page_top = 0
-            page_bottom = height * 0.93 # Default Footer
-            
-            # If "Answers" or "Explanations" appears, STOP questions there
-            # We only care about questions above this line
-            stop_markers = ["Answers", "Explanations", "Answer Key"]
-            for marker in stop_markers:
+            page_bottom = height * 0.93
+            for marker in ["Answers", "Explanations", "Hints & Solutions"]:
                 hits = page.search(marker)
-                if hits:
-                    # Use the top of the marker as the absolute bottom limit
-                    page_bottom = min(page_bottom, hits[0]['top'])
+                if hits: page_bottom = min(page_bottom, hits[0]['top'])
 
-            # --- 3. DEFINE COLUMNS (2-Column Layout for Questions) ---
-            # If the stop marker is at the very top (e.g., page is full of solutions), skip page
-            if page_bottom < 50:
-                continue
+            if page_bottom < 50: continue 
 
             mid = width / 2
             cols = [
-                (0, page_top, mid, page_bottom),      # Left Column
-                (mid, page_top, width, page_bottom)   # Right Column
+                (0, 0, mid, page_bottom),      
+                (mid, 0, width, page_bottom)   
             ]
 
-            # --- 4. EXTRACT ANCHORS ---
-            page_anchors = []
             for col_idx, bbox in enumerate(cols):
-                col_anchors = extract_anchors(page, bbox, current_topic_slug)
+                col_anchors = extract_column_anchors(page, bbox)
                 for a in col_anchors:
                     a['page'] = p_idx
                     a['col_idx'] = col_idx
-                    a['limit_bottom'] = bbox[3] # Hard limit for this column
-                    page_anchors.append(a)
-            
-            # Sort: Column 0 -> Column 1 -> Top Y
-            page_anchors.sort(key=lambda x: (x['col_idx'], x['top']))
-            structure.extend(page_anchors)
+                    a['limit_bottom'] = bbox[3]
+                    a['topic'] = topic_name
+                    raw_structure.append(a)
 
-    return structure
+    return filter_sequential_anchors(raw_structure)
 
 # --- 4. BATCH PROCESSOR ---
 def run_batch_extraction(row_data, source_pdf):
     start_p = int(row_data['pdf_start_pg'])
     end_p = int(row_data['pdf_end_pg'])
-    chapter = str(row_data['Chapter']).strip()
+    chapter_name = str(row_data.get('Chapter', '')).strip()
+    topic_name = str(row_data.get('Topic', '')).strip()
     
-    print(f"\n🚀 Processing Batch: {chapter} (Pg {start_p}-{end_p})")
+    print(f"\n🚀 Processing Batch: {chapter_name} (Pg {start_p}-{end_p})")
     
-    # --- FILE HANDLING ---
-    trimmed_name = f"Trimmed_{chapter}_{start_p}_{end_p}".replace(" ", "_")
-    trimmed_filename = f"{trimmed_name}.pdf"
-    trimmed_path = os.path.join(TRIMMED_DIR, trimmed_filename)
+    trimmed_name = f"Trimmed_{chapter_name}_{start_p}_{end_p}".replace(" ", "_")
+    trimmed_path = os.path.join(TRIMMED_DIR, f"{trimmed_name}.pdf")
     
     if not os.path.exists(trimmed_path):
         master_pdf_path = os.path.join(RAW_DATA_DIR, source_pdf)
         if os.path.exists(master_pdf_path):
-            print(f"   ✂️ Trimming master PDF...")
-            reader = PdfReader(master_pdf_path)
-            writer = PdfWriter()
-            s = max(0, start_p - 1)
-            e = min(len(reader.pages), end_p)
-            for i in range(s, e):
+            reader = PdfReader(master_pdf_path); writer = PdfWriter()
+            for i in range(start_p-1, min(len(reader.pages), end_p)):
                 writer.add_page(reader.pages[i])
             with open(trimmed_path, "wb") as f: writer.write(f)
-        else:
-            print(f"   ❌ Master PDF not found: {master_pdf_path}")
-            return False
+        else: return False
 
-    # --- 2. EXTRACTION ---
     anchors = parse_pdf_structure(trimmed_path)
     
-    # Get Answer Key (Global for this batch)
     full_text = ""
     with pdfplumber.open(trimmed_path) as pdf:
         for p in pdf.pages: full_text += (p.extract_text() or "") + "\n"
     answer_key = get_answer_key(full_text)
     
-    print("   🖼️ Converting PDF to images...")
+    print(f"   🔑 Found {len(answer_key)} answers.")
+    print(f"   🔎 Found {len(anchors)} Valid Questions.")
+
+    print("   🖼️ Converting to images...")
     pdf_images = convert_from_path(trimmed_path, dpi=300)
     scale = 300 / 72 
-    
     output_dir = os.path.join(PROCESSED_BASE, trimmed_name)
     os.makedirs(output_dir, exist_ok=True)
     
     rows = []
-    
     with open(CONFIG_PATH, 'r') as f: config = json.load(f)
     curr_id = int(config.get("last_unique_id", 0))
 
-    print(f"   🔎 Found {len(anchors)} Questions. Cropping...")
-    
     for i, start in tqdm(enumerate(anchors), total=len(anchors)):
         try:
-            # Smart Bottom Detection
             y1 = (start['top'] * scale) - 10
-            y2 = start['limit_bottom'] * scale # Default to boundary (e.g., "Answers")
+            y2 = start['limit_bottom'] * scale 
             
-            # Look ahead for NEXT anchor in SAME column to close the crop
             for j in range(i+1, len(anchors)):
                 nxt = anchors[j]
-                # Must be same page, same column
                 if nxt['page'] == start['page'] and nxt['col_idx'] == start['col_idx']:
                     if nxt['top'] > start['top']:
                         y2 = (nxt['top'] * scale) - 10
                         break
             
-            # Validate Coordinates
+            if y2 <= y1 + 20: y2 = y1 + 150 
+            
             x1 = start['col_x'] * scale
             x2 = (start['col_x'] + start['col_w']) * scale
             
-            if y2 <= y1 + 20: y2 = y1 + 150 # Safety minimum height
-            
-            # Crop & Save
+            # 1. Base Crop
             img = pdf_images[start['page']].crop((x1, y1, x2, y2))
+            img = trim_whitespace(img)
+            
+            # 2. Smart Bottom Trim (Noise/Year Removal)
+            img = smart_bottom_trim(img)
+            
+            # 3. NEW: Smart Left Trim (Number Removal)
+            img = smart_left_number_trim(img)
+            
+            # 4. Final Polish
             final_img = compress_and_clean(trim_whitespace(img))
             
-            # Filename: Q_1_Topic_1.png
-            filename = f"Q_{start['q_num']}_{start['topic_id']}.png"
-            
+            filename = f"Q_{start['q_num']}.png"
             final_img.save(os.path.join(output_dir, filename), optimize=True)
             
-            # Metadata
             curr_id += 1
             rows.append({
                 'unique_id': curr_id,
                 'Question No.': start['q_num'],
                 'Folder': trimmed_name,
-                'Chapter': chapter,
-                'Topic': start['topic_id'], # Now saves as "Topic_1"
+                'Chapter': chapter_name, 
+                'Topic': topic_name,     
                 'Subject': row_data.get('Subject', 'Physics'),
                 'Correct Answer': answer_key.get(start['q_num'], ""),
-                'image_url': filename,
-                'Type': 'Question'
+                'Question type': 'Single Correct', 
+                'PYQ': 'Yes',                       
+                'q_width': final_img.width,         
+                'q_height': final_img.height,       
+                'image_url': filename
             })
-        except Exception as e:
-            print(f"   ⚠️ Skipped Q{start.get('q_num')}: {e}")
+        except Exception as e: pass
 
-    # --- 3. SAVE ---
     if rows:
         df_new = pd.DataFrame(rows)
+        ordered_cols = ['unique_id', 'Question No.', 'Folder', 'Chapter', 'Topic', 'Subject', 
+                        'Question type', 'Correct Answer', 'PYQ', 'q_width', 'q_height', 'image_url']
+        df_final = df_new[ordered_cols] if set(ordered_cols).issubset(df_new.columns) else df_new
+        
         if os.path.exists(OUTPUT_CSV_PATH):
-            pd.concat([pd.read_csv(OUTPUT_CSV_PATH), df_new], ignore_index=True).to_csv(OUTPUT_CSV_PATH, index=False)
+            pd.concat([pd.read_csv(OUTPUT_CSV_PATH), df_final], ignore_index=True).to_csv(OUTPUT_CSV_PATH, index=False)
         else:
-            df_new.to_csv(OUTPUT_CSV_PATH, index=False)
+            df_final.to_csv(OUTPUT_CSV_PATH, index=False)
 
         config["last_unique_id"] = curr_id
         with open(CONFIG_PATH, 'w') as f: json.dump(config, f, indent=4)
@@ -252,30 +354,21 @@ if __name__ == "__main__":
     SOURCE_PDF = "PYQ NEET Digvijay.pdf"
     
     if not os.path.exists(INPUT_CSV_PATH):
-        print(f"❌ Error: Input CSV not found at {INPUT_CSV_PATH}")
+        print(f"❌ Input CSV missing: {INPUT_CSV_PATH}")
     else:
         try:
-            # Robust CSV Reading
             input_df = pd.read_csv(INPUT_CSV_PATH, skipinitialspace=True)
             input_df.columns = input_df.columns.str.strip()
-            
-            if 'isProcessed' not in input_df.columns:
-                input_df['isProcessed'] = 'No'
-            
-            input_df['isProcessed'] = input_df['isProcessed'].astype(str).str.strip()
+            if 'isProcessed' not in input_df.columns: input_df['isProcessed'] = 'No'
             
             pending = input_df[input_df['isProcessed'] != 'Yes']
-            print(f"📋 Found {len(pending)} batches to process.")
+            print(f"📋 Found {len(pending)} batches.")
             
             for idx, row in pending.iterrows():
-                try:
-                    if run_batch_extraction(row, SOURCE_PDF):
-                        input_df.at[idx, 'isProcessed'] = 'Yes'
-                        input_df.to_csv(INPUT_CSV_PATH, index=False)
-                except Exception as e:
-                    print(f"❌ Batch Failed: {e}")
-                    
-            print("\n🏁 ALL TASKS FINISHED.")
+                if run_batch_extraction(row, SOURCE_PDF):
+                    input_df.at[idx, 'isProcessed'] = 'Yes'
+                    input_df.to_csv(INPUT_CSV_PATH, index=False)
             
+            print("\n🏁 DONE.")
         except Exception as e:
-            print(f"❌ Critical CSV Error: {e}")
+            print(f"❌ Error: {e}")

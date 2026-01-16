@@ -19,7 +19,7 @@ OUTPUT_DIR = os.path.join(SOURCE_DIR, 'Trimmed_PDFs')
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def trim_pdf_allen(input_filename, start_page, end_page, chapter_label):
+def trim_pdf(input_filename, start_page, end_page, chapter_label):
     """
     Extracts a specific page range and saves it as a new 'Trimmed' file.
     """
@@ -60,8 +60,8 @@ def trim_pdf_allen(input_filename, start_page, end_page, chapter_label):
 if __name__ == "__main__":
     # --- UPDATE THESE PARAMETERS FOR EACH CHAPTER ---
     FILE_NAME = "PYQ NEET Digvijay.pdf" 
-    CHAPTER_NAME = "Motion"
+    CHAPTER_NAME = "Units"
     START = 12   # Starting page number (as seen in PDF viewer)
-    END = 27    # Ending page number (as seen in PDF viewer)
+    END = 13    # Ending page number (as seen in PDF viewer)
 
-    trim_pdf_allen(FILE_NAME, START, END, CHAPTER_NAME)
+    trim_pdf(FILE_NAME, START, END, CHAPTER_NAME)

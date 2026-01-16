@@ -38,9 +38,9 @@ class TestOrchestrationService {
     }
   }
 
-  // ===========================================================================
-  // 2. UNIVERSAL SUBMISSION LOGIC
-  // ===========================================================================
+// test_orchestration_service===========================================================================
+// 2. UNIVERSAL SUBMISSION LOGIC
+// ===========================================================================
 
   /// Submits the test attempt and returns the enriched AttemptModel for immediate UI use
   Future<AttemptModel?> submitAttempt({
@@ -116,7 +116,22 @@ class TestOrchestrationService {
       final question = questions[i];
       final userResponse = responses[question.id];
 
-      final String status = userResponse?.status ?? 'SKIPPED';
+      // FIX: LOGIC SANITIZATION
+      // Ensure "REVIEW" status never propagates to logic or Firestore
+      String status = userResponse?.status ?? 'SKIPPED';
+
+      if (status.contains('REVIEW')) {
+        if (userResponse?.selectedOption != null && userResponse!.selectedOption!.isNotEmpty) {
+          // If user selected an option but marked review, we evaluate it as a real answer
+          status = (userResponse.selectedOption == question.correctAnswer.toString())
+              ? 'CORRECT'
+              : 'INCORRECT';
+        } else {
+          // Review with no option is a Skip
+          status = 'SKIPPED';
+        }
+      }
+
       final int timeSpent = userResponse?.timeSpent ?? 0;
 
       if (status == 'CORRECT') {
@@ -130,7 +145,7 @@ class TestOrchestrationService {
       highLevelTime[status] = (highLevelTime[status] ?? 0) + timeSpent;
 
       String smartTag = _generateSmartTag(
-        status: status,
+        status: status, // Uses the clean status
         timeTaken: timeSpent,
         examName: question.exam,
         subject: question.subject,
@@ -146,7 +161,7 @@ class TestOrchestrationService {
       }
 
       final enrichedResponse = ResponseObject(
-        status: status,
+        status: status, // Uses the clean status
         selectedOption: userResponse?.selectedOption,
         correctOption: userResponse?.correctOption ?? question.correctAnswer.toString(),
         timeSpent: timeSpent,
@@ -211,7 +226,7 @@ class TestOrchestrationService {
           questionId: question.id,
           chapterId: question.chapterId,
           topicId: question.topicId,
-          status: response.status,
+          status: response.status, // Guaranteed clean status
           timeSpent: response.timeSpent,
           attemptedAt: timestamp,
           assignmentCode: assignmentCode,
@@ -291,8 +306,8 @@ class TestOrchestrationService {
     await batch.commit();
     return newAttempt;
   }
-
   // ===========================================================================
+
   // HELPER: SMART TIME TAG GENERATION
   // ===========================================================================
 

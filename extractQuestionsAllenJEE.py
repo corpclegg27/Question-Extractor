@@ -21,29 +21,95 @@ PROCESSED_BASE = os.path.join(BASE_PATH, 'Processed_Database')
 os.makedirs(TRIMMED_DIR, exist_ok=True)
 os.makedirs(PROCESSED_BASE, exist_ok=True)
 
-# --- 2. IMAGE & PIXEL UTILITIES ---
-def pixel_sensitive_crop(img):
-    """Dynamic cropping using vertical pixel projection to strip question numbers."""
-    inverted_img = ImageOps.invert(img.convert('L'))
-    data = np.array(inverted_img)
-    horizontal_projection = np.sum(data, axis=0)
-    width = len(horizontal_projection)
-    
-    crop_x, whitespace_count, in_number_block = 0, 0, False
-    for x in range(5, width):
-        if horizontal_projection[x] > 500: # Threshold for 'ink'
-            in_number_block = True
-            whitespace_count = 0
-        elif in_number_block:
-            whitespace_count += 1
-            if whitespace_count >= 15: # Detected whitespace gap after question number
-                crop_x = x - whitespace_count + 2
+# --- 2. IMAGE PROCESSING UTILITIES ---
+
+def remove_watermark_specific(img):
+    """
+    Targeted removal of gray watermark (RGB ~70).
+    Logic: Pixels between 50 and 110 are forced to WHITE (255).
+    Main text is < 40 (Black).
+    """
+    try:
+        gray = img.convert('L')
+        data = np.array(gray)
+        
+        # TARGET: Gray values between 50 and 110
+        mask = (data > 30) & (data < 130)
+        
+        # FORCE WHITE
+        data[mask] = 255
+        
+        return Image.fromarray(data)
+    except:
+        return img
+
+def smart_footer_trim(img):
+    """
+    NEW LOGIC: Bottom-up Left-Half Scan.
+    1. Scan from bottom row upwards.
+    2. Check the LEFT HALF of the row.
+    3. If Left Half ink density is near zero (< 0.5%), crop the row.
+    4. Stop when we hit main text (ink on left).
+    """
+    try:
+        gray = img.convert('L')
+        # Binarize: Ink=1, White=0 (Threshold 150)
+        # We invert so Ink is 'True' (1)
+        bw = gray.point(lambda p: 0 if p > 150 else 1, mode='1')
+        data = np.array(bw)
+        
+        height, width = data.shape
+        midpoint = width // 2
+        
+        cutoff = height
+        
+        # Scan from bottom up
+        for y in range(height - 1, -1, -1):
+            # Extract Left Half of the row
+            left_half_row = data[y, :midpoint]
+            
+            # Calculate Ink Count in Left Half
+            ink_pixels = np.count_nonzero(left_half_row)
+            total_pixels = left_half_row.size
+            
+            # If Left Half is effectively empty (< 0.5% ink), crop it
+            if (ink_pixels / total_pixels) < 0.005:
+                cutoff = y
+            else:
+                # Hit main body. STOP.
                 break
-    
-    # Safety fallback: if detection fails or is too deep (over 30% of width)
-    if crop_x == 0 or crop_x > (width * 0.30): 
-        crop_x = int(width * 0.05)
-    return img.crop((crop_x, 0, width, img.size[1]))
+        
+        # Apply crop (Add 5px buffer)
+        if cutoff < height:
+            return img.crop((0, 0, width, min(height, cutoff + 5)))
+        return img
+        
+    except:
+        return img
+
+def pixel_sensitive_crop(img):
+    """Left-side Question Number Trim."""
+    try:
+        inverted_img = ImageOps.invert(img.convert('L'))
+        data = np.array(inverted_img)
+        horizontal_projection = np.sum(data, axis=0)
+        width = len(horizontal_projection)
+        
+        crop_x, whitespace_count, in_number_block = 0, 0, False
+        for x in range(5, width):
+            if horizontal_projection[x] > 500: 
+                in_number_block = True
+                whitespace_count = 0
+            elif in_number_block:
+                whitespace_count += 1
+                if whitespace_count >= 15: 
+                    crop_x = x - whitespace_count + 2
+                    break
+        
+        if crop_x == 0 or crop_x > (width * 0.30): 
+            crop_x = int(width * 0.05)
+        return img.crop((crop_x, 0, width, img.size[1]))
+    except: return img
 
 def trim_whitespace(im):
     try:
@@ -55,13 +121,12 @@ def trim_whitespace(im):
     except: return im
 
 def compress_and_clean(img):
-    """Applies Grayscale conversion and noise thresholding for mobile app optimization."""
+    """Final Polish."""
     gray = img.convert('L')
-    return gray.point(lambda p: 255 if p > 170 else p)
+    return gray.point(lambda p: 255 if p > 150 else p)
 
 # --- 3. PDF TEXT EXTRACTION ---
 def capture_text_from_area(pdf_path, start_anchor, end_anchor, footer_val):
-    """Extracts raw machine text from specific PDF coordinates."""
     extracted_text = ""
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -76,7 +141,6 @@ def capture_text_from_area(pdf_path, start_anchor, end_anchor, footer_val):
             else:
                 bbox_a = (left, start_anchor['top'], right, footer_val)
                 extracted_text += (page.within_bbox(bbox_a).extract_text() or "") + " "
-                
                 t_page = pdf.pages[end_anchor['page_idx']]
                 t_mid = t_page.width / 2
                 t_left = 0 if end_anchor['col'] == 0 else t_mid
@@ -99,14 +163,14 @@ def parse_answers(pdf_path):
                 ans_map[int(q)] = letter_map.get(a, a)
     return ans_map
 
-# --- 4. THE BATCH PROCESSOR ---
+# --- 4. BATCH PROCESSOR ---
 def run_batch_extraction(row_data, source_pdf):
     start_p, end_p = int(row_data['pdf_start_pg']), int(row_data['pdf_end_pg'])
     chapter, subject = row_data['Chapter'], row_data['Subject']
     
-    print(f"\n🚀 STARTING BATCH: {chapter} (Pages {start_p}-{end_p})")
+    print(f"\n🚀 STARTING BATCH: {chapter} (Pg {start_p}-{end_p})")
     
-    # 1. Trim PDF
+    # Trim PDF
     input_path = os.path.join(RAW_DATA_DIR, source_pdf)
     trimmed_name = f"Temp_Trimmed_{chapter}_{start_p}.pdf".replace(" ", "_")
     trimmed_path = os.path.join(TRIMMED_DIR, trimmed_name)
@@ -116,15 +180,14 @@ def run_batch_extraction(row_data, source_pdf):
         writer.add_page(reader.pages[i])
     with open(trimmed_path, "wb") as f: writer.write(f)
 
-    # 2. Config & Output Setup
+    # Config
     with open(CONFIG_PATH, 'r') as f: config = json.load(f)
     curr_id = int(config.get("last_unique_id", 0))
-    # Using the trimmed name (folder-safe) for image directory
     folder_name = trimmed_name.replace(".pdf", "")
     output_dir = os.path.join(PROCESSED_BASE, folder_name)
     os.makedirs(output_dir, exist_ok=True)
 
-    # 3. Detect Anchors
+    # Anchors
     ans_map = parse_answers(trimmed_path)
     anchors = []
     with pdfplumber.open(trimmed_path) as pdf:
@@ -134,7 +197,7 @@ def run_batch_extraction(row_data, source_pdf):
             for word in page.extract_words():
                 if re.match(r'^\d+\.$', word['text']):
                     rel_x = word['x0'] if word['x0'] < mid else (word['x0'] - mid)
-                    if rel_x < (page.width * 0.12): # Stricter column margin
+                    if rel_x < (page.width * 0.12): 
                         anchors.append({'q_num': int(word['text'].replace('.','')), 
                                         'page_idx': p_idx, 'top': word['top'], 
                                         'col': 0 if word['x0'] < mid else 1})
@@ -143,15 +206,12 @@ def run_batch_extraction(row_data, source_pdf):
     pdf_images = convert_from_path(trimmed_path, dpi=300)
     scale = 300/72
     
-    # 4. Loop through questions
     rows = []
     for i, start in tqdm(enumerate(anchors), total=len(anchors), desc=f"   ✂️ {chapter[:15]}"):
         try:
             nxt = anchors[i+1] if i+1 < len(anchors) else {'page_idx': start['page_idx'], 'top': footer_limit, 'col': start['col']}
             
-            # --- COORDINATE VALIDATION ---
             y1_val = max(0, (start['top'] * scale) - 15)
-            # If logic breaks (next anchor detected above current), cap at footer
             if nxt['page_idx'] == start['page_idx'] and nxt['col'] == start['col'] and nxt['top'] <= start['top']:
                 y2_val = footer_limit * scale
             else:
@@ -160,19 +220,31 @@ def run_batch_extraction(row_data, source_pdf):
             mid_px = pdf_images[0].size[0]/2
             l, r = (0, mid_px) if start['col'] == 0 else (mid_px, pdf_images[0].size[0])
             
-            # Stitching
             if start['page_idx'] == nxt['page_idx'] and start['col'] == nxt['col']:
                 safe_y2 = max(y1_val + 10, min(y2_val, footer_limit * scale))
                 stitched = pdf_images[start['page_idx']].crop((l, y1_val, r, safe_y2))
             else:
                 stitched = pdf_images[start['page_idx']].crop((l, y1_val, r, footer_limit*scale))
 
-            # Dynamic Content Trimming & Compression
-            final_img = compress_and_clean(trim_whitespace(pixel_sensitive_crop(trim_whitespace(stitched))))
+            # --- APPLIED PIPELINE ---
+            # 1. Trim base
+            img_s1 = trim_whitespace(stitched)
+            
+            # 2. Targeted Watermark Removal (Range 50-110)
+            img_s2 = remove_watermark_specific(img_s1)
+            
+            # 3. Crop Question Number (Left)
+            img_s3 = pixel_sensitive_crop(img_s2)
+            
+            # 4. Remove Footer (Left-Half Scan Logic)
+            img_s4 = smart_footer_trim(img_s3)
+            
+            # 5. Final Polish
+            final_img = compress_and_clean(trim_whitespace(img_s4))
+            
             img_w, img_h = final_img.size
             final_img.save(os.path.join(output_dir, f"Q_{start['q_num']}.png"), optimize=True)
 
-            # Build Metadata Row
             curr_id += 1
             raw_text = capture_text_from_area(trimmed_path, start, nxt, footer_limit)
             rows.append({
@@ -188,21 +260,16 @@ def run_batch_extraction(row_data, source_pdf):
         except Exception as e:
             print(f"⚠️ Skipping Q {start.get('q_num')}: {e}")
 
-    # 5. Incremental DB Save
+    # Save
     df_new = pd.DataFrame(rows)
     if os.path.exists(ALLEN_CSV_PATH):
         pd.concat([pd.read_csv(ALLEN_CSV_PATH), df_new], ignore_index=True).to_csv(ALLEN_CSV_PATH, index=False)
     else: df_new.to_csv(ALLEN_CSV_PATH, index=False)
     
-    # 6. Update Unique ID Config
     config["last_unique_id"] = curr_id
     with open(CONFIG_PATH, 'w') as f: json.dump(config, f, indent=4)
 
-    # 7. CLEANUP: Auto-delete the temporary PDF
-    if os.path.exists(trimmed_path):
-        os.remove(trimmed_path)
-        print(f"🗑️ Deleted temporary file: {trimmed_name}")
-
+    if os.path.exists(trimmed_path): os.remove(trimmed_path)
     return True
 
 # --- 5. MAIN LOOP ---

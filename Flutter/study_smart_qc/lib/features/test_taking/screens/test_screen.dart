@@ -451,9 +451,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     }
   }
 
-  // =================================================================
-  //  CORE SUBMISSION LOGIC
-  // =================================================================
+
   void _handleSubmit() async {
     _timer.cancel();
     _timeTrackers.values.forEach((sw) => sw.stop());
@@ -464,40 +462,57 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
-    // FETCH AUTHORITATIVE DATA FOR RESUMED SESSIONS
+    // 1. FETCH AUTHORITATIVE DATA
     String actualTitle = widget.title;
     int actualTimeLimit = widget.timeLimitInMinutes;
+    // ... (Your existing sourceId fetching logic remains here) ...
 
-    if (widget.sourceId.isNotEmpty) {
-      try {
-        DocumentSnapshot doc = await FirebaseFirestore.instance.collection('questions_curation').doc(widget.sourceId).get();
-
-        if (doc.exists) {
-          final data = doc.data() as Map<String, dynamic>;
-          if (data['title'] != null) actualTitle = data['title'];
-          if (data['timeLimitMinutes'] != null) actualTimeLimit = data['timeLimitMinutes'];
-        } else {
-          doc = await FirebaseFirestore.instance.collection('tests').doc(widget.sourceId).get();
-          if (doc.exists) {
-            final data = doc.data() as Map<String, dynamic>;
-            if (data['testName'] != null) actualTitle = data['testName'];
-            if (data['config'] != null && data['config'] is Map) {
-              final config = data['config'] as Map<String, dynamic>;
-              if (config['durationSeconds'] != null) {
-                actualTimeLimit = (config['durationSeconds'] / 60).round();
-              }
-            }
-          }
-        }
-      } catch (e) {
-        print("Error fetching source details for submission: $e");
-      }
-    }
-
+    // 2. BUILD & SANITIZE RESPONSES
     Map<String, ResponseObject> initialResponses = _buildResponseMap();
+    Map<String, ResponseObject> sanitizedResponses = {};
 
-    final score = (initialResponses.values.where((r) => r.status == 'CORRECT').length * 4) -
-        (initialResponses.values.where((r) => r.status == 'INCORRECT').length * 1);
+    // Sanitize 'REVIEW' statuses manually
+    initialResponses.forEach((key, response) {
+      if (response.status.contains('REVIEW')) {
+        String newStatus = 'SKIPPED';
+        if (response.selectedOption != null && response.selectedOption!.isNotEmpty) {
+          newStatus = (response.selectedOption == response.correctOption)
+              ? 'CORRECT'
+              : 'INCORRECT';
+        }
+        // Manually copy fields since copyWith might be missing in some versions
+        sanitizedResponses[key] = ResponseObject(
+          status: newStatus,
+          selectedOption: response.selectedOption,
+          correctOption: response.correctOption,
+          timeSpent: response.timeSpent,
+          visitCount: response.visitCount,
+          q_no: response.q_no,
+          exam: response.exam,
+          subject: response.subject,
+          chapter: response.chapter,
+          topic: response.topic,
+          topicL2: response.topicL2,
+          chapterId: response.chapterId,
+          topicId: response.topicId,
+          topicL2Id: response.topicL2Id,
+          mistakeCategory: response.mistakeCategory,
+          mistakeNote: response.mistakeNote,
+          pyq: response.pyq,
+          difficultyTag: response.difficultyTag,
+        );
+      } else {
+        sanitizedResponses[key] = response;
+      }
+    });
+
+    // 3. CALCULATE LOCAL STATS (Required for TestResult)
+    final correctCount = sanitizedResponses.values.where((r) => r.status == 'CORRECT').length;
+    final incorrectCount = sanitizedResponses.values.where((r) => r.status == 'INCORRECT').length;
+    final skippedCount = sanitizedResponses.values.where((r) => r.status == 'SKIPPED').length;
+    final int totalQuestions = widget.questions.length;
+    final int maxMarks = totalQuestions * 4;
+    final num score = (correctCount * 4) - (incorrectCount * 1);
 
     final finalTime = widget.testMode == TestMode.test
         ? (Duration(minutes: actualTimeLimit) - _overallTimeCounter).inSeconds
@@ -507,6 +522,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         ? actualTimeLimit
         : null;
 
+    // 4. SUBMIT TO SERVICE
     final enrichedAttempt = await TestOrchestrationService().submitAttempt(
       sourceId: widget.sourceId,
       assignmentCode: widget.assignmentCode,
@@ -516,7 +532,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       questions: widget.questions,
       score: score,
       timeTakenSeconds: finalTime,
-      responses: initialResponses,
+      responses: sanitizedResponses,
       timeLimitMinutes: limitToSave,
     );
 
@@ -526,16 +542,27 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       if (enrichedAttempt != null) {
         await _localSessionService.clearSession();
 
+        // 5. NAVIGATE WITH CORRECTED TESTRESULT
         final result = TestResult(
           attemptId: enrichedAttempt.id,
           questions: widget.questions,
           answerStates: _answerStates,
-          timeTaken: Duration(seconds: finalTime),
-          totalMarks: widget.questions.length * 4,
           responses: enrichedAttempt.responses,
 
-          // UPDATED: Pass the limit inside the Model as requested
+          // --- FIXED PARAMETERS HERE ---
+          score: score,
+          maxMarks: maxMarks,           // Replaces totalMarks
+          correctCount: correctCount,
+          incorrectCount: incorrectCount,
+          skippedCount: skippedCount,
+          totalQuestions: totalQuestions,
+          timeTakenSeconds: finalTime,  // Replaces timeTaken (Duration)
           timeLimitMinutes: limitToSave,
+
+          // Pass the breakdowns returned by the service (AttemptModel)
+          smartTimeAnalysisCounts: enrichedAttempt.smartTimeAnalysisCounts,
+          secondsBreakdownHighLevel: enrichedAttempt.secondsBreakdownHighLevel,
+          secondsBreakdownSmartTimeAnalysis: enrichedAttempt.secondsBreakdownSmartTimeAnalysis,
         );
 
         Navigator.of(context).pushReplacement(

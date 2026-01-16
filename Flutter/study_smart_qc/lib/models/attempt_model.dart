@@ -1,85 +1,235 @@
-// lib/models/attempt_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+class AttemptModel {
+  final String id;
+  final String sourceId;
+  final String assignmentCode;
+  final String title;
+  final String mode;
+  final String userId;
+  final Timestamp startedAt;
+  final Timestamp completedAt;
+  final bool onlySingleAttempt;
+
+  // STATS
+  final num score;
+  final int totalQuestions;
+  final int maxMarks;
+  final int correctCount;
+  final int incorrectCount;
+  final int skippedCount;
+  final int timeTakenSeconds;
+  final int? timeLimitMinutes;
+
+  // BREAKDOWNS
+  final Map<String, int> smartTimeAnalysisCounts;
+  final Map<String, int> secondsBreakdownHighLevel;
+  final Map<String, int> secondsBreakdownSmartTimeAnalysis;
+  final Map<String, ResponseObject> responses;
+
+  AttemptModel({
+    required this.id,
+    required this.sourceId,
+    required this.assignmentCode,
+    required this.title,
+    required this.mode,
+    required this.userId,
+    required this.startedAt,
+    required this.completedAt,
+    this.onlySingleAttempt = false,
+    required this.score,
+    required this.totalQuestions,
+    required this.maxMarks,
+    required this.correctCount,
+    required this.incorrectCount,
+    required this.skippedCount,
+    required this.timeTakenSeconds,
+    this.timeLimitMinutes,
+    required this.smartTimeAnalysisCounts,
+    required this.secondsBreakdownHighLevel,
+    required this.secondsBreakdownSmartTimeAnalysis,
+    required this.responses,
+  });
+
+  /// Factory to create AttemptModel from Firestore Document
+  factory AttemptModel.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+
+    return AttemptModel(
+      id: doc.id,
+      sourceId: data['sourceId'] ?? '',
+      assignmentCode: data['assignmentCode'] ?? '',
+      title: data['title'] ?? '',
+      mode: data['mode'] ?? 'Practice',
+      userId: data['userId'] ?? '',
+      startedAt: data['startedAt'] as Timestamp? ?? Timestamp.now(),
+      completedAt: data['completedAt'] as Timestamp? ?? Timestamp.now(),
+      onlySingleAttempt: data['onlySingleAttempt'] ?? false,
+      score: data['score'] ?? 0,
+
+      // === FIX: Read BOTH snake_case (Old) and camelCase (New) ===
+      totalQuestions: (data['totalQuestions'] ?? data['total_questions'] ?? 0) as int,
+      maxMarks: (data['maxMarks'] ?? data['max_marks'] ?? 0) as int,
+      correctCount: (data['correctCount'] ?? data['correct_count'] ?? 0) as int,
+      incorrectCount: (data['incorrectCount'] ?? data['incorrect_count'] ?? 0) as int,
+      skippedCount: (data['skippedCount'] ?? data['skipped_count'] ?? 0) as int,
+
+      timeTakenSeconds: (data['timeTakenSeconds'] ?? 0) as int,
+      timeLimitMinutes: data['timeLimitMinutes'] as int?,
+
+      smartTimeAnalysisCounts: Map<String, int>.from(data['smartTimeAnalysisCounts'] ?? {}),
+      secondsBreakdownHighLevel: Map<String, int>.from(data['secondsBreakdownHighLevel'] ?? {}),
+      secondsBreakdownSmartTimeAnalysis: Map<String, int>.from(data['secondsBreakdownSmartTimeAnalysis'] ?? {}),
+
+      responses: (data['responses'] as Map<String, dynamic>? ?? {}).map(
+            (key, value) => MapEntry(key, ResponseObject.fromMap(value)),
+      ),
+    );
+  }
+
+  /// Converts Model to Map for Firestore writing
+  Map<String, dynamic> toFirestore() {
+    return {
+      'sourceId': sourceId,
+      'assignmentCode': assignmentCode,
+      'title': title,
+      'mode': mode,
+      'userId': userId,
+      'startedAt': startedAt,
+      'completedAt': completedAt,
+      'onlySingleAttempt': onlySingleAttempt,
+      'score': score,
+
+      // === FIX: Write CLEAN camelCase ===
+      'totalQuestions': totalQuestions,
+      'maxMarks': maxMarks,
+      'correctCount': correctCount,
+      'incorrectCount': incorrectCount,
+      'skippedCount': skippedCount,
+
+      'timeTakenSeconds': timeTakenSeconds,
+      'timeLimitMinutes': timeLimitMinutes,
+      'smartTimeAnalysisCounts': smartTimeAnalysisCounts,
+      'secondsBreakdownHighLevel': secondsBreakdownHighLevel,
+      'secondsBreakdownSmartTimeAnalysis': secondsBreakdownSmartTimeAnalysis,
+      'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
+    };
+  }
+}
+
 class ResponseObject {
-  // ... (No changes to ResponseObject needed, keeping it as is) ...
   final String status;
-  final dynamic selectedOption;
+  final String? selectedOption;
   final String correctOption;
   final int timeSpent;
   final int visitCount;
   final int q_no;
-
-  // Context Fields
   final String exam;
   final String subject;
-
-  // Tags
   final String chapter;
   final String topic;
-  final String topicL2;
-
-  // IDs
-  final String? chapterId;
-  final String? topicId;
-  final String? topicL2Id;
-
-  // Smart Time Analysis Tag
+  final String topicL2; // Added
+  final String chapterId;
+  final String topicId;
+  final String topicL2Id;
   final String smartTimeAnalysis;
-
-  final String pyq;
-  final String difficultyTag;
-
   final String? mistakeCategory;
   final String? mistakeNote;
+  final String pyq;
+  final String difficultyTag;
 
   ResponseObject({
     required this.status,
     this.selectedOption,
     required this.correctOption,
     required this.timeSpent,
-    required this.visitCount,
-    required this.q_no,
-    required this.exam,
-    required this.subject,
+    this.visitCount = 0,
+    this.q_no = 0,
+    this.exam = '',
+    this.subject = '',
     this.chapter = '',
     this.topic = '',
-    this.topicL2 = '',
-    this.chapterId,
-    this.topicId,
-    this.topicL2Id,
+    this.topicL2 = '', // Added
+    this.chapterId = '',
+    this.topicId = '',
+    this.topicL2Id = '',
     this.smartTimeAnalysis = '',
-    this.pyq = '',
-    this.difficultyTag = '',
     this.mistakeCategory,
     this.mistakeNote,
+    this.pyq = '',
+    this.difficultyTag = '',
   });
 
+  // === NEW: ALIASES FOR LOCAL SESSION SERVICE ===
+  factory ResponseObject.fromJson(Map<String, dynamic> json) => ResponseObject.fromMap(json);
   Map<String, dynamic> toJson() => toMap();
-  factory ResponseObject.fromJson(Map<String, dynamic> json) =>
-      ResponseObject.fromMap(json);
+  // ==============================================
+
+  ResponseObject copyWith({
+    String? status,
+    String? selectedOption,
+    String? correctOption,
+    int? timeSpent,
+    int? visitCount,
+    int? q_no,
+    String? exam,
+    String? subject,
+    String? chapter,
+    String? topic,
+    String? topicL2,
+    String? chapterId,
+    String? topicId,
+    String? topicL2Id,
+    String? smartTimeAnalysis,
+    String? mistakeCategory,
+    String? mistakeNote,
+    String? pyq,
+    String? difficultyTag,
+  }) {
+    return ResponseObject(
+      status: status ?? this.status,
+      selectedOption: selectedOption ?? this.selectedOption,
+      correctOption: correctOption ?? this.correctOption,
+      timeSpent: timeSpent ?? this.timeSpent,
+      visitCount: visitCount ?? this.visitCount,
+      q_no: q_no ?? this.q_no,
+      exam: exam ?? this.exam,
+      subject: subject ?? this.subject,
+      chapter: chapter ?? this.chapter,
+      topic: topic ?? this.topic,
+      topicL2: topicL2 ?? this.topicL2,
+      chapterId: chapterId ?? this.chapterId,
+      topicId: topicId ?? this.topicId,
+      topicL2Id: topicL2Id ?? this.topicL2Id,
+      smartTimeAnalysis: smartTimeAnalysis ?? this.smartTimeAnalysis,
+      mistakeCategory: mistakeCategory ?? this.mistakeCategory,
+      mistakeNote: mistakeNote ?? this.mistakeNote,
+      pyq: pyq ?? this.pyq,
+      difficultyTag: difficultyTag ?? this.difficultyTag,
+    );
+  }
 
   factory ResponseObject.fromMap(Map<String, dynamic> map) {
     return ResponseObject(
       status: map['status'] ?? 'SKIPPED',
       selectedOption: map['selectedOption'],
       correctOption: map['correctOption'] ?? '',
-      timeSpent: map['timeSpent'] ?? 0,
-      visitCount: map['visitCount'] ?? 0,
-      q_no: map['q_no'] ?? 0,
+      timeSpent: (map['timeSpent'] ?? 0) as int,
+      visitCount: (map['visitCount'] ?? 0) as int,
+      q_no: (map['q_no'] ?? 0) as int,
       exam: map['exam'] ?? '',
-      subject: map['subject'] ?? 'Physics',
+      subject: map['subject'] ?? '',
       chapter: map['chapter'] ?? '',
       topic: map['topic'] ?? '',
-      topicL2: map['topicL2'] ?? '',
-      chapterId: map['chapterId'] as String?,
-      topicId: map['topicId'] as String?,
-      topicL2Id: map['topicL2Id'] as String?,
+      topicL2: map['topicL2'] ?? '', // Added
+      chapterId: map['chapterId'] ?? '',
+      topicId: map['topicId'] ?? '',
+      topicL2Id: map['topicL2Id'] ?? '',
       smartTimeAnalysis: map['smartTimeAnalysis'] ?? '',
-      pyq: map['pyq'] ?? '',
-      difficultyTag: map['difficultyTag'] ?? '',
       mistakeCategory: map['mistakeCategory'],
       mistakeNote: map['mistakeNote'],
+      pyq: map['pyq'] ?? '',
+      difficultyTag: map['difficultyTag'] ?? '',
     );
   }
 
@@ -95,168 +245,15 @@ class ResponseObject {
       'subject': subject,
       'chapter': chapter,
       'topic': topic,
-      'topicL2': topicL2,
+      'topicL2': topicL2, // Added
       'chapterId': chapterId,
       'topicId': topicId,
       'topicL2Id': topicL2Id,
       'smartTimeAnalysis': smartTimeAnalysis,
-      'pyq': pyq,
-      'difficultyTag': difficultyTag,
       'mistakeCategory': mistakeCategory,
       'mistakeNote': mistakeNote,
-    };
-  }
-}
-
-class AttemptModel {
-  final String id;
-  final String sourceId;
-  final String assignmentCode;
-
-  // Title
-  final String title;
-
-  // NEW FIELD: Only Single Attempt Flag
-  final bool onlySingleAttempt;
-
-  final String mode;
-  final String userId;
-  final Timestamp startedAt;
-  final Timestamp completedAt;
-  final num score;
-  final int totalQuestions;
-  final int maxMarks;
-
-  final int correctCount;
-  final int incorrectCount;
-  final int skippedCount;
-
-  final int timeTakenSeconds;
-
-  final int? timeLimitMinutes;
-
-  final Map<String, int> smartTimeAnalysisCounts;
-  final Map<String, int> secondsBreakdownHighLevel;
-  final Map<String, int> secondsBreakdownSmartTimeAnalysis;
-
-  final Map<String, ResponseObject> responses;
-
-  AttemptModel({
-    required this.id,
-    required this.sourceId,
-    required this.assignmentCode,
-    this.title = 'Test Attempt',
-
-    // Initialize new field (Defaulting to false ensures backward compatibility)
-    this.onlySingleAttempt = false,
-
-    required this.mode,
-    required this.userId,
-    required this.startedAt,
-    required this.completedAt,
-    required this.score,
-    required this.totalQuestions,
-    required this.maxMarks,
-    required this.correctCount,
-    required this.incorrectCount,
-    required this.skippedCount,
-    required this.timeTakenSeconds,
-    this.timeLimitMinutes,
-    required this.smartTimeAnalysisCounts,
-    required this.responses,
-    this.secondsBreakdownHighLevel = const {},
-    this.secondsBreakdownSmartTimeAnalysis = const {},
-  });
-
-  factory AttemptModel.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
-    dynamic rawStartedAt = data['startedAt'];
-    Timestamp startedAtTimestamp = (rawStartedAt is String)
-        ? Timestamp.fromDate(DateTime.parse(rawStartedAt))
-        : rawStartedAt ?? Timestamp.now();
-
-    dynamic rawCompletedAt = data['completedAt'];
-    Timestamp completedAtTimestamp = (rawCompletedAt is String)
-        ? Timestamp.fromDate(DateTime.parse(rawCompletedAt))
-        : rawCompletedAt ?? Timestamp.now();
-
-    Map<String, ResponseObject> parsedResponses = {};
-    if (data['responses'] is Map) {
-      (data['responses'] as Map).forEach((key, value) {
-        if (value is Map) {
-          parsedResponses[key] = ResponseObject.fromMap(
-            value as Map<String, dynamic>,
-          );
-        }
-      });
-    }
-
-    Map<String, int> parseIntMap(dynamic mapData) {
-      Map<String, int> result = {};
-      if (mapData is Map) {
-        mapData.forEach((key, value) {
-          result[key.toString()] = (value as num).toInt();
-        });
-      }
-      return result;
-    }
-
-    return AttemptModel(
-      id: doc.id,
-      sourceId: data['sourceId'] ?? data['testId'] ?? '',
-      assignmentCode: data['assignmentCode'] ?? '----',
-      title: data['title'] ?? 'Test Attempt',
-
-      // READ NEW FIELD
-      onlySingleAttempt: data['onlySingleAttempt'] ?? false,
-
-      mode: data['mode'] ?? 'Test',
-      userId: data['userId'] ?? '',
-      startedAt: startedAtTimestamp,
-      completedAt: completedAtTimestamp,
-      score: data['score'] ?? 0,
-      totalQuestions: data['total_questions'] ?? 0,
-      maxMarks: data['max_marks'] ?? 0,
-      correctCount: data['correct_count'] ?? 0,
-      incorrectCount: data['incorrect_count'] ?? 0,
-      skippedCount: data['skipped_count'] ?? 0,
-      timeTakenSeconds: data['timeTakenSeconds'] ?? 0,
-      timeLimitMinutes: data['timeLimitMinutes'],
-      smartTimeAnalysisCounts: parseIntMap(data['smartTimeAnalysisCounts']),
-      responses: parsedResponses,
-      secondsBreakdownHighLevel: parseIntMap(data['secondsBreakdownHighLevel']),
-      secondsBreakdownSmartTimeAnalysis: parseIntMap(
-        data['secondsBreakdownSmartTimeAnalysis'],
-      ),
-    );
-  }
-
-  Map<String, dynamic> toFirestore() {
-    return {
-      'sourceId': sourceId,
-      'assignmentCode': assignmentCode,
-      'title': title,
-
-      // WRITE NEW FIELD
-      'onlySingleAttempt': onlySingleAttempt,
-
-      'mode': mode,
-      'userId': userId,
-      'startedAt': startedAt,
-      'completedAt': completedAt,
-      'score': score,
-      'total_questions': totalQuestions,
-      'max_marks': maxMarks,
-      'correct_count': correctCount,
-      'incorrect_count': incorrectCount,
-      'skipped_count': skippedCount,
-      'timeTakenSeconds': timeTakenSeconds,
-      'timeLimitMinutes': timeLimitMinutes,
-      'smartTimeAnalysisCounts': smartTimeAnalysisCounts,
-      'secondsBreakdownHighLevel': secondsBreakdownHighLevel,
-      'secondsBreakdownSmartTimeAnalysis': secondsBreakdownSmartTimeAnalysis,
-      'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
+      'pyq': pyq,
+      'difficultyTag': difficultyTag,
     };
   }
 }

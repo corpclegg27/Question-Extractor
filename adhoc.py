@@ -553,7 +553,200 @@ def delete_neet_questions():
     print(f"✅ Operations complete. Total documents deleted: {total_deleted}")
 
 
-# --- MAIN MENU ---
+# Backfill attempts documents
+
+def backfill_attempts_docs():
+    print("Starting Strict Fix Process for Flutter Compatibility...")
+
+    # 1. Load Configuration for Smart Tags
+    ideal_time_map = {}
+    careless_factor = 0.25
+    good_skip_factor = 20.0
+    
+    try:
+        config_doc = db.collection('static_data').document('option_sets').get()
+        if config_doc.exists:
+            data = config_doc.to_dict()
+            ideal_time_map = data.get('idealTimePerQuestion', {})
+            careless_factor = float(data.get('factorForCarelessAttempt', 0.25))
+            good_skip_factor = float(data.get('factorForGoodSkip', 20.0))
+            print("Loaded Analysis Config.")
+    except Exception as e:
+        print(f"Warning: Using default config. Error: {e}")
+
+    # 2. Iterate All Attempts
+    attempts_ref = db.collection('attempts')
+    attempts_stream = attempts_ref.stream()
+
+    batch = db.batch()
+    batch_counter = 0
+    BATCH_LIMIT = 400
+    processed_count = 0
+
+    for attempt_doc in attempts_stream:
+        data = attempt_doc.to_dict()
+        
+        # Safety Check: Must have responses
+        responses = data.get('responses', {})
+        if not responses:
+            continue
+
+        # --- RE-CALCULATION CONTAINERS ---
+        new_responses = {}
+        
+        # Stats
+        correct_count = 0
+        incorrect_count = 0
+        skipped_count = 0
+        
+        # Breakdowns (Maps required by UI)
+        # UI Keys: "Perfect Attempt", "Overtime Correct", etc.
+        analysis_counts = {
+            "Perfect Attempt": 0, "Overtime Correct": 0, "Careless Mistake": 0,
+            "Wasted Attempt": 0, "Good Skip": 0, "Time Wasted": 0
+        }
+        smart_time_breakdown = {k: 0 for k in analysis_counts}
+        
+        # UI Keys: "CORRECT", "INCORRECT", "SKIPPED"
+        high_level_time = {"CORRECT": 0, "INCORRECT": 0, "SKIPPED": 0}
+
+        total_time_calc = 0
+
+        # --- PROCESS EACH QUESTION ---
+        for q_id, response in responses.items():
+            # 1. Safe Data Extraction
+            selected_option = response.get('selectedOption')
+            correct_option = response.get('correctOption')
+            time_spent = int(response.get('timeSpent', 0)) # Ensure int
+            subject = response.get('subject', 'Physics')
+            
+            # 2. Strict Status Logic (No REVIEW allowed)
+            new_status = 'SKIPPED'
+            
+            # Logic: If option is valid string and not "null", check it
+            if selected_option and str(selected_option).strip() not in ["", "null"]:
+                if str(selected_option) == str(correct_option):
+                    new_status = 'CORRECT'
+                else:
+                    new_status = 'INCORRECT'
+            
+            # 3. Update Counters & Time
+            if new_status == 'CORRECT': 
+                correct_count += 1
+            elif new_status == 'INCORRECT': 
+                incorrect_count += 1
+            else: 
+                skipped_count += 1
+            
+            high_level_time[new_status] += time_spent
+            total_time_calc += time_spent
+
+            # 4. Generate Smart Tag
+            # The UI checks: if (tag.contains("Perfect Attempt"))
+            smart_tag = generate_smart_tag(
+                new_status, time_spent, subject, ideal_time_map, careless_factor, good_skip_factor
+            )
+            
+            if smart_tag:
+                # Extract key for the Maps (remove extra text like " (Skipped...)")
+                key_for_map = smart_tag.split(' (')[0].strip()
+                if key_for_map in analysis_counts:
+                    analysis_counts[key_for_map] += 1
+                    smart_time_breakdown[key_for_map] += time_spent
+
+            # 5. Update Response Object
+            response['status'] = new_status
+            response['smartTimeAnalysis'] = smart_tag
+            new_responses[q_id] = response
+            
+            # 6. Queue AttemptItem Update (for Detailed View)
+            # Efficiently find specific item
+            items_query = db.collection('attempt_items')\
+                .where('attemptRef', '==', attempt_doc.reference)\
+                .where('questionId', '==', q_id).limit(1).stream()
+            
+            for item_doc in items_query:
+                batch.update(item_doc.reference, {'status': new_status})
+                batch_counter += 1
+
+        # --- FINAL CALCULATIONS ---
+        total_questions = len(new_responses)
+        max_marks = total_questions * 4
+        calculated_score = (correct_count * 4) - (incorrect_count * 1)
+        
+        # Use calculated time to ensure chart consistency, 
+        # unless original has a drastically different time (e.g. timed test timeout),
+        # but for consistency, calculated is safer for the breakdown charts.
+        final_time_taken = total_time_calc
+
+        # --- CONSTRUCT UPDATE PAYLOAD ---
+        update_payload = {
+            # 1. CORE STATS (camelCase)
+            'responses': new_responses,
+            'score': calculated_score,
+            'maxMarks': max_marks,              # Required by TestResult
+            'correctCount': correct_count,      # Required by TestResult
+            'incorrectCount': incorrect_count,  # Required by TestResult
+            'skippedCount': skipped_count,      # Required by TestResult
+            'totalQuestions': total_questions,  # Required by TestResult
+            'timeTakenSeconds': final_time_taken, # Required by TestResult
+            
+            # 2. BREAKDOWN MAPS
+            'secondsBreakdownHighLevel': high_level_time,
+            'smartTimeAnalysisCounts': analysis_counts,
+            'secondsBreakdownSmartTimeAnalysis': smart_time_breakdown,
+
+            # 3. DELETE GARBAGE (snake_case)
+            'correct_count': firestore.DELETE_FIELD,
+            'incorrect_count': firestore.DELETE_FIELD,
+            'skipped_count': firestore.DELETE_FIELD,
+            'total_questions': firestore.DELETE_FIELD,
+            'max_marks': firestore.DELETE_FIELD,
+            'skipped_questions': firestore.DELETE_FIELD # Just in case
+        }
+
+        batch.update(attempt_doc.reference, update_payload)
+        batch_counter += 1
+        processed_count += 1
+        
+        print(f"Queueing Fix: {attempt_doc.id} | Score: {calculated_score}")
+
+        if batch_counter >= BATCH_LIMIT:
+            batch.commit()
+            print("Batch committed...")
+            batch = db.batch()
+            batch_counter = 0
+
+    if batch_counter > 0:
+        batch.commit()
+    
+    print(f"SUCCESS: Fixed {processed_count} attempts.")
+
+def generate_smart_tag(status, time_taken, subject, ideal_map, careless_factor, good_skip_factor):
+    # Logic matched to Flutter _behavioralOrder
+    ideal_time = ideal_map.get(subject, 60)
+    
+    if status == 'CORRECT':
+        if time_taken <= ideal_time: 
+            return "Perfect Attempt"
+        else: 
+            return "Overtime Correct"
+    elif status == 'INCORRECT':
+        if time_taken < (ideal_time * careless_factor): 
+            return "Careless Mistake"
+        else: 
+            return "Wasted Attempt"
+    elif status == 'SKIPPED':
+        if time_taken < good_skip_factor: 
+            return "Good Skip"
+        else: 
+            return "Time Wasted (Skipped but spent too much time)"
+            # Note: "Time Wasted" matches the key check .startsWith("Time Wasted")
+    return "Time Wasted" # Fallback
+
+# Run
+
+
 
 def main():
     while True:
@@ -569,6 +762,7 @@ def main():
         print ("7. Add ideal time per question map")
         print ("8. Sanitize answer key of csv provided")
         print ("9. Delete NEET Questions")
+        print ("10. Backfill attempts documents")
         print("0. Exit")
         print("-" * 40)
         
@@ -602,6 +796,8 @@ def main():
         if choice == '9':
             delete_neet_questions()
 
+        if choice == '10':
+            backfill_attempts_docs()
 
 
         elif choice == '0':

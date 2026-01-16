@@ -32,8 +32,8 @@ def update_ocr_incremental():
     IMG_BASE_DIR = os.path.join(BASE_PATH, 'Processed_Database')
     
     # FILES
-    MASTER_DB_PATH = os.path.join(BASE_PATH, 'Question Bank Allen For OCR.csv')       
-    OUTPUT_DB_PATH = os.path.join(BASE_PATH, 'DB Master_OCR.csv')   
+    MASTER_DB_PATH = os.path.join(BASE_PATH, 'OCR - Questions for processing.csv')       
+    OUTPUT_DB_PATH = os.path.join(BASE_PATH, 'OCR - Processed.csv')   
 
     print(f"🔧 CONFIGURATION:")
     print(f"   - Master DB (Read) : {MASTER_DB_PATH}")
