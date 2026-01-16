@@ -64,14 +64,20 @@ class _ResultsScreenState extends State<ResultsScreen> {
     }
   }
 
-  void _showSolutionSheet(int initialIndex) {
+  void _showSolutionSheet(int initialIndex, {String? category, List<int>? subset}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (context) {
         return SizedBox(
           height: MediaQuery.of(context).size.height * 0.9,
-          child: SolutionDetailSheet(result: widget.result, initialIndex: initialIndex),
+          child: SolutionDetailSheet(
+            result: widget.result,
+            initialIndex: initialIndex,
+            // PASS THE NEW DATA HERE
+            categoryTitle: category,
+            validQuestionIndices: subset,
+          ),
         );
       },
     );
@@ -353,6 +359,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
       children: _behavioralOrder.map((key) {
         final indices = _smartAnalysisGroups[key] ?? [];
         final color = _getSmartColor(key);
+
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
           decoration: BoxDecoration(
@@ -385,7 +392,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 Wrap(
                   spacing: 8, runSpacing: 8,
                   children: indices.map((idx) => GestureDetector(
-                    onTap: () => _showSolutionSheet(idx),
+                    // UPDATED: Pass the Category Key and the List of Indices
+                    onTap: () => _showSolutionSheet(
+                        idx,
+                        category: key,      // e.g. "Perfect Attempt"
+                        subset: indices     // e.g. [0, 2, 5]
+                    ),
                     child: Container(
                       width: 44, height: 34, alignment: Alignment.center,
                       decoration: BoxDecoration(

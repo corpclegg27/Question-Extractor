@@ -1,4 +1,6 @@
 // lib/widgets/solution_detail_sheet.dart
+// Description: Displays detailed solution for a specific question or a filtered list.
+// Updated: Added Category Tag below Time Spent using exact colors from ResultsScreen.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -9,25 +11,46 @@ import 'package:study_smart_qc/widgets/expandable_image.dart';
 
 class SolutionDetailSheet extends StatefulWidget {
   final TestResult result;
-  final int initialIndex;
+  final int initialIndex; // The global index of the question clicked
+
+  // Optional: For filtering the bottom sheet to specific questions (e.g. "Perfect Attempt" only)
+  final List<int>? validQuestionIndices;
+  final String? categoryTitle;
+
   const SolutionDetailSheet({
     super.key,
     required this.result,
     required this.initialIndex,
+    this.validQuestionIndices,
+    this.categoryTitle,
   });
+
   @override
   State<SolutionDetailSheet> createState() => _SolutionDetailSheetState();
 }
 
 class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
   late final PageController _pageController;
-  int _currentIndex = 0;
+  late final List<int> _effectiveIndices;
+  int _currentVisualIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialIndex;
-    _pageController = PageController(initialPage: _currentIndex);
+
+    // 1. Determine which questions to show (Filter Logic)
+    if (widget.validQuestionIndices != null && widget.validQuestionIndices!.isNotEmpty) {
+      _effectiveIndices = widget.validQuestionIndices!;
+    } else {
+      // Show all if no filter
+      _effectiveIndices = List.generate(widget.result.questions.length, (i) => i);
+    }
+
+    // 2. Find the visual page index corresponding to the global question index
+    final initialPage = _effectiveIndices.indexOf(widget.initialIndex);
+    _currentVisualIndex = initialPage != -1 ? initialPage : 0;
+
+    _pageController = PageController(initialPage: _currentVisualIndex);
   }
 
   @override
@@ -43,35 +66,54 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
     return '${m}m ${s}s';
   }
 
+  // --- COLOR LOGIC (Identical to ResultsScreen) ---
+  Color _getSmartColor(String category) {
+    switch (category) {
+      case "Perfect Attempt": return Colors.green.shade700;
+      case "Overtime Correct": return Colors.green.shade400;
+      case "Careless Mistake": return Colors.red.shade300;
+      case "Wasted Attempt": return Colors.red.shade800;
+      case "Good Skip": return Colors.grey.shade400;
+      case "Time Wasted": return Colors.grey.shade600;
+      default: return Colors.blue;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final totalCount = _effectiveIndices.length;
+
     return Column(
       children: [
         // --- HEADER ---
         Padding(
-          padding: const EdgeInsets.all(8.0),
+          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back_ios),
-                onPressed: _currentIndex > 0
+                icon: const Icon(Icons.arrow_back_ios, size: 20),
+                onPressed: _currentVisualIndex > 0
                     ? () => _pageController.previousPage(
                   duration: const Duration(milliseconds: 300),
                   curve: Curves.easeIn,
                 )
                     : null,
               ),
-              Text(
-                'Solution ${_currentIndex + 1} / ${widget.result.questions.length}',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
+              Column(
+                children: [
+                  Text(
+                    'Solution',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
               IconButton(
-                icon: const Icon(Icons.arrow_forward_ios),
-                onPressed: _currentIndex < widget.result.questions.length - 1
+                icon: const Icon(Icons.arrow_forward_ios, size: 20),
+                onPressed: _currentVisualIndex < totalCount - 1
                     ? () => _pageController.nextPage(
                   duration: const Duration(milliseconds: 300),
                   curve: Curves.easeIn,
@@ -87,11 +129,17 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
         Expanded(
           child: PageView.builder(
             controller: _pageController,
-            itemCount: widget.result.questions.length,
-            onPageChanged: (index) => setState(() => _currentIndex = index),
+            itemCount: totalCount,
+            onPageChanged: (index) => setState(() => _currentVisualIndex = index),
             itemBuilder: (context, index) {
-              final question = widget.result.questions[index];
-              final answerState = widget.result.answerStates[index]!;
+              final realQuestionIndex = _effectiveIndices[index];
+              final question = widget.result.questions[realQuestionIndex];
+
+              if (!widget.result.answerStates.containsKey(realQuestionIndex)) {
+                return const Center(child: Text("Data missing for this question"));
+              }
+
+              final answerState = widget.result.answerStates[realQuestionIndex]!;
               final isCorrect = answerState.userAnswer?.trim().toLowerCase() ==
                   question.correctAnswer.trim().toLowerCase();
 
@@ -103,9 +151,9 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 1. Question Text
+                    // 1. Question Number
                     Text(
-                      'Question ${index + 1}',
+                      'Question ${realQuestionIndex + 1}',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -152,6 +200,45 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
                       ),
                     ),
 
+                    // --- NEW: Category Display (Below Time Spent) ---
+                    if (widget.categoryTitle != null) ...[
+                      Builder(
+                          builder: (context) {
+                            // Get exact color from ResultsScreen logic
+                            final color = _getSmartColor(widget.categoryTitle!);
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: color), // Colored border
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.label, size: 16, color: color), // Colored Icon
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    "",
+                                    style: const TextStyle(fontSize: 14, color: Colors.black54),
+                                  ),
+                                  Text(
+                                    widget.categoryTitle!,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: color, // Colored Text
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+                      ),
+                    ],
+                    // ------------------------------------------------
+
                     // 4. Your Answer
                     _buildAnswerStatus(
                       'Your Answer: ${answerState.userAnswer ?? "Not Answered"}',
@@ -168,7 +255,7 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
                     ),
                     const SizedBox(height: 20),
 
-                    // --- MOVED: Mistake Analysis Section (Step 2) ---
+                    // --- Mistake Analysis ---
                     if (responseObj?.status == 'INCORRECT') ...[
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -273,7 +360,7 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
 }
 
 // =============================================================================
-// INTERNAL WIDGET: Mistake Form (Refined)
+// INTERNAL WIDGET: Mistake Form
 // =============================================================================
 class _MistakeForm extends StatefulWidget {
   final String attemptId;
@@ -297,7 +384,6 @@ class _MistakeFormState extends State<_MistakeForm> {
   final TextEditingController _noteController = TextEditingController();
   String? _selectedCategory;
 
-  // REMOVED 'Other' (Step 1)
   final List<String> _categories = [
     'Conceptual Error',
     'Calculation Error',
@@ -351,12 +437,11 @@ class _MistakeFormState extends State<_MistakeForm> {
             setState(() {
               _selectedCategory = value;
             });
-            // Update Service with Note (even if empty, passed as '')
             _service.updateQuestionMistake(
               attemptId: widget.attemptId,
               questionId: widget.questionId,
               mistakeCategory: value ?? '',
-              mistakeNote: _noteController.text, // Passed directly, 'Other' field removed
+              mistakeNote: _noteController.text,
             );
           },
         ),
