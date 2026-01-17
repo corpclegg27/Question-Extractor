@@ -12,7 +12,7 @@ TARGET_FILENAME = "questionToTagUsingAI.csv"
 METADATA_FILENAME = "DB Metadata.xlsx"
 
 # API KEY
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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"
 
 # BATCH SETTINGS
 BATCH_SIZE = 5

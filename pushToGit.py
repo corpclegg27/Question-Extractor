@@ -5,7 +5,7 @@ import os
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "MVP Release: Finally, first student release!"
+COMMIT_MESSAGE = "Mast working! Gonna try to handle JEE Advanced next"
 # ==========================================
 
 def run_command(command, step_name):

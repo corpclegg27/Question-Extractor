@@ -6,8 +6,9 @@ import json
 import re
 import time
 import numpy as np
-from pdf2image import convert_from_path
-from PIL import Image, ImageChops, ImageOps
+import fitz  # PyMuPDF
+from pypdf import PdfReader, PdfWriter
+from PIL import Image, ImageChops, ImageOps, ImageEnhance
 try:
     from tqdm import tqdm
 except ImportError:
@@ -37,36 +38,37 @@ print(f"   - Master DB     : {MASTER_DB_PATH}")
 os.makedirs(OUTPUT_BASE, exist_ok=True)
 
 
-# --- 2. ADVANCED IMAGE PROCESSING UTILITIES ---
+# --- 2. UTILITIES ---
+
+def sanitize_filename(name):
+    """Ensure folder name is safe for Windows/Linux."""
+    # Remove invalid chars: < > : " / \ | ? *
+    name = re.sub(r'[<>:"/\\|?*]', '', name)
+    return name.strip()
 
 def trim_whitespace(im):
     try:
-        bg = Image.new(im.mode, im.size, im.getpixel((0,0)))
-        diff = ImageChops.difference(im, bg)
+        bg = Image.new("RGB", im.size, (255, 255, 255))
+        diff = ImageChops.difference(im.convert("RGB"), bg)
         diff = ImageChops.add(diff, diff, 2.0, -100)
         bbox = diff.getbbox()
         return im.crop(bbox) if bbox else im
     except Exception: return im
 
 def compress_and_clean(img):
-    """Standardizes to Grayscale and thresholds to remove gray noise."""
     try:
-        gray = img.convert('L')
-        return gray.point(lambda p: 255 if p > 190 else p)
+        img = img.convert('L')
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(1.3) 
+        img = img.quantize(colors=32, method=2, dither=Image.NONE)
+        return img
     except Exception:
         return img
 
 def pixel_sensitive_left_trim(img):
-    """
-    For QUESTIONS: Scans columns left-to-right.
-    Removes the Question Number (e.g. 'Q.1') block and the whitespace after it.
-    """
     try:
-        # 1. Convert to binary (Invert so ink is high value)
         inverted_img = ImageOps.invert(img.convert('L'))
         data = np.array(inverted_img)
-        
-        # 2. Project vertically (sum of pixels in each column)
         horizontal_projection = np.sum(data, axis=0)
         width = len(horizontal_projection)
         
@@ -74,37 +76,27 @@ def pixel_sensitive_left_trim(img):
         whitespace_count = 0
         in_number_block = False
         
-        # 3. Scan columns (Start at 5 to skip edge artifacts)
         for x in range(5, width):
-            # Threshold > 500 means 'Ink' is present in this column
             if horizontal_projection[x] > 500: 
                 in_number_block = True
                 whitespace_count = 0
             elif in_number_block:
                 whitespace_count += 1
-                # If we see 15px of whitespace AFTER seeing ink, cut here
                 if whitespace_count >= 15: 
                     crop_x = x - whitespace_count + 4
                     break
         
-        # Safety: Don't cut if logic fails or cuts > 25% of image
         if crop_x == 0 or crop_x > (width * 0.25): 
-            crop_x = int(width * 0.02) # Minimal trim fallback
+            crop_x = int(width * 0.02)
             
         return img.crop((crop_x, 0, width, img.size[1]))
     except:
         return img
 
 def pixel_sensitive_top_trim(img):
-    """
-    For SOLUTIONS: Scans rows top-to-bottom.
-    Removes the 'Solution' header block and the whitespace below it.
-    """
     try:
         inverted_img = ImageOps.invert(img.convert('L'))
         data = np.array(inverted_img)
-        
-        # Project horizontally (sum of pixels in each row)
         vertical_projection = np.sum(data, axis=1)
         height = len(vertical_projection)
         
@@ -112,19 +104,16 @@ def pixel_sensitive_top_trim(img):
         whitespace_count = 0
         in_header_block = False
         
-        # Scan rows
         for y in range(5, height):
-            if vertical_projection[y] > 500: # Ink detected
+            if vertical_projection[y] > 500: 
                 in_header_block = True
                 whitespace_count = 0
             elif in_header_block:
                 whitespace_count += 1
-                # If we see 10px whitespace AFTER header, cut here
                 if whitespace_count >= 10:
                     crop_y = y - whitespace_count + 4
                     break
         
-        # Safety: Don't cut > 30% of height
         if crop_y == 0 or crop_y > (height * 0.30):
             crop_y = 0
             
@@ -133,29 +122,19 @@ def pixel_sensitive_top_trim(img):
         return img
 
 def smart_footer_trim(img):
-    """
-    Scans from bottom-up. Trims rows that have ink ONLY on the right side.
-    (Removes 'UD0001' style codes).
-    """
     try:
         gray = img.convert('L')
-        inverted = ImageOps.invert(gray)
-        data = np.array(inverted)
+        bw = gray.point(lambda p: 0 if p > 150 else 1, mode='1')
+        data = np.array(bw)
         height, width = data.shape
-        
         cutoff = height
         
-        # Scan up from bottom
         for y in range(height - 1, -1, -1):
             row = data[y]
-            # Check left 50% of the row for any ink
-            left_half_ink = np.any(row[:int(width * 0.5)] > 50)
-            
+            left_half_ink = np.any(row[:int(width * 0.5)])
             if left_half_ink:
-                # Found real content (text on left), stop trimming
                 break
             else:
-                # Left side is empty; trim this row
                 cutoff = y
         
         if cutoff < height:
@@ -165,10 +144,13 @@ def smart_footer_trim(img):
         return img
 
 
-# --- 3. PDF PARSING LOGIC ---
+# --- 3. PDF PARSING ---
+
+def is_bold(word):
+    fontname = word.get('fontname', '').lower()
+    return 'bold' in fontname or 'bd' in fontname or 'black' in fontname
 
 def find_anchors_robust(pdf_path, max_val=None, is_solution=False):
-    """Scans PDF for anchors (Q.1, Solution, etc.)"""
     anchors = []
     print(f"   🔍 Scanning {os.path.basename(pdf_path)}...")
     try:
@@ -176,49 +158,38 @@ def find_anchors_robust(pdf_path, max_val=None, is_solution=False):
             for page_idx, page in enumerate(pdf.pages):
                 width = page.width
                 midpoint = width / 2
+                words = page.extract_words(keep_blank_chars=False, extra_attrs=["fontname", "size"])
                 
-                words = page.extract_words(keep_blank_chars=False)
-                i = 0
-                while i < len(words):
-                    curr_word = words[i]
-                    text = curr_word['text'].strip()
-                    x0 = curr_word['x0']
-                    
-                    col = 0 if x0 < midpoint else 1
-                    relative_x = x0 if col == 0 else (x0 - midpoint)
-                    
-                    found_q_num = None
-                    is_strong = False
-
-                    # Pattern 1: Combined "Q.1"
-                    match = re.match(r'^(?:Q|S|Sol|Solution)?[\.\s]*(\d+)[\.\s:)]*$', text, re.IGNORECASE)
-                    if match:
-                        found_q_num = int(match.group(1))
-                        if text[0].isalpha(): is_strong = True
-                    
-                    # Pattern 2: Split "Q" ... "1"
-                    elif text.lower() in ["q", "q.", "sol", "solution", "question"] and i + 1 < len(words):
-                        next_word = words[i+1]
-                        match_next = re.match(r'^(\d+)[\.\s:)]*$', next_word['text'])
-                        if match_next:
-                            found_q_num = int(match_next.group(1))
-                            is_strong = True
-                            i += 1 
-
-                    if found_q_num:
-                        valid = True
-                        if max_val and found_q_num > max_val: valid = False
+                col1_words = [w for w in words if w['x0'] < midpoint]
+                col2_words = [w for w in words if w['x0'] >= midpoint]
+                
+                for col_idx, col_words in enumerate([col1_words, col2_words]):
+                    i = 0
+                    while i < len(col_words):
+                        curr_word = col_words[i]
+                        text = curr_word['text'].strip()
+                        relative_x = curr_word['x0'] - (midpoint if col_idx == 1 else 0)
+                        found_q_num = None
                         
-                        # Tolerance: Solutions often have less strict indentation
-                        threshold = width * 0.25 if (is_strong or is_solution) else width * 0.10
-                        if relative_x > threshold: valid = False
-
-                        if valid:
-                            anchors.append({
-                                'q_num': found_q_num, 'page_idx': page_idx, 
-                                'top': curr_word['top'], 'col': col
-                            })
-                    i += 1
+                        match_explicit = re.match(r'^(?:Q|Sol|Solution)[\.\-\s]*(\d+)[\.\s:)]*$', text, re.IGNORECASE)
+                        match_loose = re.match(r'^(\d+)[\.\s:)]*$', text)
+                        
+                        if match_explicit:
+                            found_q_num = int(match_explicit.group(1))
+                        elif match_loose:
+                            num = int(match_loose.group(1))
+                            is_at_margin = relative_x < 40 
+                            is_year = num > 1900 and num < 2100
+                            is_bold_font = is_bold(curr_word)
+                            if is_at_margin and not is_year:
+                                if is_bold_font or text.endswith('.'):
+                                    found_q_num = num
+                                    
+                        if found_q_num:
+                            if max_val and found_q_num > max_val: found_q_num = None
+                            if found_q_num:
+                                anchors.append({'q_num': found_q_num, 'page_idx': page_idx, 'top': curr_word['top'], 'col': col_idx})
+                        i += 1
 
         unique = {}
         for a in anchors:
@@ -235,25 +206,20 @@ def extract_text_content(pdf_path, anchors, is_two_column=True):
         with pdfplumber.open(pdf_path) as pdf:
             pages = pdf.pages
             if not pages: return {}
-            
             width = pages[0].width; height = pages[0].height; midpoint = width / 2
             BOTTOM_LIMIT = height * 0.92
 
             for i, start in enumerate(anchors):
                 q_num = start['q_num']
                 text_segments = []
-                
-                if i + 1 < len(anchors):
-                    end = anchors[i+1]
-                else:
-                    end = {'page_idx': start['page_idx'], 'top': BOTTOM_LIMIT, 'col': start['col']}
+                if i + 1 < len(anchors): end = anchors[i+1]
+                else: end = {'page_idx': start['page_idx'], 'top': BOTTOM_LIMIT, 'col': start['col']}
 
                 curr_pidx = start['page_idx']; curr_col = start['col']; curr_top = start['top']
                 
                 while True:
                     if curr_pidx >= len(pages): break
                     page = pages[curr_pidx]
-                    
                     x0 = 0 if curr_col == 0 else midpoint
                     x1 = midpoint if curr_col == 0 else width
                     
@@ -277,18 +243,21 @@ def extract_text_content(pdf_path, anchors, is_two_column=True):
     except: return {}
 
 def crop_and_save_standard(pdf_path, anchors, output_folder, suffix_type, is_two_column=True):
-    try: 
-        pdf_images = convert_from_path(pdf_path, dpi=300)
-    except Exception as e: 
-        print(f"   ❌ Image Conversion Error: {e}"); return
+    print(f"   🖼️ Rendering with PyMuPDF (High Quality)...")
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception as e:
+        print(f"   ❌ PDF Open Error: {e}"); return
 
-    if not pdf_images: return
+    ZOOM = 300 / 72 
+    mat = fitz.Matrix(ZOOM, ZOOM)
     
-    page_width, page_height = pdf_images[0].size
-    scale = 300 / 72 
-    midpoint_px = (page_width / 2) 
-    FOOTER_CUTOFF_PX = page_height * 0.92
-    TOP_MARGIN = 50 * scale 
+    first_page = doc[0]
+    page_width_pts = first_page.rect.width
+    page_height_pts = first_page.rect.height
+    midpoint_pts = page_width_pts / 2
+    FOOTER_CUTOFF_PTS = page_height_pts * 0.92
+    TOP_MARGIN_PTS = 50 
     
     pbar = tqdm(total=len(anchors), desc=f"   📷 Cropping {suffix_type}", leave=True)
     
@@ -297,35 +266,32 @@ def crop_and_save_standard(pdf_path, anchors, output_folder, suffix_type, is_two
         
         if i + 1 < len(anchors): 
             end = anchors[i+1]
+            if end['page_idx'] == start['page_idx'] and end['col'] == start['col']:
+                limit_bottom = end['top'] - 5 
+            else:
+                limit_bottom = FOOTER_CUTOFF_PTS
         else: 
-            end = {'page_idx': start['page_idx'], 'top': FOOTER_CUTOFF_PX / scale, 'col': start['col']} 
+            limit_bottom = FOOTER_CUTOFF_PTS
 
-        start_top_px = max(0, (start['top'] * scale) - 15)
-        end_top_px = (end['top'] * scale) - 15
-
+        start_top_pts = max(0, start['top'] - 5)
         images_to_stitch = []
         
-        def get_crop(pidx, col, top_px, bottom_px):
-            left = 0 if col == 0 else midpoint_px
-            right = midpoint_px if col == 0 else page_width
-            if bottom_px <= top_px: bottom_px = top_px + 50
-            return pdf_images[pidx].crop((left, top_px, right, bottom_px))
+        def get_crop(pidx, col, top_pts, bottom_pts):
+            left = 0 if col == 0 else midpoint_pts
+            right = midpoint_pts if col == 0 else page_width_pts
+            if bottom_pts <= top_pts: bottom_pts = top_pts + 100 
+            rect = fitz.Rect(left, top_pts, right, bottom_pts)
+            page = doc[pidx]
+            pix = page.get_pixmap(matrix=mat, clip=rect, alpha=False)
+            return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-        # Stitching Logic
-        if start['page_idx'] == end['page_idx']:
-            if start['col'] == end['col']:
-                bottom = min(end_top_px, FOOTER_CUTOFF_PX)
-                images_to_stitch.append(get_crop(start['page_idx'], start['col'], start_top_px, bottom))
-            else:
-                images_to_stitch.append(get_crop(start['page_idx'], start['col'], start_top_px, FOOTER_CUTOFF_PX))
-                images_to_stitch.append(get_crop(start['page_idx'], end['col'], TOP_MARGIN, end_top_px))
-        else:
-            images_to_stitch.append(get_crop(start['page_idx'], start['col'], start_top_px, FOOTER_CUTOFF_PX))
-            if end_top_px > TOP_MARGIN:
-                    images_to_stitch.append(get_crop(end['page_idx'], end['col'], TOP_MARGIN, end_top_px))
-
+        if start['page_idx'] == end['page_idx'] if i+1<len(anchors) else True: 
+             if (i+1 >= len(anchors)) or (end['page_idx'] != start['page_idx']) or (end['col'] != start['col']):
+                 images_to_stitch.append(get_crop(start['page_idx'], start['col'], start_top_pts, FOOTER_CUTOFF_PTS))
+             else:
+                 images_to_stitch.append(get_crop(start['page_idx'], start['col'], start_top_pts, limit_bottom))
+        
         if images_to_stitch:
-            # 1. Stitch
             total_h = sum(img.height for img in images_to_stitch)
             max_w = max(img.width for img in images_to_stitch)
             final_img = Image.new('RGB', (max_w, total_h), (255, 255, 255))
@@ -334,19 +300,14 @@ def crop_and_save_standard(pdf_path, anchors, output_folder, suffix_type, is_two
                 final_img.paste(img, (0, y_off))
                 y_off += img.height
             
-            # 2. Trim whitespace before advanced logic
             final_img = trim_whitespace(final_img)
-
-            # 3. Apply Targeted Trimming
-            if suffix_type == "Q":
-                final_img = pixel_sensitive_left_trim(final_img) # Remove "Q.1" from left
-            elif suffix_type == "Sol":
-                final_img = pixel_sensitive_top_trim(final_img) # Remove "Solution:" from top
             
-            # 4. Remove Footer from both
-            final_img = smart_footer_trim(final_img)
-
-            # 5. Final Clean & Save
+            if suffix_type == "Q":
+                final_img = pixel_sensitive_left_trim(final_img)
+            elif suffix_type == "Sol":
+                final_img = pixel_sensitive_top_trim(final_img)
+            
+            #final_img = smart_footer_trim(final_img)
             final_img = compress_and_clean(trim_whitespace(final_img))
             
             filename = f"{suffix_type}_{q_num}.png"
@@ -367,7 +328,10 @@ for f in os.listdir(RAW_DATA_PATH):
     if f.lower().endswith(('.pdf', '.xlsx', '.csv')):
         parts = f.split('-')
         if len(parts) > 1:
-            title = parts[0].strip()
+            raw_title = parts[0].strip()
+            # Ensure folder name is safe and distinct
+            title = sanitize_filename(raw_title)
+            
             if title not in batch_groups:
                 batch_groups[title] = {'QP': None, 'SOL': None, 'KEY': None}
             
@@ -406,8 +370,10 @@ for title, files in tqdm(valid_batches.items(), desc="Processing Batches", leave
     except Exception as e:
         print(f"   ❌ Error reading Key: {e}"); continue
 
+    # Create safe output folder
     test_output_dir = os.path.join(OUTPUT_BASE, title)
     os.makedirs(test_output_dir, exist_ok=True)
+    print(f"   📂 Output Directory: {test_output_dir}")
     
     print("   📍 Finding Anchors...")
     q_anchors = find_anchors_robust(qp_path, max_val=total_questions)
@@ -418,7 +384,6 @@ for title, files in tqdm(valid_batches.items(), desc="Processing Batches", leave
     
     if not q_anchors: print(f"   ⚠️ No anchors found in QP. Skipping."); continue
 
-    # Process Images
     crop_and_save_standard(qp_path, q_anchors, test_output_dir, "Q", is_two_column=True)
     if sol_path:
         crop_and_save_standard(sol_path, sol_anchors, test_output_dir, "Sol", is_two_column=True)
@@ -426,7 +391,6 @@ for title, files in tqdm(valid_batches.items(), desc="Processing Batches", leave
     print("   📝 Extracting Text...")
     text_map = extract_text_content(qp_path, q_anchors, is_two_column=True)
     
-    # Metadata Construction
     batch_rows = []
     for idx, row in key_df.iterrows():
         try:
@@ -443,11 +407,12 @@ for title, files in tqdm(valid_batches.items(), desc="Processing Batches", leave
                 'unique_id': current_global_id,
                 'Question No.': q_num,
                 'Folder': title,
-                'Subject': subject,
+                'Subject': 'Physics',
+                'Exam':'JEE Advanced',
                 'Chapter': 'Unknown',
                 'Topic': 'Unknown',
                 'Topic_L2': 'Unknown',
-                'Question type': 'One or more more options correct',
+                'Question type': 'Unknown',
                 'Correct Answer': correct_ans,
                 'Source File': os.path.basename(qp_path),
                 'pdf_Text': clean_txt,

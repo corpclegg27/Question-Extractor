@@ -116,7 +116,7 @@ class Question {
     switch (typeString) {
       case 'Single Correct': return QuestionType.singleCorrect;
       case 'Numerical type': return QuestionType.numerical;
-      case 'One or more options correct': return QuestionType.multipleCorrect;
+      case 'One or more options correct': return QuestionType.oneOrMoreOptionsCorrect;
       case 'Single Matrix Match': return QuestionType.matrixSingle;
       case 'Multi Matrix Match': return QuestionType.matrixMulti;
       default: return QuestionType.unknown;

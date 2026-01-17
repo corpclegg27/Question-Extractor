@@ -1,3 +1,5 @@
+//lib/widgets/question_input_widget.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:study_smart_qc/models/question_model.dart';
@@ -55,7 +57,7 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
         return _buildSingleCorrect();
       case QuestionType.numerical:
         return _buildNumerical();
-      case QuestionType.multipleCorrect:
+      case QuestionType.oneOrMoreOptionsCorrect:
         return _buildMultipleCorrect();
       case QuestionType.matrixSingle:
       case QuestionType.matrixMulti:

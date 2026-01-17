@@ -157,13 +157,20 @@ try:
         df.rename(columns={'unique_id': 'question_id'}, inplace=True)
     
     df = df[df['question_id'].notna()]
-    print(f"Loaded Master CSV with {len(df)} rows.")
+    
+    # SORT DESCENDING BY QUESTION_ID
+    # Converting to string first to ensure sorting works even if mixed types
+    df['question_id'] = df['question_id'].astype(str)
+    df.sort_values(by='question_id', ascending=False, inplace=True)
+    
+    print(f"Loaded Master CSV with {len(df)} rows (Sorted Descending).")
 except Exception as e:
     print(f"CRITICAL ERROR: {e}")
     exit()
 
 stats = {"skipped": 0, "success": 0, "error": 0, "new_images": 0}
 cum_count=0
+
 for index, row in df.iterrows():
     try:
         q_id = str(row['question_id']).strip()
@@ -206,7 +213,15 @@ for index, row in df.iterrows():
                 else:
                     doc_data[col] = val
 
-        # 2. PYQ Logic (FIXED REGEX & COLUMN PRIORITY)
+        # 2. Tags Logic
+        tags_str = clean_text_field(raw_data.get('tags'))
+        if tags_str:
+            # Split by pipe, strip whitespace, and filter out empty strings
+            doc_data['tags'] = [t.strip() for t in tags_str.split('|') if t.strip()]
+        else:
+            doc_data['tags'] = []
+
+        # 3. PYQ Logic (FIXED REGEX & COLUMN PRIORITY)
         csv_pyq_year = clean_text_field(raw_data.get('PYQ_Year'))
         csv_pyq_tag = clean_text_field(raw_data.get('PYQ'))
         
@@ -219,11 +234,32 @@ for index, row in df.iterrows():
         doc_data['PYQ_Year'] = extract_year(source_text)      # Int (Now correctly returns 2024)
         doc_data['PYQ_Year_Detailed'] = source_text           # Str
 
-        # 3. Timestamps
+        # --- NEW LOGIC: correctAnswersOneOrMore ---
+        # We parse the 'Correct Answer' field into a list for consistent usage
+        # This creates a new field 'correctAnswersOneOrMore'
+        
+        raw_answer = doc_data.get('Correct Answer', '')
+        q_type = doc_data.get('Question type', '')
+        
+        # Initialize as empty list
+        doc_data['correctAnswersOneOrMore'] = []
+
+        if q_type == 'One or more options correct':
+            if raw_answer:
+                # Split by comma, strip whitespace from each part
+                # e.g., "A, B " -> ["A", "B"]
+                doc_data['correctAnswersOneOrMore'] = [x.strip() for x in raw_answer.split(',') if x.strip()]
+        
+        # Also populate for Single/Numerical so the app always finds a list
+        elif q_type == 'Single Correct' or q_type == 'Numerical type':
+            if raw_answer:
+                doc_data['correctAnswersOneOrMore'] = [str(raw_answer).strip()]
+
+        # 4. Timestamps
         doc_data['lastUpdated'] = firestore.SERVER_TIMESTAMP
         doc_data['createdAt'] = firestore.SERVER_TIMESTAMP
 
-        # 4. Upload Images
+        # 5. Upload Images
         q_url, q_size = upload_file_as_is(local_q_path, storage_q_path)
         if q_url:
             doc_data['image_url'] = q_url
@@ -241,7 +277,7 @@ for index, row in df.iterrows():
         else:
             doc_data['solution_url'] = None
 
-        # 5. Firestore Write
+        # 6. Firestore Write
         doc_ref = db.collection(COLLECTION_NAME).document()
         
         doc_snap = doc_ref.get()

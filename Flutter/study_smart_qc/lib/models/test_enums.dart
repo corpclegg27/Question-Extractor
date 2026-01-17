@@ -13,11 +13,11 @@ enum PerformanceCategory {
   notVisited, // Didn't reach
 }
 
-// THIS IS THE CRITICAL MISSING PIECE
+
 enum QuestionType {
   singleCorrect,
   numerical,
-  multipleCorrect,
+  oneOrMoreOptionsCorrect,
   matrixSingle,
   matrixMulti,
   unknown,

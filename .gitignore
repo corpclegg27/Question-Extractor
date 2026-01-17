@@ -2,7 +2,7 @@
 Processed_Database/
 Backups/
 __pycache__/
-
+Flutter/study_smart_qc/ScreenRecording/
 raw data/
 Manual_Uploads/
 
@@ -17,6 +17,9 @@ Manual_Uploads/
 # --- IGNORE EXCEL/DB (Keep local) ---
 *.xlsx
 *.csv
+*.webm
+*.mp4
+*.mp3
 
 # --- SYSTEM FILES ---
 .DS_Store

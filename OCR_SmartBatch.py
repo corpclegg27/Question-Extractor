@@ -167,3 +167,7 @@ def update_ocr_incremental():
 
 if __name__ == "__main__":
     update_ocr_incremental()
+    # --- AUTO SHUTDOWN CODE ---
+    print("💤 Script finished. Shutting down PC in 60 seconds...")
+    # /s = shutdown, /t 60 = timer of 60 seconds (gives you a chance to cancel)
+    os.system("shutdown /s /t 60")
