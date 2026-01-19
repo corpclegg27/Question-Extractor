@@ -1,4 +1,6 @@
-//lib/widgets/question_input_widget.dart
+// lib/widgets/question_input_widget.dart
+// Description: Handles input for Single (Radio-like) and Multiple (Toggle-like) questions.
+// Updated: Implemented "Toggle Rectangle" UI for multiple correct questions for consistent UX.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -37,9 +39,14 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
     super.didUpdateWidget(oldWidget);
     if (widget.question.id != oldWidget.question.id ||
         widget.currentAnswer != oldWidget.currentAnswer) {
-      String newText = widget.currentAnswer?.toString() ?? '';
-      if (_numericalController.text != newText) {
-        _numericalController.text = newText;
+
+      // For numerical, strictly check if the type matches before updating text
+      // This prevents list inputs from crashing the controller
+      if (widget.question.type == QuestionType.numerical) {
+        String newText = widget.currentAnswer?.toString() ?? '';
+        if (_numericalController.text != newText) {
+          _numericalController.text = newText;
+        }
       }
     }
   }
@@ -74,7 +81,7 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
   }
 
   // ===========================================================================
-  // 1. SINGLE CORRECT (Row of 4 Rectangles)
+  // 1. SINGLE CORRECT (Row of 4 Rectangles - Radio Behavior)
   // ===========================================================================
   Widget _buildSingleCorrect() {
     final options = ['A', 'B', 'C', 'D'];
@@ -91,29 +98,7 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
               child: InkWell(
                 onTap: () => widget.onAnswerChanged(opt),
                 borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  height: 50, // Fixed height for the rectangle
-                  decoration: BoxDecoration(
-                    color: Colors.white, // Fill stays white
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      // Green if selected, Grey if not
-                      color: isSelected ? Colors.green : Colors.grey.shade400,
-                      // Thick border if selected (3.0 vs 1.0)
-                      width: isSelected ? 3.0 : 1.0,
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    opt,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      // Text turns green to match border, or stays grey
-                      color: isSelected ? Colors.green : Colors.grey.shade700,
-                    ),
-                  ),
-                ),
+                child: _buildOptionBox(opt, isSelected),
               ),
             ),
           );
@@ -123,7 +108,79 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
   }
 
   // ===========================================================================
-  // 2. NUMERICAL TYPE
+  // 2. MULTIPLE CORRECT (Row of 4 Rectangles - Toggle Behavior)
+  // ===========================================================================
+  Widget _buildMultipleCorrect() {
+    final options = ['A', 'B', 'C', 'D'];
+
+    // Safely parse currentAnswer into a List<String>
+    List<String> selected = [];
+    if (widget.currentAnswer is List) {
+      selected = List<String>.from(widget.currentAnswer);
+    } else if (widget.currentAnswer is String && widget.currentAnswer != '') {
+      // Handle legacy string data or edge cases
+      selected = [widget.currentAnswer];
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+      child: Row(
+        children: options.map((opt) {
+          final bool isSelected = selected.contains(opt);
+
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6.0),
+              child: InkWell(
+                onTap: () {
+                  final newSelection = List<String>.from(selected);
+                  if (isSelected) {
+                    newSelection.remove(opt);
+                  } else {
+                    newSelection.add(opt);
+                  }
+                  newSelection.sort(); // Maintain A, B, C order
+                  widget.onAnswerChanged(newSelection);
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: _buildOptionBox(opt, isSelected),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // Helper Widget for Consistent Design
+  Widget _buildOptionBox(String text, bool isSelected) {
+    return Container(
+      height: 50,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          // Green if selected, Grey if not
+          color: isSelected ? Colors.green : Colors.grey.shade400,
+          // Thick border if selected (3.0 vs 1.0)
+          width: isSelected ? 3.0 : 1.0,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          // Text turns green to match border, or stays grey
+          color: isSelected ? Colors.green : Colors.grey.shade700,
+        ),
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // 3. NUMERICAL TYPE
   // ===========================================================================
   Widget _buildNumerical() {
     return Padding(
@@ -158,41 +215,6 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
           ),
         ],
       ),
-    );
-  }
-
-  // ===========================================================================
-  // 3. MULTIPLE CORRECT
-  // ===========================================================================
-  Widget _buildMultipleCorrect() {
-    final options = ['A', 'B', 'C', 'D'];
-
-    List<String> selected = [];
-    if (widget.currentAnswer is List) {
-      selected = List<String>.from(widget.currentAnswer);
-    } else if (widget.currentAnswer is String) {
-      selected = [widget.currentAnswer];
-    }
-
-    return Column(
-      children: options.map((opt) {
-        final isSelected = selected.contains(opt);
-        return CheckboxListTile(
-          title: Text("Option $opt"),
-          value: isSelected,
-          activeColor: const Color(0xFF6200EA),
-          onChanged: (bool? checked) {
-            final newSelection = List<String>.from(selected);
-            if (checked == true) {
-              newSelection.add(opt);
-            } else {
-              newSelection.remove(opt);
-            }
-            newSelection.sort();
-            widget.onAnswerChanged(newSelection);
-          },
-        );
-      }).toList(),
     );
   }
 }

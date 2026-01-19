@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
+import 'package:study_smart_qc/models/marking_configuration.dart'; // [NEW IMPORT]
 
 class StudentCurationPreviewCard extends StatelessWidget {
   final QueryDocumentSnapshot snapshot;
@@ -384,6 +385,17 @@ class StudentCurationPreviewCard extends StatelessWidget {
 
       final questions = await TestOrchestrationService().getQuestionsByIds(qIds);
 
+      // [NEW] PARSE MARKING SCHEMES
+      Map<QuestionType, MarkingConfiguration> markingSchemes = {};
+      if (data['markingSchemes'] != null && data['markingSchemes'] is Map) {
+        (data['markingSchemes'] as Map).forEach((key, value) {
+          QuestionType type = _mapStringToType(key.toString());
+          if (type != QuestionType.unknown) {
+            markingSchemes[type] = MarkingConfiguration.fromMap(Map<String, dynamic>.from(value));
+          }
+        });
+      }
+
       if (context.mounted) {
         Navigator.pop(context);
         Navigator.push(
@@ -400,6 +412,8 @@ class StudentCurationPreviewCard extends StatelessWidget {
               resumedTimerSeconds: null,
               resumedPageIndex: 0,
               resumedResponses: const {},
+              // [NEW] INJECT CONFIG
+              markingSchemes: markingSchemes.isNotEmpty ? markingSchemes : null,
             ),
           ),
         );
@@ -411,6 +425,18 @@ class StudentCurationPreviewCard extends StatelessWidget {
           SnackBar(content: Text("Error launching test: $e")),
         );
       }
+    }
+  }
+
+  // [NEW] HELPER
+  QuestionType _mapStringToType(String typeString) {
+    switch (typeString) {
+      case 'Single Correct': return QuestionType.singleCorrect;
+      case 'Numerical type': return QuestionType.numerical;
+      case 'One or more options correct': return QuestionType.oneOrMoreOptionsCorrect;
+      case 'Single Matrix Match': return QuestionType.matrixSingle;
+      case 'Multi Matrix Match': return QuestionType.matrixMulti;
+      default: return QuestionType.unknown;
     }
   }
 }

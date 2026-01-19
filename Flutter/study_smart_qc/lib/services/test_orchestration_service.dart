@@ -1,14 +1,17 @@
 // lib/services/test_orchestration_service.dart
+// Description: Manages test submission, analytics generation, and Firestore saves.
+// Updated: Fixed Ideal Time parsing (String/Num) and added Granular Type lookup.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-// Ensure these imports point to your actual file locations
 import 'package:study_smart_qc/models/attempt_item_model.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_model.dart';
 import 'package:study_smart_qc/models/attempt_model.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
+import 'package:study_smart_qc/models/marking_configuration.dart';
 
 class TestOrchestrationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -19,7 +22,6 @@ class TestOrchestrationService {
   // 1. HISTORY FETCH LOGIC
   // ===========================================================================
 
-  /// Fetch attempts for a user.
   Future<List<AttemptModel>> getUserAttempts({String? targetUserId}) async {
     final String? idToQuery = targetUserId ?? _userId;
     if (idToQuery == null) return [];
@@ -38,19 +40,15 @@ class TestOrchestrationService {
     }
   }
 
-// test_orchestration_service===========================================================================
-// 2. UNIVERSAL SUBMISSION LOGIC
-// ===========================================================================
+  // ===========================================================================
+  // 2. UNIVERSAL SUBMISSION LOGIC
+  // ===========================================================================
 
-  /// Submits the test attempt and returns the enriched AttemptModel for immediate UI use
   Future<AttemptModel?> submitAttempt({
     required String sourceId,
     required String assignmentCode,
     required String title,
-
-    // NEW ARGUMENT: Only Single Attempt Flag
     required bool onlySingleAttempt,
-
     required String mode,
     required List<Question> questions,
     required num score,
@@ -60,7 +58,7 @@ class TestOrchestrationService {
   }) async {
     if (_userId == null) return null;
 
-    // --- STEP 1: FETCH CONFIGURATION FOR SMART ANALYSIS ---
+    // --- STEP 1: FETCH CONFIG FOR SMART ANALYSIS ---
     Map<String, dynamic> idealTimeMap = {};
     double carelessFactor = 0.25;
     double goodSkipFactorRaw = 20.0;
@@ -98,7 +96,13 @@ class TestOrchestrationService {
       "Time Wasted": 0
     };
 
-    Map<String, int> highLevelTime = {"CORRECT": 0, "INCORRECT": 0, "SKIPPED": 0};
+    Map<String, int> highLevelTime = {
+      "CORRECT": 0,
+      "INCORRECT": 0,
+      "SKIPPED": 0,
+      "PARTIALLY_CORRECT": 0
+    };
+
     Map<String, int> smartTimeBreakdown = {
       "Perfect Attempt": 0,
       "Overtime Correct": 0,
@@ -116,27 +120,18 @@ class TestOrchestrationService {
       final question = questions[i];
       final userResponse = responses[question.id];
 
-      // FIX: LOGIC SANITIZATION
-      // Ensure "REVIEW" status never propagates to logic or Firestore
-      String status = userResponse?.status ?? 'SKIPPED';
+      String status = userResponse?.status ?? QuestionStatus.skipped;
 
       if (status.contains('REVIEW')) {
-        if (userResponse?.selectedOption != null && userResponse!.selectedOption!.isNotEmpty) {
-          // If user selected an option but marked review, we evaluate it as a real answer
-          status = (userResponse.selectedOption == question.correctAnswer.toString())
-              ? 'CORRECT'
-              : 'INCORRECT';
-        } else {
-          // Review with no option is a Skip
-          status = 'SKIPPED';
-        }
+        status = QuestionStatus.skipped;
       }
 
       final int timeSpent = userResponse?.timeSpent ?? 0;
 
-      if (status == 'CORRECT') {
+      // --- COUNTERS ---
+      if (status == QuestionStatus.correct || status == QuestionStatus.partiallyCorrect) {
         correctCount++;
-      } else if (status == 'INCORRECT') {
+      } else if (status == QuestionStatus.incorrect) {
         incorrectCount++;
       } else {
         skippedCount++;
@@ -144,11 +139,13 @@ class TestOrchestrationService {
 
       highLevelTime[status] = (highLevelTime[status] ?? 0) + timeSpent;
 
+      // --- SMART TAG GENERATION ---
       String smartTag = _generateSmartTag(
-        status: status, // Uses the clean status
+        status: status,
         timeTaken: timeSpent,
         examName: question.exam,
         subject: question.subject,
+        questionType: question.type, // Pass Type
         idealTimeMap: idealTimeMap,
         carelessFactor: carelessFactor,
         goodSkipFactorRaw: goodSkipFactorRaw,
@@ -161,7 +158,7 @@ class TestOrchestrationService {
       }
 
       final enrichedResponse = ResponseObject(
-        status: status, // Uses the clean status
+        status: status,
         selectedOption: userResponse?.selectedOption,
         correctOption: userResponse?.correctOption ?? question.correctAnswer.toString(),
         timeSpent: timeSpent,
@@ -171,6 +168,7 @@ class TestOrchestrationService {
         subject: question.subject,
         chapter: question.chapter,
         topic: question.topic,
+        topicL2: question.topicL2,
         chapterId: question.chapterId,
         topicId: question.topicId,
         topicL2Id: question.topicL2Id,
@@ -184,26 +182,20 @@ class TestOrchestrationService {
     }
 
     // --- PHASE 3: Create Records ---
-    final int totalQuestionsCount = questions.length;
-    final int maxMarksValue = totalQuestionsCount * 4;
-
     final attemptRef = _firestore.collection('attempts').doc();
     final newAttempt = AttemptModel(
       id: attemptRef.id,
       sourceId: sourceId,
       assignmentCode: assignmentCode,
       title: title,
-
-      // SAVE TO ATTEMPT MODEL
       onlySingleAttempt: onlySingleAttempt,
-
       mode: mode,
       userId: _userId!,
       startedAt: timestamp,
       completedAt: timestamp,
       score: score,
-      totalQuestions: totalQuestionsCount,
-      maxMarks: maxMarksValue,
+      totalQuestions: questions.length,
+      maxMarks: questions.length * 4,
       correctCount: correctCount,
       incorrectCount: incorrectCount,
       skippedCount: skippedCount,
@@ -226,7 +218,7 @@ class TestOrchestrationService {
           questionId: question.id,
           chapterId: question.chapterId,
           topicId: question.topicId,
-          status: response.status, // Guaranteed clean status
+          status: response.status,
           timeSpent: response.timeSpent,
           attemptedAt: timestamp,
           assignmentCode: assignmentCode,
@@ -257,9 +249,13 @@ class TestOrchestrationService {
         incorrect.remove(qid);
         skipped.remove(qid);
 
-        if (response.status == 'CORRECT') correct.add(qid);
-        else if (response.status == 'INCORRECT') incorrect.add(qid);
-        else skipped.add(qid);
+        if (response.status == QuestionStatus.correct || response.status == QuestionStatus.partiallyCorrect) {
+          correct.add(qid);
+        } else if (response.status == QuestionStatus.incorrect) {
+          incorrect.add(qid);
+        } else {
+          skipped.add(qid);
+        }
 
         if (!history.contains(qid)) history.add(qid);
       });
@@ -273,17 +269,12 @@ class TestOrchestrationService {
       });
     }
 
-    // Update Status
     if (sourceId.isNotEmpty) {
       try {
         final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
-        // Optimization: We already have the flag passed in, but we still need to check/update the doc status
-        // If 'onlySingleAttempt' is TRUE, we update the status to submitted.
-
         if (onlySingleAttempt) {
           batch.update(assignmentRef, {'status': 'submitted'});
         } else {
-          // Fallback for logic where we might need to check if it's a test
           final testRef = _firestore.collection('tests').doc(sourceId);
           final testDoc = await testRef.get();
           if(testDoc.exists) batch.update(testRef, {'status': 'Attempted'});
@@ -293,9 +284,6 @@ class TestOrchestrationService {
       }
     }
 
-    // ==========================================================
-    // Update User's Submitted List (MOVED BEFORE COMMIT)
-    // ==========================================================
     if (assignmentCode.isNotEmpty && assignmentCode != 'PRAC') {
       final userRef = _firestore.collection('users').doc(_userId);
       batch.update(userRef, {
@@ -306,38 +294,57 @@ class TestOrchestrationService {
     await batch.commit();
     return newAttempt;
   }
-  // ===========================================================================
 
+  // ===========================================================================
   // HELPER: SMART TIME TAG GENERATION
   // ===========================================================================
-
   String _generateSmartTag({
     required String status,
     required int timeTaken,
     required String examName,
     required String subject,
+    required QuestionType questionType,
     required Map<String, dynamic> idealTimeMap,
     required double carelessFactor,
     required double goodSkipFactorRaw,
   }) {
     String eName = examName.isEmpty ? "JEE Main" : examName;
     String sName = subject.isEmpty ? "Physics" : subject;
-    String configKey = "${eName}_${sName}";
 
-    int idealTime = 120;
-    if (idealTimeMap.containsKey(configKey)) {
-      idealTime = (idealTimeMap[configKey] as num).toInt();
+    // Normalize keys: Replace spaces with underscores for lookup
+    String eNameNorm = eName.replaceAll(' ', '_');
+    String sNameNorm = sName.replaceAll(' ', '_');
+
+    // 1. GRANULAR KEY: Exam_Subject_Type (e.g., JEE_Advanced_Physics_NumericalType)
+    String typeStr = _mapTypeToConfigString(questionType);
+    String granularKey = "${eNameNorm}_${sNameNorm}_$typeStr";
+
+    // 2. FALLBACK KEY: Exam_Subject (e.g., JEE_Advanced_Physics)
+    String fallbackKey1 = "${eNameNorm}_${sNameNorm}";
+
+    // 3. FALLBACK KEY (Original format): Exam Name_Subject (e.g., JEE Main_Physics)
+    String fallbackKey2 = "${eName}_${sName}";
+
+    int idealTime = 120; // Default
+
+    // Lookup with priority
+    if (_hasTime(idealTimeMap, granularKey)) {
+      idealTime = _parseIdealTime(idealTimeMap[granularKey]);
+    } else if (_hasTime(idealTimeMap, fallbackKey1)) {
+      idealTime = _parseIdealTime(idealTimeMap[fallbackKey1]);
+    } else if (_hasTime(idealTimeMap, fallbackKey2)) {
+      idealTime = _parseIdealTime(idealTimeMap[fallbackKey2]);
     }
 
     double fastThreshold = idealTime * carelessFactor;
     double skipFactor = (goodSkipFactorRaw > 1) ? goodSkipFactorRaw / 100 : goodSkipFactorRaw;
     double goodSkipThreshold = idealTime * skipFactor;
 
-    if (status == 'CORRECT') {
+    if (status == QuestionStatus.correct || status == QuestionStatus.partiallyCorrect) {
       return (timeTaken <= idealTime)
           ? "Perfect Attempt (Correct & answered within reasonable time)"
           : "Overtime Correct (Correct but took too long)";
-    } else if (status == 'INCORRECT') {
+    } else if (status == QuestionStatus.incorrect) {
       return (timeTaken < fastThreshold)
           ? "Careless Mistake (Incorrect & answered too fast)"
           : "Wasted Attempt (Incorrect & took too long)";
@@ -348,8 +355,29 @@ class TestOrchestrationService {
     }
   }
 
+  bool _hasTime(Map<String, dynamic> map, String key) {
+    return map.containsKey(key) && map[key] != null;
+  }
+
+  // Safely parse ideal time which might be String ("180") or Int (180)
+  int _parseIdealTime(dynamic value) {
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 120;
+    return 120;
+  }
+
+  // Map Enum to the specific string suffix used in Firestore
+  String _mapTypeToConfigString(QuestionType type) {
+    switch (type) {
+      case QuestionType.singleCorrect: return 'Single_Correct';
+      case QuestionType.numerical: return 'NumericalType';
+      case QuestionType.oneOrMoreOptionsCorrect: return 'OneOrMoreOptionsCorrect';
+      default: return 'Default';
+    }
+  }
+
   // ===========================================================================
-  // 3. CUSTOM TEST & HELPER METHODS
+  // 3. CUSTOM TEST CREATION
   // ===========================================================================
 
   String _generateShareCode() {
@@ -374,6 +402,7 @@ class TestOrchestrationService {
     } while (!isUnique);
 
     final testRef = _firestore.collection('tests').doc();
+
     final newTest = TestModel(
       id: testRef.id,
       createdBy: _userId!,
@@ -385,6 +414,11 @@ class TestOrchestrationService {
       chapters: chapterNames,
       shareCode: shareCode,
       uidsAttemptedTests: [],
+      markingSchemes: {
+        QuestionType.singleCorrect: MarkingConfiguration.jeeMain(),
+        QuestionType.numerical: const MarkingConfiguration(correctScore: 4, incorrectScore: 0),
+        QuestionType.oneOrMoreOptionsCorrect: MarkingConfiguration.jeeAdvanced(),
+      },
     );
     await testRef.set(newTest.toFirestore());
     return newTest;
@@ -423,69 +457,38 @@ class TestOrchestrationService {
     final uniqueIds = questionIds.where((id) => id.isNotEmpty).toSet().toList();
     final List<Question> fetchedQuestions = [];
 
-    // 1. Fetch
     for (var i = 0; i < uniqueIds.length; i += 10) {
       final chunk = uniqueIds.sublist(i, min(i + 10, uniqueIds.length));
       try {
-        // Try String Match (Primary)
-        var snapshot = await _firestore
-            .collection('questions')
-            .where('question_id', whereIn: chunk)
-            .get();
-
-        // Try Integer Match (Fallback)
+        var snapshot = await _firestore.collection('questions').where('question_id', whereIn: chunk).get();
         if (snapshot.docs.isEmpty) {
           final intChunk = chunk.map((e) => int.tryParse(e)).whereType<int>().toList();
           if (intChunk.isNotEmpty) {
-            snapshot = await _firestore
-                .collection('questions')
-                .where('question_id', whereIn: intChunk)
-                .get();
+            snapshot = await _firestore.collection('questions').where('question_id', whereIn: intChunk).get();
           }
         }
-
-        fetchedQuestions.addAll(
-            snapshot.docs.map((doc) => Question.fromFirestore(doc))
-        );
+        fetchedQuestions.addAll(snapshot.docs.map((doc) => Question.fromFirestore(doc)));
       } catch (e) {
         print("Error fetching chunk: $e");
       }
     }
 
-    // 2. Map & Sort (THE FIX)
     List<Question> orderedResult = [];
-
     for (String requestedId in questionIds) {
       try {
         final match = fetchedQuestions.firstWhere((q) {
-          // CHECK 1: The New Custom ID (Matches "5743")
           if (q.customId == requestedId) return true;
-
-          // CHECK 2: The Document Key (Matches "NpV5...")
           if (q.id == requestedId) return true;
-
-          // CHECK 3: The Question No (Matches "83")
           if (q.questionNo.toString() == requestedId) return true;
-
           return false;
         });
         orderedResult.add(match);
-      } catch (e) {
-        print("⚠️ [WARN] Question ID $requestedId not found in fetched results.");
-      }
+      } catch (e) { }
     }
 
-    // Fallback if matching logic was too strict but we have data
-    if (orderedResult.isEmpty && fetchedQuestions.isNotEmpty) {
-      return fetchedQuestions;
-    }
-
+    if (orderedResult.isEmpty && fetchedQuestions.isNotEmpty) return fetchedQuestions;
     return orderedResult;
   }
-
-  // ===========================================================================
-  // 4. MISTAKE UPDATE LOGIC
-  // ===========================================================================
 
   Future<void> updateQuestionMistake({
     required String attemptId,

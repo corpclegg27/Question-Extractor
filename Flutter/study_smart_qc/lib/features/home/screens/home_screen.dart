@@ -1,3 +1,6 @@
+// lib/features/home/screens/home_screen.dart
+// Description: Main Student Dashboard. Updated to fetch 'markingSchemes' during Resume Session.
+
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/user_model.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
+import 'package:study_smart_qc/models/marking_configuration.dart'; // [NEW IMPORT]
 
 // SCREENS & WIDGETS
 import 'package:study_smart_qc/features/auth/screens/auth_page.dart';
@@ -15,8 +19,6 @@ import 'package:study_smart_qc/features/student/widgets/student_assignments_list
 import 'package:study_smart_qc/features/teacher/screens/teacher_curation_screen.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_history_screen.dart';
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
-// Note: attempt_list_widget is likely used inside DisplayResultsForStudentId now,
-// so we import the new common widget instead.
 import 'package:study_smart_qc/features/common/widgets/display_results_for_student_id.dart';
 import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
 
@@ -60,19 +62,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Helper to extract pending code safely
   String? get _pendingAssignmentCode {
     if (!_hasPendingSession || _pendingSessionData == null) return null;
     return _pendingSessionData!['meta']['assignmentCode'];
   }
 
   // ---------------------------------------------------------------------------
-  //  SORTING LOGIC (CLIENT SIDE)
+  //  SORTING LOGIC
   // ---------------------------------------------------------------------------
-
-  /// Sorts documents:
-  /// 1. Items with deadline (Ascending / Earliest first)
-  /// 2. Items without deadline (Descending by CreatedAt / Newest first)
   int _deadlineAwareSort(QueryDocumentSnapshot a, QueryDocumentSnapshot b) {
     final Map<String, dynamic> dataA = a.data() as Map<String, dynamic>;
     final Map<String, dynamic> dataB = b.data() as Map<String, dynamic>;
@@ -80,26 +77,22 @@ class _HomeScreenState extends State<HomeScreen> {
     final Timestamp? deadlineA = dataA['deadline'];
     final Timestamp? deadlineB = dataB['deadline'];
 
-    // Fallback: CreatedAt (assume non-null)
     final Timestamp createdA = dataA['createdAt'] ?? Timestamp.now();
     final Timestamp createdB = dataB['createdAt'] ?? Timestamp.now();
 
-    // 1. Prioritize existence of Deadline
-    if (deadlineA != null && deadlineB == null) return -1; // A comes first
-    if (deadlineA == null && deadlineB != null) return 1;  // B comes first
+    if (deadlineA != null && deadlineB == null) return -1;
+    if (deadlineA == null && deadlineB != null) return 1;
 
-    // 2. If both have deadlines, sort Ascending (Earliest deadline first)
     if (deadlineA != null && deadlineB != null) {
       int cmp = deadlineA.compareTo(deadlineB);
       if (cmp != 0) return cmp;
     }
 
-    // 3. If neither have deadlines (or deadlines are equal), sort CreatedAt Descending
     return createdB.compareTo(createdA);
   }
 
   // ---------------------------------------------------------------------------
-  //  RESUME LOGIC
+  //  RESUME LOGIC (UPDATED)
   // ---------------------------------------------------------------------------
 
   Future<void> _checkPendingSession() async {
@@ -187,6 +180,9 @@ class _HomeScreenState extends State<HomeScreen> {
       List<String> qIds = [];
       bool isSingleAttempt = false;
 
+      // [NEW] Parse Marking Schemes
+      Map<QuestionType, MarkingConfiguration> markingSchemes = {};
+
       final curationQuery = await FirebaseFirestore.instance
           .collection('questions_curation')
           .where('assignmentCode', isEqualTo: assignmentCode)
@@ -197,8 +193,18 @@ class _HomeScreenState extends State<HomeScreen> {
         final data = curationQuery.docs.first.data();
         qIds = List<String>.from(data['questionIds'] ?? []);
         isSingleAttempt = data['onlySingleAttempt'] ?? false;
+
+        // --- PARSE CONFIG LOGIC (Copied from TestModel to avoid refetch) ---
+        if (data['markingSchemes'] != null && data['markingSchemes'] is Map) {
+          (data['markingSchemes'] as Map).forEach((key, value) {
+            QuestionType type = _mapStringToType(key.toString());
+            if (type != QuestionType.unknown) {
+              markingSchemes[type] = MarkingConfiguration.fromMap(Map<String, dynamic>.from(value));
+            }
+          });
+        }
       } else {
-        // Fallback for legacy 'tests' collection if needed
+        // Fallback for legacy
         final testQuery = await FirebaseFirestore.instance
             .collection('tests')
             .where('assignmentCode', isEqualTo: assignmentCode)
@@ -233,13 +239,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   : '',
               assignmentCode: assignmentCode,
               questions: questions,
-              timeLimitInMinutes: 0, // Handled by resume logic usually
+              timeLimitInMinutes: 0,
               testMode: mode == 'Test' ? TestMode.test : TestMode.practice,
               resumedTimerSeconds: newTime,
               resumedPageIndex: state['currentQuestionIndex'],
               resumedResponses: responseMap,
               title: meta['title'] ?? 'Resumed Session',
               onlySingleAttempt: isSingleAttempt,
+              // [NEW] Pass the parsed schemes
+              markingSchemes: markingSchemes.isNotEmpty ? markingSchemes : null,
             ),
           ),
         ).then((_) {
@@ -255,6 +263,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Helper for Parsing
+  QuestionType _mapStringToType(String typeString) {
+    switch (typeString) {
+      case 'Single Correct': return QuestionType.singleCorrect;
+      case 'Numerical type': return QuestionType.numerical;
+      case 'One or more options correct': return QuestionType.oneOrMoreOptionsCorrect;
+      case 'Single Matrix Match': return QuestionType.matrixSingle;
+      case 'Multi Matrix Match': return QuestionType.matrixMulti;
+      default: return QuestionType.unknown;
+    }
+  }
+
   Future<void> _handleSubmitPending() async {
     if (_pendingSessionData == null) return;
 
@@ -265,6 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final responseMap = _localSessionService.parseResponses(
         Map<String, dynamic>.from(state['responses']));
 
+    // Basic scoring for discard submission - Logic engine is better but this is fallback
     int correct = 0;
     int incorrect = 0;
     responseMap.forEach((k, v) {
@@ -318,7 +339,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // --- TEACHER DASHBOARD ---
     if (_userModel!.role == 'teacher') {
       return Scaffold(
         appBar: AppBar(title: const Text("Teacher Dashboard")),
@@ -327,8 +347,6 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    // --- STUDENT DASHBOARD ---
-    // Single Stream Source for all tabs to ensure sync and efficiency
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       appBar: AppBar(
@@ -343,7 +361,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       drawer: _buildDrawer(context),
 
-      // OUTER STREAM: Listen to User Profile (For real-time 'Completed' updates)
       body: StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
               .collection('users')
@@ -351,8 +368,6 @@ class _HomeScreenState extends State<HomeScreen> {
               .snapshots(),
           builder: (context, userSnapshot) {
 
-            // 1. Get Live Submitted Codes
-            // Fallback to static _userModel if stream is loading/empty to prevent flicker
             List<String> liveSubmittedCodes = _userModel!.assignmentCodesSubmitted;
 
             if (userSnapshot.hasData && userSnapshot.data!.exists) {
@@ -363,7 +378,6 @@ class _HomeScreenState extends State<HomeScreen> {
             return StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('questions_curation')
-              // CORRECTED: Matching the single number field 'studentId'
                   .where('studentId', isEqualTo: _userModel!.studentId)
                   .snapshots(),
               builder: (context, snapshot) {
@@ -377,7 +391,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 final allDocs = snapshot.data?.docs ?? [];
 
-                // 1. Filter: Strict (Test) vs Non-Strict (Assignment)
                 final strictDocs = <QueryDocumentSnapshot>[];
                 final normalDocs = <QueryDocumentSnapshot>[];
 
@@ -391,10 +404,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   }
                 }
 
-                // 2. Filter: Pending vs Completed using LIVE CODES
-                // 3. Sort: Apply Deadline->CreatedAt Logic
-
-                // -- ASSIGNMENTS --
                 final pendingAssignments = normalDocs
                     .where((d) => !liveSubmittedCodes.contains(d['assignmentCode']))
                     .toList()..sort(_deadlineAwareSort);
@@ -403,7 +412,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     .where((d) => liveSubmittedCodes.contains(d['assignmentCode']))
                     .toList()..sort(_deadlineAwareSort);
 
-                // -- TESTS --
                 final pendingTests = strictDocs
                     .where((d) => !liveSubmittedCodes.contains(d['assignmentCode']))
                     .toList()..sort(_deadlineAwareSort);
@@ -415,7 +423,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 return IndexedStack(
                   index: _currentTabIndex,
                   children: [
-                    // Tab 0: Assignments
                     _AssignmentTabContainer(
                       pendingDocs: pendingAssignments,
                       completedDocs: completedAssignments,
@@ -424,7 +431,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
                     ),
 
-                    // Tab 1: Tests
                     _AssignmentTabContainer(
                       pendingDocs: pendingTests,
                       completedDocs: completedTests,
@@ -433,10 +439,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
                     ),
 
-                    // Tab 2: Analysis (REPLACED WITH NEW WIDGET)
-                    const DisplayResultsForStudentId(
-                      // No student ID passed means it defaults to current logged-in user
-                    ),
+                    const DisplayResultsForStudentId(),
                   ],
                 );
               },
@@ -472,14 +475,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _getAppBarTitle() {
     switch (_currentTabIndex) {
-      case 0:
-        return "Assignments";
-      case 1:
-        return "Tests";
-      case 2:
-        return "Analysis";
-      default:
-        return "ModX by Anup Sir";
+      case 0: return "Assignments";
+      case 1: return "Tests";
+      case 2: return "Analysis";
+      default: return "ModX by Anup Sir";
     }
   }
 
@@ -588,11 +587,10 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ---------------------------------------------------------------------------
-//  HELPER 1: TAB CONTAINER (MODIFIED TO ACCEPT LISTS)
+//  HELPER 1: TAB CONTAINER
 // ---------------------------------------------------------------------------
 
 class _AssignmentTabContainer extends StatefulWidget {
-  // Now accepts Pre-Sorted Lists instead of just codes
   final List<QueryDocumentSnapshot> pendingDocs;
   final List<QueryDocumentSnapshot> completedDocs;
 
@@ -626,7 +624,6 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Tab Bar
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           height: 48,
@@ -661,21 +658,18 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
           ),
         ),
 
-        // Lists
         Expanded(
           child: TabBarView(
             controller: _tabController,
             children: [
-              // NOTE: StudentAssignmentsList must be updated to accept `documents` list
-              // instead of fetching them internally.
               StudentAssignmentsList(
-                documents: widget.pendingDocs, // Pass list directly
+                documents: widget.pendingDocs,
                 resumableAssignmentCode: widget.resumableAssignmentCode,
                 onResumeTap: widget.onResumeTap,
                 onViewAnalysisTap: widget.onViewAnalysisTap,
               ),
               StudentAssignmentsList(
-                documents: widget.completedDocs, // Pass list directly
+                documents: widget.completedDocs,
                 resumableAssignmentCode: widget.resumableAssignmentCode,
                 onResumeTap: widget.onResumeTap,
                 onViewAnalysisTap: widget.onViewAnalysisTap,

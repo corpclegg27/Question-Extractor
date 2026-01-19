@@ -1,3 +1,5 @@
+// lib/features/teacher/screens/teacher_filter_screen.dart
+
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,16 +8,14 @@ import 'package:intl/intl.dart';
 import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
-
-
-// IMPORTANT: Ensure this import exists to navigate to the edit screen
 import 'package:study_smart_qc/features/teacher/screens/modify_question_screen.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
+import 'package:study_smart_qc/models/marking_configuration.dart';
 
-// --- Helper Model to store parsed Syllabus Data ---
 class SyllabusChapter {
   final String id;
   final String name;
-  final Map<String, String> topics; // key: id, value: display name
+  final Map<String, String> topics;
 
   SyllabusChapter({required this.id, required this.name, required this.topics});
 }
@@ -39,27 +39,35 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   final TeacherService _teacherService = TeacherService();
   late TabController _tabController;
 
-  // --- 1. DYNAMIC DATA STATE ---
   bool _isLoadingFilters = true;
   List<String> _examsList = [];
   List<String> _subjectsList = [];
 
-  // Cache: Subject (lowercase) -> List of parsed Chapters
+  // 1. ADDED: Filter List for Question Types
+  final List<String> _questionTypesList = [
+    'Single Correct',
+    'One or more options correct',
+    'Numerical type',
+    'Single Matrix Match',
+    'Multi Matrix Match'
+  ];
+
   final Map<String, List<SyllabusChapter>> _syllabusCache = {};
 
-  // --- 2. FILTER STATE ---
   String? _selectedExam;
   String? _selectedSubject;
+
+  // 2. ADDED: Selected Type State
+  String? _selectedQuestionType;
+
   final Set<String> _selectedChapters = {};
   final Set<String> _selectedTopics = {};
   bool _isPyqOnly = false;
 
-  // --- 3. SEARCH STATE ---
   bool _isSearching = false;
   List<Question> _searchResults = [];
   int _totalMatchCount = 0;
 
-  // --- 4. SELECTION STATE (The Cart) ---
   final Map<String, Question> _selectedQuestions = {};
 
   @override
@@ -75,7 +83,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     super.dispose();
   }
 
-  // --- DATA FETCHING & PARSING ---
   Future<void> _fetchFilterData() async {
     try {
       final firestore = FirebaseFirestore.instance;
@@ -121,7 +128,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     }
   }
 
-  // --- CASCADING GETTERS ---
   String _normalizeSubject(String? subject) {
     if (subject == null) return "";
     return subject.toLowerCase().trim();
@@ -161,20 +167,13 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     });
   }
 
-  // --- NAVIGATION LOGIC (THE FIX) ---
-
-  // 1. Helper to generate tree for ANY subject (not just the currently filtered one)
   Map<String, dynamic> _buildTreeForSubject(String subjectName) {
     String key = _normalizeSubject(subjectName);
-    // If we don't have this subject in cache, return empty map
     if (!_syllabusCache.containsKey(key)) return {};
-
     final chapters = _syllabusCache[key] ?? [];
     Map<String, dynamic> tree = {};
-
     for (var chap in chapters) {
       Map<String, dynamic> topicMap = {};
-      // Flatten topics (ModifyQuestionScreen expects Map<Topic, List<SubTopic>>)
       for (var topicName in chap.topics.values) {
         topicMap[topicName] = <String>[];
       }
@@ -183,65 +182,40 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     return tree;
   }
 
-// 2. The function that handles the "Edit" click
   void _navigateToEdit(Question q) {
-    // A. Generate the specific syllabus tree for THIS question's subject
     final Map<String, dynamic> specificTree = _buildTreeForSubject(q.subject);
-
-    // B. Reconstruct the raw Map data from the Question object
     final Map<String, dynamic> manualDataMap = {
       'id': q.id,
       'customId': q.customId,
-
-      // --- EXAM & SUBJECT ---
       'Exam': q.exam,
       'Subject': q.subject,
       'Chapter': q.chapter,
       'Topic': q.topic,
       'TopicL2': q.topicL2,
-
-      // --- CRITICAL FIX: QUESTION TYPE ---
-      // Pass the Enum directly. We pass it with TWO keys to be safe
-      // because your Model uses 'Question type' but the Screen might use 'QuestionType'.
       'QuestionType': q.type,
       'Question type': q.type,
-
-      // --- IMAGES ---
-      // We map to 'image_url' because that is the first key your Model looks for.
       'image_url': q.imageUrl,
       'solution_url': q.solutionUrl,
-
-      // --- DATA ---
       'Difficulty': q.difficulty,
       'Correct Answer': q.correctAnswer,
-
-      // --- PYQ FIX ---
-      // Your model looks for "Yes", so we convert the boolean back to "Yes"/"No"
       'PYQ': q.isPyq ? "Yes" : "No",
       'PYQ_Year': q.pyqYear,
-
-      // --- NUMERICALS ---
       'Question No.': q.questionNo,
       'Difficulty_score': q.difficultyScore,
     };
 
-    // C. Navigate
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ModifyQuestionScreen(
           questionId: q.id,
-          questionData: manualDataMap, // Now contains the actual Enum
+          questionData: manualDataMap,
           syllabusTree: specificTree,
         ),
       ),
-    ).then((_) {
-      // Optional: Refresh search results if needed
-      // setState(() {});
-    });
+    ).then((_) { });
   }
 
-  // --- SEARCH LOGIC ---
   String _generateRandomId() {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final rnd = Random();
@@ -253,7 +227,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select Exam and Subject")));
       return;
     }
-
     setState(() {
       _isSearching = true;
       _searchResults = [];
@@ -262,9 +235,13 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
     try {
       Query query = FirebaseFirestore.instance.collection('questions');
-
       query = query.where('Exam', isEqualTo: _selectedExam);
       query = query.where('Subject', isEqualTo: _selectedSubject);
+
+      // 3. UPDATED: Apply Question Type Filter
+      if (_selectedQuestionType != null) {
+        query = query.where('Question type', isEqualTo: _selectedQuestionType);
+      }
 
       if (_selectedChapters.isNotEmpty && _selectedChapters.length <= 10) {
         query = query.where('Chapter', whereIn: _selectedChapters.toList());
@@ -328,7 +305,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     });
   }
 
-  // --- ASSIGNMENT LOGIC ---
   Future<void> _onAssign() async {
     if (_selectedQuestions.isEmpty) return;
     final teacher = FirebaseAuth.instance.currentUser;
@@ -337,81 +313,136 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     final titleCtrl = TextEditingController();
     final timeCtrl = TextEditingController(text: "${_selectedQuestions.length * 2}");
     bool isSingleAttempt = false;
-    DateTime? selectedDeadline;
+
+    // 4. UPDATED: Default Deadline Logic (Tomorrow 11:59 PM)
+    final now = DateTime.now();
+    DateTime? selectedDeadline = DateTime(now.year, now.month, now.day + 1, 23, 59);
+
+    Set<QuestionType> presentTypes = _selectedQuestions.values.map((q) => q.type).toSet();
+
+    Map<QuestionType, MarkingConfiguration> markingConfigs = {};
+    for (var type in presentTypes) {
+      if (type == QuestionType.oneOrMoreOptionsCorrect) {
+        markingConfigs[type] = MarkingConfiguration.jeeAdvanced();
+      } else if (type == QuestionType.numerical) {
+        markingConfigs[type] = const MarkingConfiguration(correctScore: 4, incorrectScore: 0);
+      } else {
+        markingConfigs[type] = MarkingConfiguration.jeeMain();
+      }
+    }
 
     Future<void> pickDateTime(StateSetter setDialogState, BuildContext ctx) async {
       final date = await showDatePicker(
         context: ctx,
-        initialDate: DateTime.now().add(const Duration(days: 1)),
+        initialDate: selectedDeadline!,
         firstDate: DateTime.now(),
         lastDate: DateTime.now().add(const Duration(days: 365)),
       );
       if (date == null) return;
-
       if (!ctx.mounted) return;
-      final time = await showTimePicker(
-        context: ctx,
-        initialTime: const TimeOfDay(hour: 17, minute: 0),
-      );
+      final time = await showTimePicker(context: ctx, initialTime: TimeOfDay.fromDateTime(selectedDeadline!));
       if (time == null) return;
-
-      setDialogState(() {
-        selectedDeadline = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-      });
+      setDialogState(() => selectedDeadline = DateTime(date.year, date.month, date.day, time.hour, time.minute));
     }
 
     final confirm = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
             title: const Text("Confirm Assignment"),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Assigning ${_selectedQuestions.length} questions.", style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: titleCtrl,
-                    decoration: InputDecoration(
-                      labelText: "Assignment Title",
-                      hintText: "e.g. Optics Homework",
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(icon: const Icon(Icons.clear), onPressed: () => titleCtrl.clear()),
-                    ),
-                  ),
-                  const SizedBox(height: 15),
-                  TextField(
-                    controller: timeCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: "Time Limit (Min)",
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(icon: const Icon(Icons.clear), onPressed: () => timeCtrl.clear()),
-                    ),
-                  ),
-                  const SizedBox(height: 15),
-                  InkWell(
-                    onTap: () => pickDateTime(setDialogState, ctx),
-                    child: InputDecorator(
-                      decoration: const InputDecoration(labelText: "Deadline (Optional)", border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
-                      child: Text(
-                        selectedDeadline == null ? "Tap to select date & time" : DateFormat('MMM d, yyyy h:mm a').format(selectedDeadline!),
-                        style: TextStyle(color: selectedDeadline == null ? Colors.grey : Colors.black),
+            content: Container(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Assigning ${_selectedQuestions.length} questions.", style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 20),
+                    TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: "Assignment Title", border: OutlineInputBorder())),
+                    const SizedBox(height: 15),
+                    TextField(controller: timeCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Time Limit (Min)", border: OutlineInputBorder())),
+                    const SizedBox(height: 15),
+                    InkWell(
+                      onTap: () => pickDateTime(setDialogState, ctx),
+                      child: InputDecorator(
+                        decoration: const InputDecoration(labelText: "Deadline", border: OutlineInputBorder()),
+                        child: Text(selectedDeadline == null ? "Optional" : DateFormat('MMM d, h:mm a').format(selectedDeadline!)),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  CheckboxListTile(
-                    title: const Text("Strict Mode (Single Attempt)"),
-                    value: isSingleAttempt,
-                    onChanged: (val) => setDialogState(() => isSingleAttempt = val ?? false),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    CheckboxListTile(title: const Text("Strict Mode (Single Attempt)"), value: isSingleAttempt, onChanged: (val) => setDialogState(() => isSingleAttempt = val ?? false)),
+
+                    const Divider(),
+                    const Text("Marking Scheme", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 10),
+
+                    ...markingConfigs.keys.map((type) {
+                      MarkingConfiguration cfg = markingConfigs[type]!;
+
+                      // 5. UPDATED: Display as Integers (remove .0)
+                      String initCorrect = cfg.correctScore.toString().replaceAll(RegExp(r'([.]*0)(?!.*\d)'), '');
+                      String initIncorrect = cfg.incorrectScore.toString().replaceAll(RegExp(r'([.]*0)(?!.*\d)'), '');
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 15),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_getLabelForType(type), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: initCorrect,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(labelText: "Correct (+)", isDense: true),
+                                    onChanged: (val) {
+                                      double v = double.tryParse(val) ?? 4.0;
+                                      markingConfigs[type] = _updateConfig(cfg, correct: v);
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: initIncorrect,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(labelText: "Wrong (-)", isDense: true),
+                                    onChanged: (val) {
+                                      double v = double.tryParse(val) ?? -1.0;
+                                      if (v > 0) v = -v;
+                                      markingConfigs[type] = _updateConfig(cfg, incorrect: v);
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (type == QuestionType.oneOrMoreOptionsCorrect)
+                              Row(
+                                children: [
+                                  const Text("Partial Marking?"),
+                                  Switch(
+                                      value: cfg.allowPartialMarking,
+                                      onChanged: (val) {
+                                        setDialogState(() {
+                                          markingConfigs[type] = _updateConfig(cfg, partial: val);
+                                        });
+                                      }
+                                  )
+                                ],
+                              )
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
               ),
             ),
             actions: [
@@ -436,6 +467,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         onlySingleAttempt: isSingleAttempt,
         timeLimitMinutes: customTime,
         deadline: selectedDeadline,
+        markingSchemes: markingConfigs,
       );
 
       if (mounted) {
@@ -447,7 +479,23 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     }
   }
 
-  // --- UI COMPONENTS ---
+  String _getLabelForType(QuestionType t) {
+    if (t == QuestionType.singleCorrect) return "Single Correct";
+    if (t == QuestionType.oneOrMoreOptionsCorrect) return "Multi Correct";
+    if (t == QuestionType.numerical) return "Numerical";
+    return "Other";
+  }
+
+  MarkingConfiguration _updateConfig(MarkingConfiguration old, {double? correct, double? incorrect, bool? partial}) {
+    return MarkingConfiguration(
+        correctScore: correct ?? old.correctScore,
+        incorrectScore: incorrect ?? old.incorrectScore,
+        allowPartialMarking: partial ?? old.allowPartialMarking,
+        unattemptedScore: old.unattemptedScore,
+        partialScorePerOption: old.partialScorePerOption
+    );
+  }
+
   void _showMultiSelectDialog({required String title, required List<String> items, required Set<String> selectedItems, required Function(Set<String>) onConfirm}) {
     showDialog(
       context: context,
@@ -509,9 +557,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
   @override
   Widget build(BuildContext context) {
-    // We removed the _getSyllabusTreeForCurrentSubject call here because
-    // we now generate it specifically per question inside _navigateToEdit
-
     return Scaffold(
       appBar: AppBar(
         title: const Text("Filter & Search"),
@@ -591,7 +636,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                                 child: Checkbox(value: isSelected, onChanged: (val) {}),
                               ),
                               Expanded(
-                                // --- CHANGE HERE: Added onEditPressed ---
                                 child: QuestionPreviewCard(
                                   question: q
                                 ),
@@ -622,7 +666,17 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
   Widget _buildSelectedTab() {
     if (_selectedQuestions.isEmpty) return const Center(child: Text("No questions selected."));
+
     final selectedList = _selectedQuestions.values.toList();
+    selectedList.sort((a, b) {
+      int sA = _getSubjectWeight(a.subject);
+      int sB = _getSubjectWeight(b.subject);
+      if (sA != sB) return sA.compareTo(sB);
+
+      int tA = _getTypeWeight(a.type);
+      int tB = _getTypeWeight(b.type);
+      return tA.compareTo(tB);
+    });
 
     return Stack(
       children: [
@@ -640,9 +694,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      // --- CHANGE HERE: Added onEditPressed ---
                       child: QuestionPreviewCard(
-                        question: q,
+                        question: q
                       ),
                     ),
                     IconButton(
@@ -669,6 +722,22 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     );
   }
 
+  int _getSubjectWeight(String s) {
+    s = s.toLowerCase();
+    if (s.contains('physic')) return 1;
+    if (s.contains('chem')) return 2;
+    if (s.contains('math')) return 3;
+    if (s.contains('bio')) return 4;
+    return 5;
+  }
+
+  int _getTypeWeight(QuestionType t) {
+    if (t == QuestionType.singleCorrect) return 1;
+    if (t == QuestionType.oneOrMoreOptionsCorrect) return 2;
+    if (t == QuestionType.numerical) return 3;
+    return 4;
+  }
+
   Widget _buildFilters() {
     final decoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));
     return Column(
@@ -687,6 +756,19 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           items: _subjectsList.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
           onChanged: (val) => setState(() { _selectedSubject = val; _resetFiltersBelow('Subject'); }),
           decoration: decoration.copyWith(labelText: "Subject"),
+        ),
+        const SizedBox(height: 10),
+        // 6. ADDED: Question Type Filter Dropdown
+        DropdownButtonFormField<String>(
+          value: _selectedQuestionType,
+          hint: const Text("Select Type (Optional)"),
+          isExpanded: true,
+          items: [
+            const DropdownMenuItem(value: null, child: Text("All Types")),
+            ..._questionTypesList.map((t) => DropdownMenuItem(value: t, child: Text(t))),
+          ],
+          onChanged: (val) => setState(() { _selectedQuestionType = val; }),
+          decoration: decoration.copyWith(labelText: "Question Type"),
         ),
         const SizedBox(height: 10),
         InkWell(

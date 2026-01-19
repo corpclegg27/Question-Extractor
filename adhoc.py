@@ -512,16 +512,16 @@ def sanitize_correct_answers(file_path):
 
 
 
-# --- Delete NEET Questions ---
+# --- Delete Exam Questions ---
 
 
-def delete_neet_questions():
+def delete_exam_questions(exam):
 
     collection_ref = db.collection('questions')
     
     # 2. Query for the documents
     # Note: Ensure 'Exam' matches the exact case in your DB ('NEET' vs 'neet')
-    query = collection_ref.where('Exam', '==', 'NEET')
+    query = collection_ref.where('Exam', '==', exam)
     docs = query.stream()
 
     # 3. Batch deletion logic
@@ -761,7 +761,7 @@ def main():
         print ("6. Delete all user records from auth system")
         print ("7. Add ideal time per question map")
         print ("8. Sanitize answer key of csv provided")
-        print ("9. Delete NEET Questions")
+        print ("9. Delete Exam Questions (Exam already specified in py file)")
         print ("10. Backfill attempts documents")
         print("0. Exit")
         print("-" * 40)
@@ -794,7 +794,7 @@ def main():
 
 
         if choice == '9':
-            delete_neet_questions()
+            delete_exam_questions('JEE Advanced')
 
         if choice == '10':
             backfill_attempts_docs()

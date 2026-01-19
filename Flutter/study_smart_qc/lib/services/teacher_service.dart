@@ -1,11 +1,14 @@
 // lib/services/teacher_service.dart
+// Description: Handles teacher operations including statistics, search, and assigning questions.
+// Updated: Calculates and saves 'questionIdsGrouped' and 'marksBreakdownMap'.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/attempt_model.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
+import 'package:study_smart_qc/models/marking_configuration.dart';
 
-// --- HELPER CLASS FOR PAGINATION ---
 class PaginatedQuestions {
   final List<Question> questions;
   final DocumentSnapshot? lastDoc;
@@ -133,7 +136,7 @@ class TeacherService {
     });
   }
 
-  // --- 5. ASSIGNMENT LOGIC (Fixed Signature) ---
+  // --- 5. ASSIGNMENT LOGIC ---
   Future<void> assignQuestionsToStudent({
     required int studentId,
     required List<Question> questions,
@@ -142,7 +145,8 @@ class TeacherService {
     String assignmentTitle = "",
     bool onlySingleAttempt = false,
     int? timeLimitMinutes,
-    DateTime? deadline, // <--- ADDED PARAMETER HERE
+    DateTime? deadline,
+    Map<QuestionType, MarkingConfiguration>? markingSchemes,
   }) async {
     final studentUid = await _findUidByStudentId(studentId);
     if (studentUid == null) throw Exception("Student not found");
@@ -152,10 +156,9 @@ class TeacherService {
     final batch = _firestore.batch();
 
     final assignmentCode = _generateAssignmentCode();
-    // Using q.id because in your model Question.id is mapped to the real question_id
     final questionIds = questions.map((q) => q.customId).toList();
 
-    // FIXED: Subjects Logic
+    // 1. Subjects
     final subjects = questions
         .map((q) => q.subject.isNotEmpty ? q.subject : (q.chapterId.split('_').first))
         .map((s) => s.trim())
@@ -163,8 +166,43 @@ class TeacherService {
         .toSet()
         .toList();
 
-    // FIXED: Meta Hierarchy Logic
+    // 2. Hierarchy
     final hierarchy = _buildHierarchy(questions);
+
+    // 3. NEW: Grouped IDs & Marks Breakdown
+    Map<String, dynamic> questionIdsGrouped = {};
+    Map<String, dynamic> marksBreakdownMap = { "Overall": 0.0 };
+
+    for (var q in questions) {
+      String subject = q.subject.isEmpty ? "General" : q.subject;
+      String typeStr = _mapTypeToString(q.type);
+
+      // -- Group IDs --
+      questionIdsGrouped.putIfAbsent(subject, () => <String, dynamic>{});
+      questionIdsGrouped[subject].putIfAbsent(typeStr, () => <String>[]);
+      (questionIdsGrouped[subject][typeStr] as List).add(q.customId);
+
+      // -- Calculate Marks --
+      // Default to +4 if scheme missing (fail-safe)
+      double score = 4.0;
+      if (markingSchemes != null && markingSchemes.containsKey(q.type)) {
+        score = markingSchemes[q.type]!.correctScore;
+      }
+
+      marksBreakdownMap.putIfAbsent(subject, () => <String, dynamic>{});
+      double currentSubjTypeTotal = (marksBreakdownMap[subject][typeStr] ?? 0.0);
+      marksBreakdownMap[subject][typeStr] = currentSubjTypeTotal + score;
+
+      marksBreakdownMap["Overall"] = (marksBreakdownMap["Overall"] ?? 0.0) + score;
+    }
+
+    // 4. Marking Schemes Serialization
+    Map<String, dynamic> schemesMap = {};
+    if (markingSchemes != null) {
+      markingSchemes.forEach((type, config) {
+        schemesMap[_mapTypeToString(type)] = config.toMap();
+      });
+    }
 
     final int finalTimeLimit = timeLimitMinutes ?? (questions.length * 2);
     final String finalTitle = assignmentTitle.isEmpty ? "New Assignment" : assignmentTitle;
@@ -177,16 +215,20 @@ class TeacherService {
       'studentUid': studentUid,
       'teacherUid': teacherUid,
       'title': finalTitle,
-      'questionIds': questionIds,
+      'questionIds': questionIds, // Legacy List (Do not remove)
       'createdAt': FieldValue.serverTimestamp(),
       'status': 'assigned',
       'onlySingleAttempt': onlySingleAttempt,
       'timeLimitMinutes': finalTimeLimit,
       'subjects': subjects,
       'meta_hierarchy': hierarchy,
+      'markingSchemes': schemesMap,
+
+      // NEW FIELDS
+      'questionIdsGrouped': questionIdsGrouped,
+      'marksBreakdownMap': marksBreakdownMap,
     };
 
-    // Add deadline if present
     if (deadline != null) {
       curationData['deadline'] = Timestamp.fromDate(deadline);
     }
@@ -201,44 +243,41 @@ class TeacherService {
     await batch.commit();
   }
 
-  // --- 6. PERFORMANCE MONITORING ---
-  Future<AttemptModel?> getAttemptForCuration(String curationId) async {
-    try {
-      final query = await _firestore
-          .collection('attempts')
-          .where('sourceId', isEqualTo: curationId)
-          .orderBy('completedAt', descending: true)
-          .limit(1)
-          .get();
+  // --- HELPERS ---
 
-      if (query.docs.isNotEmpty) {
-        return AttemptModel.fromFirestore(query.docs.first);
-      }
-      return null;
-    } catch (e) {
-      print("Error fetching curation attempt: $e");
-      return null;
+  String _mapTypeToString(QuestionType type) {
+    switch (type) {
+      case QuestionType.singleCorrect: return 'Single Correct';
+      case QuestionType.numerical: return 'Numerical type';
+      case QuestionType.oneOrMoreOptionsCorrect: return 'One or more options correct';
+      case QuestionType.matrixSingle: return 'Single Matrix Match';
+      case QuestionType.matrixMulti: return 'Multi Matrix Match';
+      default: return 'Unknown';
     }
   }
 
-  // --- INTERNAL HELPERS ---
+  // ... (Keep existing stats, search, clone, helpers etc. unchanged)
+  Future<AttemptModel?> getAttemptForCuration(String curationId) async {
+    try {
+      final query = await _firestore.collection('attempts').where('sourceId', isEqualTo: curationId).orderBy('completedAt', descending: true).limit(1).get();
+      if (query.docs.isNotEmpty) return AttemptModel.fromFirestore(query.docs.first);
+      return null;
+    } catch (e) { return null; }
+  }
+
   Future<List<Question>> _fetchFromTracker(int studentId, String bucketKey) async {
     final uid = await _findUidByStudentId(studentId);
     if (uid == null) return [];
-
     final doc = await _firestore.collection('student_question_tracker').doc(uid).get();
     if (!doc.exists) return [];
-
     final buckets = doc.data()!['buckets'] as Map<String, dynamic>;
     String dbKey = bucketKey.toLowerCase();
     if (bucketKey.contains('Incorrect')) dbKey = 'incorrect';
     if (bucketKey.contains('Unattempted')) dbKey = 'unattempted';
     if (bucketKey.contains('Correct')) dbKey = 'correct';
     if (bucketKey.contains('Skipped')) dbKey = 'skipped';
-
     final ids = List<String>.from(buckets[dbKey] ?? []);
     if (ids.isEmpty) return [];
-
     final safeIds = ids.take(20).toList();
     final query = await _firestore.collection('questions').where(FieldPath.documentId, whereIn: safeIds).get();
     return query.docs.map((d) => Question.fromFirestore(d)).toList();
@@ -264,21 +303,16 @@ class TeacherService {
     return String.fromCharCodes(Iterable.generate(4, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
   }
 
-  // UPDATED: Hierarchy Builder using Names
   Map<String, dynamic> _buildHierarchy(List<Question> questions) {
     Map<String, dynamic> hierarchy = {};
     for (var q in questions) {
       final exam = q.exam.isEmpty ? 'General' : q.exam;
       final subject = q.subject.isEmpty ? 'General' : q.subject;
-
-      // Prefer Names -> Fallback to IDs -> Fallback to Unknown
       String chapter = q.chapter.isNotEmpty ? q.chapter : (q.chapterId.isNotEmpty ? q.chapterId : 'Unknown Chapter');
       String topic = q.topic.isNotEmpty ? q.topic : (q.topicId.isNotEmpty ? q.topicId : 'Unknown Topic');
-
       hierarchy.putIfAbsent(exam, () => <String, dynamic>{});
       hierarchy[exam].putIfAbsent(subject, () => <String, dynamic>{});
       hierarchy[exam][subject].putIfAbsent(chapter, () => <String, dynamic>{});
-
       final currentCount = hierarchy[exam][subject][chapter][topic] ?? 0;
       hierarchy[exam][subject][chapter][topic] = currentCount + 1;
     }

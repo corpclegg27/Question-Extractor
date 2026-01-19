@@ -1,3 +1,5 @@
+// lib/models/nta_test_models.dart
+
 import 'package:flutter/material.dart';
 
 enum AnswerStatus {
@@ -27,7 +29,8 @@ extension AnswerStatusExtension on AnswerStatus {
 }
 
 class AnswerState {
-  String? userAnswer;
+  // CHANGED: String? -> dynamic to allow List<String> for Multiple Correct
+  dynamic userAnswer;
   AnswerStatus status;
 
   AnswerState({this.userAnswer, this.status = AnswerStatus.notVisited});

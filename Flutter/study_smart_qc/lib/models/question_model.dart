@@ -1,7 +1,7 @@
-//lib/models/question_model.dart
+// lib/models/question_model.dart
+// Description: Data model for a Question. updated to support 'correctAnswersOneOrMore' list for multiple correct types.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 
 class Question {
@@ -21,7 +21,13 @@ class Question {
   final QuestionType type;
   final String imageUrl;
   final String? solutionUrl;
+
+  // LEGACY FIELD: Kept for backward compatibility (Single Correct)
   final dynamic correctAnswer;
+
+  // NEW FIELD: For "One or more options correct" type (Mapped from 'correctAnswersOneOrMore')
+  final List<String> correctAnswersList;
+
   final String difficulty;
   final String exam;
   final bool isPyq;
@@ -47,6 +53,7 @@ class Question {
     required this.imageUrl,
     this.solutionUrl,
     required this.correctAnswer,
+    this.correctAnswersList = const [], // Default to empty
     required this.difficulty,
     required this.exam,
     required this.isPyq,
@@ -57,6 +64,25 @@ class Question {
     this.pyqYear,
     this.ocrText,
   });
+
+  /// UNIFIED GETTER: Returns the correct answer(s) as a clean List<String>.
+  /// Use this in your Scoring Engine and UI instead of accessing raw fields.
+  List<String> get actualCorrectAnswers {
+    // 1. If we have the specific list from Firestore, use it (Best for Multi Correct)
+    if (correctAnswersList.isNotEmpty) {
+      return correctAnswersList;
+    }
+
+    // 2. Fallback: Parse the legacy 'Correct Answer' field
+    if (correctAnswer != null) {
+      String raw = correctAnswer.toString();
+      // Remove spaces and split by comma
+      // e.g., "A, B" -> ["A", "B"]
+      return raw.replaceAll(' ', '').split(',').where((e) => e.isNotEmpty).toList();
+    }
+
+    return [];
+  }
 
   factory Question.fromMap(Map<String, dynamic> data, String docId) {
     return Question(
@@ -79,6 +105,12 @@ class Question {
 
       solutionUrl: data['solution_url'] ?? data['solutionUrl'],
       correctAnswer: data['Correct Answer'],
+
+      // --- MAPPING NEW FIELD ---
+      // Safely read the array we created in the migration script
+      correctAnswersList: (data['correctAnswersOneOrMore'] is List)
+          ? List<String>.from(data['correctAnswersOneOrMore'])
+          : [],
 
       // Look for 'Difficulty' first (per your Firestore doc), fallback to 'Difficulty_tag'
       difficulty: data['Difficulty'] ?? data['Difficulty_tag'] ?? 'Medium',
@@ -122,5 +154,4 @@ class Question {
       default: return QuestionType.unknown;
     }
   }
-
 }

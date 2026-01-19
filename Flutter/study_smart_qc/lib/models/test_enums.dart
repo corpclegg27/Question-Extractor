@@ -22,3 +22,20 @@ enum QuestionType {
   matrixMulti,
   unknown,
 }
+
+class QuestionStatus {
+  static const String correct = 'CORRECT';
+  static const String incorrect = 'INCORRECT';
+  static const String skipped = 'SKIPPED';
+  static const String partiallyCorrect = 'PARTIALLY_CORRECT'; // New Status
+}
+
+class QuestionTypeStrings {
+  static const String singleCorrect = 'Single Correct';
+  static const String numerical = 'Numerical type';
+  static const String multipleCorrect = 'One or more options correct';
+  static const String matrixSingle = 'Single Matrix Match';
+  static const String matrixMulti = 'Multi Matrix Match';
+}
+
+

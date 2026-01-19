@@ -5,7 +5,7 @@ import os
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "Mast working! Gonna try to handle JEE Advanced next"
+COMMIT_MESSAGE = "JEE Advanced submit button worked, pending: enrich the attempts document and results screen"
 # ==========================================
 
 def run_command(command, step_name):

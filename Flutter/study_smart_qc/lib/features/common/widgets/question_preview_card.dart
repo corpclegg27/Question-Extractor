@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/question_model.dart';
+import 'package:study_smart_qc/models/test_enums.dart';
 
 class QuestionPreviewCard extends StatefulWidget {
   final Question question;
@@ -41,7 +42,7 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // HEADER: ID + Tags
+          // HEADER: ID + Type + Tags
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -54,6 +55,7 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
               children: [
                 Row(
                   children: [
+                    // QID Badge
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
@@ -65,7 +67,17 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                       ),
                     ),
+                    const SizedBox(width: 8),
+
+                    // Question Type Badge
+                    _buildTag(
+                        _getQuestionTypeLabel(q.type),
+                        Colors.blue.shade50,
+                        Colors.blue.shade800
+                    ),
+
                     const Spacer(),
+
                     // Difficulty Badge
                     _buildTag(q.difficulty, _getDifficultyColor(q.difficulty), Colors.black87),
                   ],
@@ -158,7 +170,15 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Text("Correct Option: ", style: TextStyle(fontWeight: FontWeight.bold)),
-                        Text(q.correctAnswer.toString(), style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                        // Handle List or String answer
+                        Flexible(
+                          child: Text(
+                              (q.actualCorrectAnswers is List)
+                                  ? (q.actualCorrectAnswers as List).join(", ")
+                                  : q.actualCorrectAnswers.toString(),
+                              style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -192,6 +212,17 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
       case 'medium': return Colors.yellow.shade100;
       case 'hard': return Colors.red.shade100;
       default: return Colors.grey.shade200;
+    }
+  }
+
+  String _getQuestionTypeLabel(QuestionType type) {
+    switch (type) {
+      case QuestionType.singleCorrect: return "Single Correct";
+      case QuestionType.oneOrMoreOptionsCorrect: return "Multi Correct";
+      case QuestionType.numerical: return "Numerical";
+      case QuestionType.matrixSingle: return "Matrix (Single)";
+      case QuestionType.matrixMulti: return "Matrix (Multi)";
+      default: return "Unknown";
     }
   }
 
