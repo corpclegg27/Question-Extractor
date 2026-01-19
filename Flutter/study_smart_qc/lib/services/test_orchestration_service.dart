@@ -1,8 +1,5 @@
 // lib/services/test_orchestration_service.dart
-// Description: Manages test submission, analytics generation, and Firestore saves.
-// Updated:
-// 1. Updated submitAttempt to accept markingSchemes and marksBreakdown.
-// 2. Updated _generateSmartTag to treat PARTIALLY_CORRECT as INCORRECT for analysis.
+// Description: Manages test submission. Added logic to fetch authoritative Title from DB to fix "Resumed Session" naming issue.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -58,18 +55,22 @@ class TestOrchestrationService {
     required Map<String, ResponseObject> responses,
     int? timeLimitMinutes,
 
-    // [NEW] Required Analytics Fields
+    // Required Analytics Fields
     required Map<String, dynamic> markingSchemes,
     required Map<String, dynamic> marksBreakdown,
   }) async {
     if (_userId == null) return null;
 
-    // --- STEP 1: FETCH CONFIG FOR SMART ANALYSIS ---
+    // --- STEP 1: FETCH CONFIG & AUTHORITATIVE TITLE ---
     Map<String, dynamic> idealTimeMap = {};
     double carelessFactor = 0.25;
     double goodSkipFactorRaw = 20.0;
 
+    // [FIX] Initialize with UI title, but try to fetch real title from DB
+    String finalTitle = title;
+
     try {
+      // 1. Fetch Config
       final configSnap = await _firestore.collection('static_data').doc('option_sets').get();
       if (configSnap.exists) {
         final data = configSnap.data()!;
@@ -79,8 +80,23 @@ class TestOrchestrationService {
         carelessFactor = (data['factorForCarelessAttempt'] ?? 0.25).toDouble();
         goodSkipFactorRaw = (data['factorForGoodSkip'] ?? 20.0).toDouble();
       }
+
+      // 2. [FIX] Fetch Authoritative Title (Fix for "Resumed Session")
+      if (sourceId.isNotEmpty) {
+        // Check assignments first
+        final curationDoc = await _firestore.collection('questions_curation').doc(sourceId).get();
+        if (curationDoc.exists && curationDoc.data()?['title'] != null) {
+          finalTitle = curationDoc.data()!['title'];
+        } else {
+          // Check tests (legacy/custom)
+          final testDoc = await _firestore.collection('tests').doc(sourceId).get();
+          if (testDoc.exists && testDoc.data()?['testName'] != null) {
+            finalTitle = testDoc.data()!['testName'];
+          }
+        }
+      }
     } catch (e) {
-      print("Error fetching analysis config: $e");
+      print("Error fetching analysis config or title: $e");
     }
 
     final batch = _firestore.batch();
@@ -117,7 +133,6 @@ class TestOrchestrationService {
       final int timeSpent = userResponse?.timeSpent ?? 0;
 
       // --- COUNTERS ---
-      // We still count Partial as Correct for the high-level dashboard "Correct/Incorrect" count
       if (status == QuestionStatus.correct || status == QuestionStatus.partiallyCorrect) {
         correctCount++;
       } else if (status == QuestionStatus.incorrect) {
@@ -166,7 +181,6 @@ class TestOrchestrationService {
         mistakeNote: userResponse?.mistakeNote,
         pyq: question.isPyq ? 'Yes' : 'No',
         difficultyTag: question.difficulty,
-        // [NEW] Persist Analytics Fields
         questionType: userResponse?.questionType ?? '',
         marksObtained: userResponse?.marksObtained ?? 0,
       );
@@ -174,12 +188,19 @@ class TestOrchestrationService {
     }
 
     // --- PHASE 3: Create Records ---
+
+    // Calculate Actual Max Marks from Breakdown
+    int finalMaxMarks = questions.length * 4; // Default Fallback
+    if (marksBreakdown.containsKey("Overall") && marksBreakdown["Overall"]["maxMarks"] != null) {
+      finalMaxMarks = (marksBreakdown["Overall"]["maxMarks"] as num).toInt();
+    }
+
     final attemptRef = _firestore.collection('attempts').doc();
     final newAttempt = AttemptModel(
       id: attemptRef.id,
       sourceId: sourceId,
       assignmentCode: assignmentCode,
-      title: title,
+      title: finalTitle, // [FIX] Use the authoritative title fetched from DB
       onlySingleAttempt: onlySingleAttempt,
       mode: mode,
       userId: _userId!,
@@ -187,7 +208,7 @@ class TestOrchestrationService {
       completedAt: timestamp,
       score: score,
       totalQuestions: questions.length,
-      maxMarks: questions.length * 4,
+      maxMarks: finalMaxMarks,
       correctCount: correctCount,
       incorrectCount: incorrectCount,
       skippedCount: skippedCount,
@@ -197,8 +218,6 @@ class TestOrchestrationService {
       secondsBreakdownHighLevel: highLevelTime,
       secondsBreakdownSmartTimeAnalysis: smartTimeBreakdown,
       responses: enrichedResponses,
-
-      // [NEW] Persist Breakdown
       markingSchemes: markingSchemes,
       marksBreakdown: marksBreakdown,
     );
@@ -329,21 +348,18 @@ class TestOrchestrationService {
     double skipFactor = (goodSkipFactorRaw > 1) ? goodSkipFactorRaw / 100 : goodSkipFactorRaw;
     double goodSkipThreshold = idealTime * skipFactor;
 
-    // [UPDATED LOGIC] Treat PARTIALLY_CORRECT like INCORRECT for time analysis
+    // Treat PARTIALLY_CORRECT like INCORRECT for time analysis
     if (status == QuestionStatus.correct) {
-      // Logic for FULLY Correct
       return (timeTaken <= idealTime)
           ? "Perfect Attempt (Correct & answered within reasonable time)"
           : "Overtime Correct (Correct but took too long)";
 
     } else if (status == QuestionStatus.incorrect || status == QuestionStatus.partiallyCorrect) {
-      // Logic for Incorrect OR Partial (grouped as 'Mistake' context)
       return (timeTaken < fastThreshold)
           ? "Careless Mistake (Incorrect & answered too fast)"
           : "Wasted Attempt (Incorrect & took too long)";
 
     } else {
-      // Logic for Skipped
       return (timeTaken < goodSkipThreshold)
           ? "Good Skip (Skipped quickly)"
           : "Time Wasted (Skipped but spent too much time)";

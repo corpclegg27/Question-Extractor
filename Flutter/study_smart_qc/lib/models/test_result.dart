@@ -1,50 +1,22 @@
 // lib/models/test_result.dart
+// Description: Refactored to act as a wrapper around AttemptModel, eliminating data redundancy.
 
 import 'package:study_smart_qc/models/attempt_model.dart';
-import 'package:study_smart_qc/models/nta_test_models.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 
 class TestResult {
-  final String attemptId;
+  // Single Source of Truth
+  final AttemptModel attempt;
+
+  // Contextual Data (Questions list is needed to render the solution sheet text/images)
   final List<Question> questions;
-  final Map<int, AnswerState> answerStates;
 
-  // STATS (Directly from Firestore)
-  final num score;
-  final int maxMarks;
-  final int correctCount;
-  final int incorrectCount;
-  final int skippedCount;
-  final int totalQuestions;
-  final int timeTakenSeconds;
-  final int? timeLimitMinutes;
-
-  // BREAKDOWNS (Directly from Firestore)
-  final Map<String, int> secondsBreakdownHighLevel;
-  final Map<String, int> smartTimeAnalysisCounts;
-  final Map<String, int> secondsBreakdownSmartTimeAnalysis;
-
-  final Map<String, ResponseObject> responses;
+  // Optional: Transient UI state (if coming directly from test screen)
+  final Map<int, dynamic>? answerStates;
 
   TestResult({
-    required this.attemptId,
+    required this.attempt,
     required this.questions,
-    required this.answerStates,
-    required this.responses,
-
-    // Required Stats
-    required this.score,
-    required this.maxMarks,
-    required this.correctCount,
-    required this.incorrectCount,
-    required this.skippedCount,
-    required this.totalQuestions,
-    required this.timeTakenSeconds,
-    this.timeLimitMinutes,
-
-    // Required Maps (Default to empty if missing)
-    this.secondsBreakdownHighLevel = const {},
-    this.smartTimeAnalysisCounts = const {},
-    this.secondsBreakdownSmartTimeAnalysis = const {},
+    this.answerStates,
   });
 }

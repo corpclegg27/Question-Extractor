@@ -1,8 +1,9 @@
 // lib/features/analytics/screens/results_screen.dart
+// Description: Detailed analysis screen. Uses TestResult.attempt for data.
+// Fixed consistency between Overall Score and Breakdown bars. Implemented Partial Marking logic.
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:study_smart_qc/models/nta_test_models.dart';
 import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/widgets/solution_detail_sheet.dart';
 
@@ -42,15 +43,19 @@ class _ResultsScreenState extends State<ResultsScreen> {
       _smartAnalysisGroups[key] = [];
     }
 
+    // Access responses directly from the attempt model
+    final responses = widget.result.attempt.responses;
+
     for (int i = 0; i < widget.result.questions.length; i++) {
       final qId = widget.result.questions[i].id;
-      // Also try customId if docId not found, though attempt normally uses docId keys
       String keyToUse = qId;
-      if (!widget.result.responses.containsKey(keyToUse)) {
+
+      // Safe fallback for customId
+      if (!responses.containsKey(keyToUse)) {
         keyToUse = widget.result.questions[i].customId;
       }
 
-      final response = widget.result.responses[keyToUse];
+      final response = responses[keyToUse];
 
       if (response != null) {
         final tag = response.smartTimeAnalysis;
@@ -74,7 +79,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
           child: SolutionDetailSheet(
             result: widget.result,
             initialIndex: initialIndex,
-            // PASS THE NEW DATA HERE
             categoryTitle: category,
             validQuestionIndices: subset,
           ),
@@ -96,11 +100,30 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  // [UPDATED] Prioritizes breakdown data for consistency
   Widget _buildScoreCard() {
-    final double max = widget.result.maxMarks.toDouble();
-    final double score = widget.result.score.toDouble();
+    final attempt = widget.result.attempt;
+
+    // Default to root values
+    double max = attempt.maxMarks.toDouble();
+    double score = attempt.score.toDouble();
+
+    // Prefer "Overall" breakdown if available (Fixes the 36 vs 40 mismatch)
+    if (attempt.marksBreakdown.containsKey('Overall')) {
+      final overall = attempt.marksBreakdown['Overall'];
+      if (overall != null) {
+        if (overall['maxMarks'] != null) max = (overall['maxMarks'] as num).toDouble();
+        if (overall['marksObtained'] != null) score = (overall['marksObtained'] as num).toDouble();
+      }
+    }
+
     final double percent = (max > 0) ? (score.abs() / max).clamp(0.0, 1.0) : 0.0;
+
+    // Dynamic color based on percentage
     final theme = _getDynamicColors(score, max);
+
+    // Format: "20 / 36" (No decimals)
+    final String scoreText = "${score.toStringAsFixed(0)} / ${max.toStringAsFixed(0)}";
 
     return Container(
       decoration: _standardCardDecoration,
@@ -111,7 +134,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Score', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.black)),
-              Text('${widget.result.score} / ${widget.result.maxMarks}',
+              Text(scoreText,
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: theme.text)),
             ],
           ),
@@ -125,24 +148,126 @@ class _ResultsScreenState extends State<ResultsScreen> {
               minHeight: 12,
             ),
           ),
+
+          // Question Type Breakdown
+          _buildTypeBreakdownList(attempt.marksBreakdown),
         ],
       ),
     );
   }
 
-  Widget _buildStatsRow() {
-    final int correct = widget.result.correctCount;
-    final int incorrect = widget.result.incorrectCount;
-    final int totalQs = widget.result.totalQuestions;
-    final int attempted = correct + incorrect;
+  // [UPDATED] Shows "Obtained / Max" and sorts by Max Marks
+  Widget _buildTypeBreakdownList(Map<String, dynamic> breakdown) {
+    if (breakdown.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
+    // 1. Flatten Data: Aggregate across subjects
+    Map<String, Map<String, double>> typeStats = {};
+
+    breakdown.forEach((subjectKey, subjectValue) {
+      if (subjectKey == "Overall") return; // Skip overall summary
+      if (subjectValue is Map) {
+        subjectValue.forEach((typeKey, typeData) {
+          if (typeData is Map && typeKey != "maxMarks" && typeKey != "marksObtained") {
+            // Found a Question Type (e.g., "Numerical type")
+            if (!typeStats.containsKey(typeKey)) {
+              typeStats[typeKey] = {"max": 0.0, "obtained": 0.0};
+            }
+            double m = (typeData["maxMarks"] as num? ?? 0).toDouble();
+            double o = (typeData["marksObtained"] as num? ?? 0).toDouble();
+
+            typeStats[typeKey]!["max"] = (typeStats[typeKey]!["max"]!) + m;
+            typeStats[typeKey]!["obtained"] = (typeStats[typeKey]!["obtained"]!) + o;
+          }
+        });
+      }
+    });
+
+    if (typeStats.isEmpty) return const SizedBox.shrink();
+
+    // 2. Sort by Max Marks (Descending) -> Highest weightage first
+    List<MapEntry<String, Map<String, double>>> sortedStats = typeStats.entries.toList()
+      ..sort((a, b) => b.value["max"]!.compareTo(a.value["max"]!));
+
+    return Column(
+      children: [
+        const SizedBox(height: 24),
+        const Divider(),
+        const SizedBox(height: 16),
+        ...sortedStats.map((e) {
+          final String label = e.key;
+          final double max = e.value["max"]!;
+          final double obtained = e.value["obtained"]!;
+
+          final theme = _getDynamicColors(obtained, max);
+          final double percent = (max > 0) ? (obtained / max).clamp(0.0, 1.0) : 0.0;
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Row(
+              children: [
+                // Label (e.g. "Numerical type")
+                SizedBox(
+                  width: 120,
+                  child: Text(label,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                // Bar
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Container(height: 8, decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4))),
+                      FractionallySizedBox(
+                        widthFactor: percent,
+                        child: Container(height: 8, decoration: BoxDecoration(color: theme.bar, borderRadius: BorderRadius.circular(4))),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Value (e.g. "8 / 12")
+                SizedBox(
+                  width: 50,
+                  child: Text(
+                      "${obtained.toStringAsFixed(0)} / ${max.toStringAsFixed(0)}",
+                      textAlign: TextAlign.end,
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: theme.bar)
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  Widget _buildStatsRow() {
+    int correct = 0;
+    int partial = 0;
+    int incorrect = 0;
+
+    widget.result.attempt.responses.forEach((k, v) {
+      if (v.status == 'CORRECT') correct++;
+      else if (v.status == 'PARTIALLY_CORRECT') partial++;
+      else if (v.status == 'INCORRECT') incorrect++;
+    });
+
+    final int attempted = correct + partial + incorrect;
+    final int totalQs = widget.result.attempt.totalQuestions;
+
+    // Accuracy: Strictly Correct / Attempted (Partial does not count as Accuracy hit)
     final double accuracy = (attempted > 0) ? (correct / attempted) * 100 : 0.0;
     final double attemptPercent = (totalQs > 0) ? (attempted / totalQs) * 100 : 0.0;
-    final String timeStr = _formatTimeHHMMSS(widget.result.timeTakenSeconds);
+    final String timeStr = _formatTimeHHMMSS(widget.result.attempt.timeTakenSeconds);
 
     double timeBarPercent = 1.0;
-    if (widget.result.timeLimitMinutes != null && widget.result.timeLimitMinutes! > 0) {
-      timeBarPercent = (widget.result.timeTakenSeconds / (widget.result.timeLimitMinutes! * 60)).clamp(0.0, 1.0);
+    if (widget.result.attempt.timeLimitMinutes != null && widget.result.attempt.timeLimitMinutes! > 0) {
+      timeBarPercent = (widget.result.attempt.timeTakenSeconds / (widget.result.attempt.timeLimitMinutes! * 60)).clamp(0.0, 1.0);
     }
 
     return Row(
@@ -157,11 +282,32 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Widget _buildQuestionsByResultChart() {
-    final int c = widget.result.correctCount;
-    final int i = widget.result.incorrectCount;
-    final int s = widget.result.skippedCount;
+    int c = 0;
+    int p = 0;
+    int i = 0;
+    int s = 0;
 
-    final bool isEmpty = (c == 0 && i == 0 && s == 0);
+    widget.result.attempt.responses.forEach((k, v) {
+      if (v.status == 'CORRECT') c++;
+      else if (v.status == 'PARTIALLY_CORRECT') p++;
+      else if (v.status == 'INCORRECT') i++;
+      else s++;
+    });
+
+    // Fallback if map is empty but summary exists
+    if (c == 0 && p == 0 && i == 0 && s == 0) {
+      c = widget.result.attempt.correctCount;
+      i = widget.result.attempt.incorrectCount;
+      s = widget.result.attempt.skippedCount;
+    } else {
+      // Ensure skipped matches total
+      int calculated = c + p + i + s;
+      if (calculated < widget.result.attempt.totalQuestions) {
+        s += (widget.result.attempt.totalQuestions - calculated);
+      }
+    }
+
+    final bool isEmpty = (c == 0 && p == 0 && i == 0 && s == 0);
 
     return Container(
       decoration: _standardCardDecoration,
@@ -174,9 +320,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
               PieChartData(
                 sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
                 sections: [
-                  _buildSection(c.toDouble(), '$c', Colors.green),
-                  _buildSection(i.toDouble(), '$i', Colors.red),
-                  _buildSection(s.toDouble(), '$s', Colors.grey.shade300, textColor: Colors.black54),
+                  if(c>0) _buildSection(c.toDouble(), '$c', Colors.green),
+                  if(p>0) _buildSection(p.toDouble(), '$p', Colors.orange), // Orange for Partial
+                  if(i>0) _buildSection(i.toDouble(), '$i', Colors.red),
+                  if(s>0) _buildSection(s.toDouble(), '$s', Colors.grey.shade300, textColor: Colors.black54),
                 ],
               ),
             ),
@@ -186,6 +333,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
             spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
             children: [
               _buildLegendItem(Colors.green, 'Correct'),
+              if(p>0) _buildLegendItem(Colors.orange, 'Partial'),
               _buildLegendItem(Colors.red, 'Incorrect'),
               _buildLegendItem(Colors.grey.shade300, 'Unattempted'),
             ],
@@ -196,12 +344,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Widget _buildTimeByResultChart() {
-    final Map<String, int> data = widget.result.secondsBreakdownHighLevel;
+    final Map<String, int> data = widget.result.attempt.secondsBreakdownHighLevel;
     int c = data['CORRECT'] ?? 0;
+    int p = data['PARTIALLY_CORRECT'] ?? 0;
     int i = data['INCORRECT'] ?? 0;
     int s = (data['SKIPPED'] ?? 0) + (data['REVIEW_ANSWERED'] ?? 0) + (data['REVIEW'] ?? 0);
 
-    final total = c + i + s;
+    final total = c + p + i + s;
 
     return Container(
       decoration: _standardCardDecoration,
@@ -214,9 +363,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
               PieChartData(
                 sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
                 sections: [
-                  _buildTimeSection(c, total, Colors.green),
-                  _buildTimeSection(i, total, Colors.red),
-                  _buildTimeSection(s, total, Colors.grey.shade300, textColor: Colors.black54),
+                  if(c>0) _buildTimeSection(c, total, Colors.green),
+                  if(p>0) _buildTimeSection(p, total, Colors.orange),
+                  if(i>0) _buildTimeSection(i, total, Colors.red),
+                  if(s>0) _buildTimeSection(s, total, Colors.grey.shade300, textColor: Colors.black54),
                 ],
               ),
             ),
@@ -226,6 +376,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
             spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
             children: [
               _buildLegendItem(Colors.green, 'Correct (${_formatSecondsDetailed(c)})'),
+              if(p>0) _buildLegendItem(Colors.orange, 'Partial (${_formatSecondsDetailed(p)})'),
               _buildLegendItem(Colors.red, 'Incorrect (${_formatSecondsDetailed(i)})'),
               _buildLegendItem(Colors.grey.shade300, 'Skipped (${_formatSecondsDetailed(s)})'),
             ],
@@ -236,11 +387,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Widget _buildBehaviorCountChart() {
-    final Map<String, int> counts = widget.result.smartTimeAnalysisCounts;
+    final Map<String, int> counts = widget.result.attempt.smartTimeAnalysisCounts;
     List<PieChartSectionData> sections = [];
     int totalCount = 0;
 
-    // 1. Build Sections
     for (var key in _behavioralOrder) {
       String? actualKey = counts.keys.firstWhere(
               (k) => k.startsWith(key), orElse: () => ''
@@ -249,14 +399,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
       if (actualKey.isNotEmpty) {
         int val = counts[actualKey] ?? 0;
         if (val > 0) {
-          // Title on Chart: Just the number
           sections.add(_buildSection(val.toDouble(), '$val', _getSmartColor(key)));
           totalCount += val;
         }
       }
     }
 
-    // 2. Build Legend (Corrected to show "Category Name (Count)")
     Widget legend = Wrap(
       spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
       children: _behavioralOrder.map((key) {
@@ -266,7 +414,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
         int val = (actualKey.isNotEmpty) ? counts[actualKey] ?? 0 : 0;
 
         if (val > 0) {
-          // LEGEND TEXT: "Perfect Attempt (4)"
           return _buildLegendItem(_getSmartColor(key), '$key ($val)');
         }
         return const SizedBox.shrink();
@@ -298,18 +445,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          legend, // <--- Corrected Legend
+          legend,
         ],
       ),
     );
   }
+
   Widget _buildBehaviorTimeChart() {
-    final Map<String, int> times = widget.result.secondsBreakdownSmartTimeAnalysis;
+    final Map<String, int> times = widget.result.attempt.secondsBreakdownSmartTimeAnalysis;
     final total = times.values.fold(0, (sum, item) => sum + item);
     List<PieChartSectionData> sections = [];
 
     for (var key in _behavioralOrder) {
-      // Logic to find key even if suffix differs
       String? actualKey = times.keys.firstWhere(
               (k) => k.startsWith(key), orElse: () => ''
       );
@@ -392,11 +539,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 Wrap(
                   spacing: 8, runSpacing: 8,
                   children: indices.map((idx) => GestureDetector(
-                    // UPDATED: Pass the Category Key and the List of Indices
                     onTap: () => _showSolutionSheet(
                         idx,
-                        category: key,      // e.g. "Perfect Attempt"
-                        subset: indices     // e.g. [0, 2, 5]
+                        category: key,
+                        subset: indices
                     ),
                     child: Container(
                       width: 44, height: 34, alignment: Alignment.center,
@@ -423,30 +569,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   // --- UTILS ---
-
-  Widget _buildGenericPieChart(List<PieChartSectionData> sections, int total, String emptyMsg) {
-    if (sections.isEmpty) return Container(decoration: _standardCardDecoration, padding: const EdgeInsets.all(20), child: Center(child: Text(emptyMsg)));
-    return Container(
-      decoration: _standardCardDecoration,
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        children: [
-          SizedBox(
-            height: 200,
-            child: PieChart(
-              PieChartData(sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270, sections: sections),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Wrap(
-            spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
-            // Simple legend for count chart
-            children: sections.map((s) => _buildLegendItem(s.color, s.title)).toList(),
-          ),
-        ],
-      ),
-    );
-  }
 
   String _formatTimeHHMMSS(int totalSeconds) {
     if (totalSeconds < 0) return "00:00";

@@ -1,5 +1,5 @@
 // lib/features/home/screens/home_screen.dart
-// Description: Main Student Dashboard. Updated to pass correct analytics params during Resume/Discard logic.
+// Description: Main Dashboard. Implements 'onRefreshNeeded' callback to update "Resume" state immediately after a test session ends.
 
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/user_model.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
-import 'package:study_smart_qc/models/marking_configuration.dart'; // [NEW IMPORT]
+import 'package:study_smart_qc/models/marking_configuration.dart';
 
 // SCREENS & WIDGETS
 import 'package:study_smart_qc/features/auth/screens/auth_page.dart';
@@ -52,6 +52,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkPendingSession();
   }
 
+  // [NEW] Central Refresh Logic
+  Future<void> _refreshState() async {
+    await _fetchUserData();
+    await _checkPendingSession();
+  }
+
   Future<void> _fetchUserData() async {
     final user = await OnboardingService().getCurrentUserModel();
     if (mounted) {
@@ -68,42 +74,28 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  //  SORTING LOGIC
-  // ---------------------------------------------------------------------------
-  int _deadlineAwareSort(QueryDocumentSnapshot a, QueryDocumentSnapshot b) {
-    final Map<String, dynamic> dataA = a.data() as Map<String, dynamic>;
-    final Map<String, dynamic> dataB = b.data() as Map<String, dynamic>;
-
-    final Timestamp? deadlineA = dataA['deadline'];
-    final Timestamp? deadlineB = dataB['deadline'];
-
-    final Timestamp createdA = dataA['createdAt'] ?? Timestamp.now();
-    final Timestamp createdB = dataB['createdAt'] ?? Timestamp.now();
-
-    if (deadlineA != null && deadlineB == null) return -1;
-    if (deadlineA == null && deadlineB != null) return 1;
-
-    if (deadlineA != null && deadlineB != null) {
-      int cmp = deadlineA.compareTo(deadlineB);
-      if (cmp != 0) return cmp;
-    }
-
-    return createdB.compareTo(createdA);
-  }
-
-  // ---------------------------------------------------------------------------
-  //  RESUME LOGIC (UPDATED)
+  //  RESUME LOGIC
   // ---------------------------------------------------------------------------
 
   Future<void> _checkPendingSession() async {
     final hasSession = await _localSessionService.hasPendingSession();
     if (hasSession) {
       final data = await _localSessionService.getSessionData();
-      setState(() {
-        _hasPendingSession = true;
-        _pendingSessionData = data;
-      });
-      if (mounted) _showResumeDialog();
+      if (mounted) {
+        setState(() {
+          _hasPendingSession = true;
+          _pendingSessionData = data;
+        });
+        // Note: Removed auto-dialog on init to be less intrusive.
+        // The Card UI will now show "Resume" button.
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _hasPendingSession = false;
+          _pendingSessionData = null;
+        });
+      }
     }
   }
 
@@ -113,8 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text("Resume Session?"),
-        content: const Text(
-            "You have an unfinished session saved on this device. Would you like to continue?"),
+        content: const Text("You have an unfinished session saved on this device. Would you like to continue?"),
         actions: [
           TextButton(
             onPressed: () {
@@ -179,8 +170,6 @@ class _HomeScreenState extends State<HomeScreen> {
       List<Question> questions = [];
       List<String> qIds = [];
       bool isSingleAttempt = false;
-
-      // [NEW] Parse Marking Schemes
       Map<QuestionType, MarkingConfiguration> markingSchemes = {};
 
       final curationQuery = await FirebaseFirestore.instance
@@ -194,7 +183,6 @@ class _HomeScreenState extends State<HomeScreen> {
         qIds = List<String>.from(data['questionIds'] ?? []);
         isSingleAttempt = data['onlySingleAttempt'] ?? false;
 
-        // --- PARSE CONFIG LOGIC ---
         if (data['markingSchemes'] != null && data['markingSchemes'] is Map) {
           (data['markingSchemes'] as Map).forEach((key, value) {
             QuestionType type = _mapStringToType(key.toString());
@@ -204,7 +192,6 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         }
       } else {
-        // Fallback for legacy
         final testQuery = await FirebaseFirestore.instance
             .collection('tests')
             .where('assignmentCode', isEqualTo: assignmentCode)
@@ -212,8 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .get();
 
         if (testQuery.docs.isNotEmpty) {
-          qIds = List<String>.from(
-              testQuery.docs.first.data()['questionIds'] ?? []);
+          qIds = List<String>.from(testQuery.docs.first.data()['questionIds'] ?? []);
         }
       }
 
@@ -221,9 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
         questions = await TestOrchestrationService().getQuestionsByIds(qIds);
       }
 
-      if (questions.isEmpty) {
-        throw Exception("Could not retrieve questions.");
-      }
+      if (questions.isEmpty) throw Exception("Could not retrieve questions.");
 
       final responseMap = _localSessionService.parseResponses(
           Map<String, dynamic>.from(state['responses']));
@@ -246,13 +230,12 @@ class _HomeScreenState extends State<HomeScreen> {
               resumedResponses: responseMap,
               title: meta['title'] ?? 'Resumed Session',
               onlySingleAttempt: isSingleAttempt,
-              // [NEW] Pass the parsed schemes
               markingSchemes: markingSchemes.isNotEmpty ? markingSchemes : null,
             ),
           ),
         ).then((_) {
-          _checkPendingSession();
-          _fetchUserData();
+          // [CRITICAL] Refresh state when returning from test (Finished or Quit)
+          _refreshState();
         });
       }
     } catch (e) {
@@ -263,7 +246,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Helper for Parsing
   QuestionType _mapStringToType(String typeString) {
     switch (typeString) {
       case 'Single Correct': return QuestionType.singleCorrect;
@@ -285,7 +267,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final responseMap = _localSessionService.parseResponses(
         Map<String, dynamic>.from(state['responses']));
 
-    // Basic scoring for discard submission
     int correct = 0;
     int incorrect = 0;
     responseMap.forEach((k, v) {
@@ -304,8 +285,6 @@ class _HomeScreenState extends State<HomeScreen> {
       score: score,
       timeTakenSeconds: 0,
       responses: responseMap,
-
-      // [FIXED] Pass correct keys for discarded sessions
       markingSchemes: {},
       marksBreakdown: {},
     );
@@ -319,8 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (mounted) {
       _fetchUserData();
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Session submitted successfully.")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Session submitted successfully.")));
     }
   }
 
@@ -365,95 +343,36 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       drawer: _buildDrawer(context),
 
-      body: StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('users')
-              .doc(_userModel!.uid)
-              .snapshots(),
-          builder: (context, userSnapshot) {
+      body: IndexedStack(
+        index: _currentTabIndex,
+        children: [
+          _AssignmentTabContainer(
+            user: _userModel!,
+            isTest: false,
+            resumableAssignmentCode: _pendingAssignmentCode,
+            onResumeTap: _handleResumePending,
+            onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
+            // [NEW] Pass Refresh Logic
+            onRefreshNeeded: _refreshState,
+          ),
 
-            List<String> liveSubmittedCodes = _userModel!.assignmentCodesSubmitted;
+          _AssignmentTabContainer(
+            user: _userModel!,
+            isTest: true,
+            resumableAssignmentCode: _pendingAssignmentCode,
+            onResumeTap: _handleResumePending,
+            onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
+            // [NEW] Pass Refresh Logic
+            onRefreshNeeded: _refreshState,
+          ),
 
-            if (userSnapshot.hasData && userSnapshot.data!.exists) {
-              final userData = userSnapshot.data!.data() as Map<String, dynamic>;
-              liveSubmittedCodes = List<String>.from(userData['assignmentCodesSubmitted'] ?? []);
-            }
-
-            return StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('questions_curation')
-                  .where('studentId', isEqualTo: _userModel!.studentId)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (snapshot.hasError) {
-                  return Center(child: Text("Error: ${snapshot.error}"));
-                }
-
-                final allDocs = snapshot.data?.docs ?? [];
-
-                final strictDocs = <QueryDocumentSnapshot>[];
-                final normalDocs = <QueryDocumentSnapshot>[];
-
-                for (var doc in allDocs) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  final bool isStrict = data['onlySingleAttempt'] ?? false;
-                  if (isStrict) {
-                    strictDocs.add(doc);
-                  } else {
-                    normalDocs.add(doc);
-                  }
-                }
-
-                final pendingAssignments = normalDocs
-                    .where((d) => !liveSubmittedCodes.contains(d['assignmentCode']))
-                    .toList()..sort(_deadlineAwareSort);
-
-                final completedAssignments = normalDocs
-                    .where((d) => liveSubmittedCodes.contains(d['assignmentCode']))
-                    .toList()..sort(_deadlineAwareSort);
-
-                final pendingTests = strictDocs
-                    .where((d) => !liveSubmittedCodes.contains(d['assignmentCode']))
-                    .toList()..sort(_deadlineAwareSort);
-
-                final completedTests = strictDocs
-                    .where((d) => liveSubmittedCodes.contains(d['assignmentCode']))
-                    .toList()..sort(_deadlineAwareSort);
-
-                return IndexedStack(
-                  index: _currentTabIndex,
-                  children: [
-                    _AssignmentTabContainer(
-                      pendingDocs: pendingAssignments,
-                      completedDocs: completedAssignments,
-                      resumableAssignmentCode: _pendingAssignmentCode,
-                      onResumeTap: _handleResumePending,
-                      onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
-                    ),
-
-                    _AssignmentTabContainer(
-                      pendingDocs: pendingTests,
-                      completedDocs: completedTests,
-                      resumableAssignmentCode: _pendingAssignmentCode,
-                      onResumeTap: _handleResumePending,
-                      onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
-                    ),
-
-                    const DisplayResultsForStudentId(),
-                  ],
-                );
-              },
-            );
-          }
+          const DisplayResultsForStudentId(),
+        ],
       ),
+
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentTabIndex,
-        onDestinationSelected: (index) =>
-            setState(() => _currentTabIndex = index),
+        onDestinationSelected: (index) => setState(() => _currentTabIndex = index),
         backgroundColor: Colors.white,
         indicatorColor: const Color(0xFFEADBFF),
         destinations: const [
@@ -493,97 +412,28 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: EdgeInsets.zero,
         children: [
           UserAccountsDrawerHeader(
-            accountName: Text(
-              _userModel?.displayName ?? "User",
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
+            accountName: Text(_userModel?.displayName ?? "User", style: const TextStyle(fontWeight: FontWeight.bold)),
             accountEmail: Text(_userModel?.email ?? ""),
             currentAccountPicture: CircleAvatar(
               backgroundColor: Colors.white,
-              child: Text(
-                (_userModel?.displayName ?? "U")[0].toUpperCase(),
-                style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF6200EA)),
-              ),
+              child: Text((_userModel?.displayName ?? "U")[0].toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF6200EA))),
             ),
-            decoration: const BoxDecoration(
-              color: Color(0xFF6200EA),
-            ),
+            decoration: const BoxDecoration(color: Color(0xFF6200EA)),
           ),
           if (!isTeacher && _userModel?.studentId != null) ...[
-            ListTile(
-              leading: const Icon(Icons.badge_outlined),
-              title: Text("Student ID: ${_userModel!.studentId}"),
-              tileColor: Colors.grey.shade50,
-            ),
+            ListTile(leading: const Icon(Icons.badge_outlined), title: Text("Student ID: ${_userModel!.studentId}"), tileColor: Colors.grey.shade50),
             const Divider(),
           ],
           if (isTeacher) ...[
-            const Padding(
-              padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
-              child: Text("Teacher Tools",
-                  style: TextStyle(
-                      color: Colors.grey, fontWeight: FontWeight.bold)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.history_edu),
-              title: const Text('My Curations'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const TeacherHistoryScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit_note),
-              title: const Text('Curate Questions'),
-              onTap: () {
-                Navigator.pop(context);
-                if (ModalRoute.of(context)?.settings.name != '/') {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.analytics),
-              title: const Text("Check Student Performance"),
-              onTap: () {
-                Navigator.pop(context);
-                showModalBottomSheet(
-                  context: context,
-                  isScrollControlled: true,
-                  builder: (_) => const StudentLookupSheet(),
-                );
-              },
-            ),
+            const Padding(padding: EdgeInsets.only(left: 16, top: 16, bottom: 8), child: Text("Teacher Tools", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
+            ListTile(leading: const Icon(Icons.history_edu), title: const Text('My Curations'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherHistoryScreen())); }),
+            ListTile(leading: const Icon(Icons.edit_note), title: const Text('Curate Questions'), onTap: () { Navigator.pop(context); if (ModalRoute.of(context)?.settings.name != '/') Navigator.popUntil(context, (route) => route.isFirst); }),
+            ListTile(leading: const Icon(Icons.analytics), title: const Text("Check Student Performance"), onTap: () { Navigator.pop(context); showModalBottomSheet(context: context, isScrollControlled: true, builder: (_) => const StudentLookupSheet()); }),
             const Divider(),
           ],
-          ListTile(
-            leading: const Icon(Icons.person),
-            title: const Text('Profile'),
-            onTap: () {
-              Navigator.pop(context);
-            },
-          ),
+          ListTile(leading: const Icon(Icons.person), title: const Text('Profile'), onTap: () { Navigator.pop(context); }),
           const Divider(),
-          ListTile(
-            leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text('Logout', style: TextStyle(color: Colors.red)),
-            onTap: () async {
-              await AuthService().signOut();
-              if (context.mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => const AuthPage()),
-                      (route) => false,
-                );
-              }
-            },
-          ),
+          ListTile(leading: const Icon(Icons.logout, color: Colors.red), title: const Text('Logout', style: TextStyle(color: Colors.red)), onTap: () async { await AuthService().signOut(); if (context.mounted) Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthPage()), (route) => false); }),
         ],
       ),
     );
@@ -591,31 +441,32 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ---------------------------------------------------------------------------
-//  HELPER 1: TAB CONTAINER
+//  WIDGET 1: TAB CONTAINER
 // ---------------------------------------------------------------------------
 
 class _AssignmentTabContainer extends StatefulWidget {
-  final List<QueryDocumentSnapshot> pendingDocs;
-  final List<QueryDocumentSnapshot> completedDocs;
-
+  final UserModel user;
+  final bool isTest;
   final String? resumableAssignmentCode;
   final Future<void> Function() onResumeTap;
   final VoidCallback onViewAnalysisTap;
+  // [NEW]
+  final VoidCallback onRefreshNeeded;
 
   const _AssignmentTabContainer({
-    required this.pendingDocs,
-    required this.completedDocs,
+    required this.user,
+    required this.isTest,
     required this.resumableAssignmentCode,
     required this.onResumeTap,
     required this.onViewAnalysisTap,
+    required this.onRefreshNeeded,
   });
 
   @override
   State<_AssignmentTabContainer> createState() => _AssignmentTabContainerState();
 }
 
-class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
-    with SingleTickerProviderStateMixin {
+class _AssignmentTabContainerState extends State<_AssignmentTabContainer> with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
   @override
@@ -631,57 +482,156 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer>
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           height: 48,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade200,
-            borderRadius: BorderRadius.circular(12),
-          ),
+          decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(12)),
           child: TabBar(
             controller: _tabController,
-            indicator: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
+            indicator: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4, offset: const Offset(0, 2))]),
             labelColor: const Color(0xFF6200EA),
             unselectedLabelColor: Colors.grey.shade600,
-            labelStyle:
-            const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
             indicatorSize: TabBarIndicatorSize.tab,
             dividerColor: Colors.transparent,
             indicatorPadding: const EdgeInsets.all(4),
-            tabs: const [
-              Tab(text: "Pending"),
-              Tab(text: "Completed"),
-            ],
+            tabs: const [Tab(text: "Pending"), Tab(text: "Completed")],
           ),
         ),
-
         Expanded(
           child: TabBarView(
             controller: _tabController,
             children: [
-              StudentAssignmentsList(
-                documents: widget.pendingDocs,
+              _PaginatedListWrapper(
+                user: widget.user,
+                isTest: widget.isTest,
+                isCompleted: false,
                 resumableAssignmentCode: widget.resumableAssignmentCode,
                 onResumeTap: widget.onResumeTap,
                 onViewAnalysisTap: widget.onViewAnalysisTap,
+                onRefreshNeeded: widget.onRefreshNeeded,
               ),
-              StudentAssignmentsList(
-                documents: widget.completedDocs,
+              _PaginatedListWrapper(
+                user: widget.user,
+                isTest: widget.isTest,
+                isCompleted: true,
                 resumableAssignmentCode: widget.resumableAssignmentCode,
                 onResumeTap: widget.onResumeTap,
                 onViewAnalysisTap: widget.onViewAnalysisTap,
+                onRefreshNeeded: widget.onRefreshNeeded,
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  WIDGET 2: PAGINATED LIST WRAPPER
+// ---------------------------------------------------------------------------
+
+class _PaginatedListWrapper extends StatefulWidget {
+  final UserModel user;
+  final bool isTest;
+  final bool isCompleted;
+  final String? resumableAssignmentCode;
+  final Future<void> Function() onResumeTap;
+  final VoidCallback onViewAnalysisTap;
+  // [NEW]
+  final VoidCallback onRefreshNeeded;
+
+  const _PaginatedListWrapper({
+    required this.user,
+    required this.isTest,
+    required this.isCompleted,
+    required this.resumableAssignmentCode,
+    required this.onResumeTap,
+    required this.onViewAnalysisTap,
+    required this.onRefreshNeeded,
+  });
+
+  @override
+  State<_PaginatedListWrapper> createState() => _PaginatedListWrapperState();
+}
+
+class _PaginatedListWrapperState extends State<_PaginatedListWrapper> {
+  final List<QueryDocumentSnapshot> _documents = [];
+  bool _isLoading = false;
+  bool _hasMore = true;
+  DocumentSnapshot? _lastDocument;
+  static const int _limit = 20;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchNextBatch();
+  }
+
+  Future<void> _fetchNextBatch() async {
+    if (_isLoading || !_hasMore) return;
+    setState(() => _isLoading = true);
+
+    try {
+      Query query = FirebaseFirestore.instance
+          .collection('questions_curation')
+          .where('studentId', isEqualTo: widget.user.studentId)
+          .where('onlySingleAttempt', isEqualTo: widget.isTest);
+
+      if (widget.isCompleted) {
+        query = query.orderBy('createdAt', descending: true);
+      } else {
+        query = query.orderBy('deadline', descending: false);
+      }
+
+      query = query.limit(_limit);
+      if (_lastDocument != null) {
+        query = query.startAfterDocument(_lastDocument!);
+      }
+
+      final snapshot = await query.get();
+
+      if (snapshot.docs.isNotEmpty) {
+        _lastDocument = snapshot.docs.last;
+        final filteredDocs = snapshot.docs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final code = data['assignmentCode'] ?? '';
+          final isSubmitted = widget.user.assignmentCodesSubmitted.contains(code);
+          return widget.isCompleted ? isSubmitted : !isSubmitted;
+        }).toList();
+
+        if (mounted) {
+          setState(() {
+            _documents.addAll(filteredDocs);
+            if (snapshot.docs.length < _limit) _hasMore = false;
+          });
+        }
+
+        if (filteredDocs.isEmpty && snapshot.docs.length == _limit && _hasMore) {
+          _isLoading = false;
+          _fetchNextBatch();
+        }
+      } else {
+        if (mounted) setState(() => _hasMore = false);
+      }
+    } catch (e) {
+      print("Pagination Error: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StudentAssignmentsList(
+      documents: _documents,
+      resumableAssignmentCode: widget.resumableAssignmentCode,
+      onResumeTap: widget.onResumeTap,
+      onViewAnalysisTap: widget.onViewAnalysisTap,
+      isHistoryMode: widget.isCompleted,
+      isLoadingMore: _isLoading,
+      hasMore: _hasMore,
+      onLoadMore: _fetchNextBatch,
+      // [NEW] Pass callback
+      onRefreshNeeded: widget.onRefreshNeeded,
     );
   }
 }

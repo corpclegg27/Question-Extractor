@@ -1,4 +1,5 @@
 // lib/features/student/widgets/student_curation_preview_card.dart
+// Description: Card widget. Fixed UI Precedence: "Resume" status now overrides "Completed" status.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,7 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
-import 'package:study_smart_qc/models/marking_configuration.dart'; // [NEW IMPORT]
+import 'package:study_smart_qc/models/marking_configuration.dart';
 
 class StudentCurationPreviewCard extends StatelessWidget {
   final QueryDocumentSnapshot snapshot;
@@ -20,6 +21,8 @@ class StudentCurationPreviewCard extends StatelessWidget {
   final VoidCallback onResumeTap;
   final VoidCallback onViewAnalysisTap;
 
+  final VoidCallback? onRefreshNeeded;
+
   const StudentCurationPreviewCard({
     super.key,
     required this.snapshot,
@@ -28,6 +31,7 @@ class StudentCurationPreviewCard extends StatelessWidget {
     required this.isStrict,
     required this.onResumeTap,
     required this.onViewAnalysisTap,
+    this.onRefreshNeeded,
   });
 
   @override
@@ -102,7 +106,30 @@ class StudentCurationPreviewCard extends StatelessWidget {
       BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4)),
     ];
 
-    if (actuallySubmitted) {
+    // [CRITICAL FIX] Check Resumable FIRST.
+    // Even if it's "Completed" (retake scenario), we want to show the Resume UI if a session is pending.
+    if (isResumable) {
+      // 🟠 RESUMABLE: Orange Glow
+      borderColor = Colors.orange.shade300;
+      shadows = [
+        BoxShadow(color: Colors.orange.withOpacity(0.2), blurRadius: 10, spreadRadius: 1),
+      ];
+      statusBadge = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.timelapse, size: 16, color: Colors.orange.shade800),
+            const SizedBox(width: 4),
+            Text("In Progress", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade900)),
+          ],
+        ),
+      );
+    } else if (actuallySubmitted) {
       // 🟢 COMPLETED: Green Glow & Border
       borderColor = Colors.green.shade300;
       shadows = [
@@ -121,27 +148,6 @@ class StudentCurationPreviewCard extends StatelessWidget {
             Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
             const SizedBox(width: 4),
             Text("Completed", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green.shade800)),
-          ],
-        ),
-      );
-    } else if (isResumable) {
-      // 🟠 RESUMABLE: Orange Glow
-      borderColor = Colors.orange.shade300;
-      shadows = [
-        BoxShadow(color: Colors.orange.withOpacity(0.2), blurRadius: 10, spreadRadius: 1),
-      ];
-      statusBadge = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.orange.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.orange.shade200),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.timelapse, size: 16, color: Colors.orange.shade800),
-            const SizedBox(width: 4),
-            Text("In Progress", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade900)),
           ],
         ),
       );
@@ -254,46 +260,9 @@ class StudentCurationPreviewCard extends StatelessWidget {
               const SizedBox(height: 16),
 
               // --- ACTION BUTTONS ---
-              if (actuallySubmitted) ...[
-                Row(
-                  children: [
-                    // 1. View Analysis (Equal Width)
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: onViewAnalysisTap,
-                        icon: const Icon(Icons.analytics_outlined, size: 18),
-                        label: const Text("View Analysis"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF6200EA),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
 
-                    // 2. Attempt Again (Equal Width) - Only if NOT strict
-                    if (!isStrict) ...[
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _initiateTestFlow(context, data),
-                          icon: const Icon(Icons.refresh, size: 18), // Added Icon
-                          label: const Text("Retake", style: TextStyle(fontWeight: FontWeight.bold)),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.deepPurple,
-                            side: const BorderSide(color: Colors.deepPurple),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                )
-              ] else if (isResumable) ...[
-                // Resume Button
+              // [CRITICAL FIX] Prioritize Resume Button
+              if (isResumable) ...[
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -309,6 +278,42 @@ class StudentCurationPreviewCard extends StatelessWidget {
                     ),
                   ),
                 ),
+              ] else if (actuallySubmitted) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: onViewAnalysisTap,
+                        icon: const Icon(Icons.analytics_outlined, size: 18),
+                        label: const Text("View Analysis"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6200EA),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+
+                    if (!isStrict) ...[
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _initiateTestFlow(context, data),
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text("Retake", style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.deepPurple,
+                            side: const BorderSide(color: Colors.deepPurple),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                )
               ],
             ],
           ),
@@ -385,7 +390,6 @@ class StudentCurationPreviewCard extends StatelessWidget {
 
       final questions = await TestOrchestrationService().getQuestionsByIds(qIds);
 
-      // [NEW] PARSE MARKING SCHEMES
       Map<QuestionType, MarkingConfiguration> markingSchemes = {};
       if (data['markingSchemes'] != null && data['markingSchemes'] is Map) {
         (data['markingSchemes'] as Map).forEach((key, value) {
@@ -398,7 +402,8 @@ class StudentCurationPreviewCard extends StatelessWidget {
 
       if (context.mounted) {
         Navigator.pop(context);
-        Navigator.push(
+
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => TestScreen(
@@ -412,11 +417,13 @@ class StudentCurationPreviewCard extends StatelessWidget {
               resumedTimerSeconds: null,
               resumedPageIndex: 0,
               resumedResponses: const {},
-              // [NEW] INJECT CONFIG
               markingSchemes: markingSchemes.isNotEmpty ? markingSchemes : null,
             ),
           ),
         );
+
+        // Triggers refresh when user comes back
+        onRefreshNeeded?.call();
       }
     } catch (e) {
       if (context.mounted) {
@@ -428,7 +435,6 @@ class StudentCurationPreviewCard extends StatelessWidget {
     }
   }
 
-  // [NEW] HELPER
   QuestionType _mapStringToType(String typeString) {
     switch (typeString) {
       case 'Single Correct': return QuestionType.singleCorrect;

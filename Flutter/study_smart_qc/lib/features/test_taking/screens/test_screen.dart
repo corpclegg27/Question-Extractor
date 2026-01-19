@@ -1,5 +1,5 @@
 // lib/features/test_taking/screens/test_screen.dart
-// Description: Main test interface. Fixed Map typing error in Marks Breakdown logic.
+// Description: Main test interface. Updated _handleSubmit for Rich Analytics, fixed TestResult instantiation, and retained all UI logic.
 
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -290,6 +290,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         topicL2Id: question.topicL2Id,
         pyq: question.isPyq ? 'Yes' : 'No',
         difficultyTag: question.difficulty,
+        // questionType and marksObtained will be filled during Submit
       );
     }
     return responses;
@@ -403,7 +404,9 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     _triggerLocalSave();
   }
 
-  // --- UPDATED: Submit Logic with Rich Analytics Aggregation ---
+  // ===========================================================================
+  // SUBMIT LOGIC (UPDATED WITH RICH ANALYTICS & FIXED TYPES)
+  // ===========================================================================
   void _handleSubmit() async {
     _timer.cancel();
     _timeTrackers.values.forEach((sw) => sw.stop());
@@ -502,7 +505,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       });
 
       final int maxMarks = _sortedQuestions.length * 4;
-      final finalTime = widget.testMode == TestMode.test
+      final int finalTime = widget.testMode == TestMode.test
           ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter).inSeconds
           : _overallTimeCounter.inSeconds;
 
@@ -532,22 +535,11 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
               builder: (context) => ResultsScreen(
+                // [FIXED] Updated to use the new Refactored Wrapper Constructor
                 result: TestResult(
-                  attemptId: enrichedAttempt.id,
+                  attempt: enrichedAttempt,
                   questions: _sortedQuestions,
                   answerStates: _answerStates,
-                  responses: enrichedAttempt.responses,
-                  score: totalScore,
-                  maxMarks: maxMarks,
-                  correctCount: correctCount,
-                  incorrectCount: incorrectCount,
-                  skippedCount: skippedCount,
-                  totalQuestions: _sortedQuestions.length,
-                  timeTakenSeconds: finalTime,
-                  timeLimitMinutes: widget.testMode == TestMode.test ? widget.timeLimitInMinutes : null,
-                  smartTimeAnalysisCounts: enrichedAttempt.smartTimeAnalysisCounts,
-                  secondsBreakdownHighLevel: enrichedAttempt.secondsBreakdownHighLevel,
-                  secondsBreakdownSmartTimeAnalysis: enrichedAttempt.secondsBreakdownSmartTimeAnalysis,
                 ),
               ),
             ),

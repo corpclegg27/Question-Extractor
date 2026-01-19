@@ -1,10 +1,12 @@
 // lib/widgets/solution_detail_sheet.dart
+// Description: Slide-up sheet to view detailed solutions for specific questions.
+// Updated to use TestResult.attempt for data and removed Self Analysis features.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:study_smart_qc/models/nta_test_models.dart';
+import 'package:study_smart_qc/models/nta_test_models.dart'; // For AnswerStatus enum if needed, though we use String status mostly here
 import 'package:study_smart_qc/models/test_result.dart';
-import 'package:study_smart_qc/services/test_orchestration_service.dart';
+import 'package:study_smart_qc/models/test_enums.dart'; // Assuming AnswerStatus is here or NTA models
 import 'package:study_smart_qc/widgets/expandable_image.dart';
 
 class SolutionDetailSheet extends StatefulWidget {
@@ -68,11 +70,17 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
     }
   }
 
-  // --- SAFE FORMATTER (Fixes the crash) ---
+  // --- SAFE FORMATTER ---
   String _formatAnswer(dynamic answer) {
     if (answer == null) return "Not Answered";
-    if (answer is String) return answer;
-    if (answer is List) return answer.join(", ");
+    if (answer is String) {
+      if (answer.isEmpty) return "Not Answered";
+      return answer;
+    }
+    if (answer is List) {
+      if (answer.isEmpty) return "Not Answered";
+      return answer.join(", ");
+    }
     return answer.toString();
   }
 
@@ -116,17 +124,24 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
               final realQuestionIndex = _effectiveIndices[index];
               final question = widget.result.questions[realQuestionIndex];
 
-              if (!widget.result.answerStates.containsKey(realQuestionIndex)) {
-                return const Center(child: Text("Data missing for this question"));
+              // Access Response from Attempt Model
+              // Use question.id or fallback to customId if needed
+              String keyToUse = question.id;
+              if (!widget.result.attempt.responses.containsKey(keyToUse)) {
+                keyToUse = question.customId;
               }
 
-              final answerState = widget.result.answerStates[realQuestionIndex]!;
-              final responseObj = widget.result.responses[question.id];
+              final responseObj = widget.result.attempt.responses[keyToUse];
               final timeSpentSec = responseObj?.timeSpent ?? 0;
 
-              // Use Status from Backend
-              final bool isCorrect = responseObj?.status == 'CORRECT';
-              final bool isPartial = responseObj?.status == 'PARTIALLY_CORRECT';
+              // Determine Status from Backend Data
+              final String statusStr = responseObj?.status ?? 'SKIPPED';
+              final bool isCorrect = statusStr == 'CORRECT';
+              final bool isPartial = statusStr == 'PARTIALLY_CORRECT';
+
+              // Prepare User Answer Text
+              final dynamic rawUserAnswer = responseObj?.selectedOption;
+              final String userAnswerText = _formatAnswer(rawUserAnswer);
 
               return SingleChildScrollView(
                 padding: const EdgeInsets.all(16.0),
@@ -183,43 +198,21 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
 
                     // Your Answer
                     _buildAnswerStatus(
-                      'Your Answer: ${_formatAnswer(answerState.userAnswer)}', // SAFE CALL
+                      'Your Answer: $userAnswerText',
                       isCorrect,
                       isPartial,
-                      answerState.status,
+                      statusStr,
                     ),
                     const SizedBox(height: 8),
 
                     // Correct Answer
                     _buildAnswerStatus(
                       'Correct Answer: ${question.actualCorrectAnswers.join(", ")}',
-                      true,
+                      true, // Always show green tick for correct answer
                       false,
-                      AnswerStatus.answered,
+                      'CORRECT',
                     ),
                     const SizedBox(height: 20),
-
-                    // Mistake Form
-                    if (responseObj?.status == 'INCORRECT') ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.red.shade100)),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Self Analysis', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red[800])),
-                            const SizedBox(height: 8),
-                            _MistakeForm(
-                              attemptId: widget.result.attemptId,
-                              questionId: question.id,
-                              initialCategory: responseObj?.mistakeCategory,
-                              initialNote: responseObj?.mistakeNote,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
 
                     const Divider(),
                     const SizedBox(height: 10),
@@ -252,14 +245,14 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
     );
   }
 
-  Widget _buildAnswerStatus(String text, bool isCorrect, bool isPartial, AnswerStatus status) {
+  Widget _buildAnswerStatus(String text, bool isCorrect, bool isPartial, String statusStr) {
     Color color = Colors.grey;
     IconData icon = Icons.help_outline;
 
-    if (status == AnswerStatus.notAnswered || status == AnswerStatus.notVisited) {
+    if (statusStr == 'SKIPPED' || statusStr == 'NOT_VISITED') {
       color = Colors.orange;
       icon = Icons.warning_amber_rounded;
-    } else if (status == AnswerStatus.answered || status == AnswerStatus.answeredAndMarked) {
+    } else {
       if (isPartial) {
         color = Colors.orange;
         icon = Icons.warning_amber_rounded;
@@ -269,89 +262,16 @@ class _SolutionDetailSheetState extends State<SolutionDetailSheet> {
       }
     }
 
+    // Override for "Correct Answer" line which is always green passed as true/true
+    // But since we use this helper for both, logic above handles "Your Answer".
+    // For "Correct Answer" line, we pass isCorrect=true, isPartial=false, status='CORRECT'
+
     return Row(
       children: [
         Icon(icon, color: color, size: 20),
         const SizedBox(width: 8),
         Expanded(
           child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-        ),
-      ],
-    );
-  }
-}
-
-class _MistakeForm extends StatefulWidget {
-  final String attemptId;
-  final String questionId;
-  final String? initialCategory;
-  final String? initialNote;
-
-  const _MistakeForm({
-    required this.attemptId,
-    required this.questionId,
-    this.initialCategory,
-    this.initialNote,
-  });
-
-  @override
-  State<_MistakeForm> createState() => _MistakeFormState();
-}
-
-class _MistakeFormState extends State<_MistakeForm> {
-  final TestOrchestrationService _service = TestOrchestrationService();
-  final TextEditingController _noteController = TextEditingController();
-  String? _selectedCategory;
-
-  final List<String> _categories = [
-    'Conceptual Error',
-    'Calculation Error',
-    'Silly Mistake',
-    'Time Pressure',
-    'Did not understand question',
-    'Guessed',
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedCategory = widget.initialCategory;
-    _noteController.text = widget.initialNote ?? '';
-  }
-
-  @override
-  void dispose() {
-    _noteController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        DropdownButtonFormField<String>(
-          value: _categories.contains(_selectedCategory) ? _selectedCategory : null,
-          hint: const Text("Why did you get this wrong?"),
-          isExpanded: true,
-          decoration: InputDecoration(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-            filled: true,
-            fillColor: Colors.white,
-          ),
-          items: _categories.map((cat) {
-            return DropdownMenuItem(value: cat, child: Text(cat, style: const TextStyle(fontSize: 14)));
-          }).toList(),
-          onChanged: (value) {
-            setState(() { _selectedCategory = value; });
-            _service.updateQuestionMistake(
-              attemptId: widget.attemptId,
-              questionId: widget.questionId,
-              mistakeCategory: value ?? '',
-              mistakeNote: _noteController.text,
-            );
-          },
         ),
       ],
     );

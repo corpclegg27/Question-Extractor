@@ -1,4 +1,5 @@
 // lib/features/analytics/widgets/attempt_list_widget.dart
+// Description: Widget to list user attempts. Fixed TestResult instantiation to match the new wrapper model.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -30,9 +31,10 @@ class AttemptListWidget extends StatelessWidget {
     );
 
     try {
-      // 1. Fetch Questions using Hybrid Logic
+      // 1. Fetch Questions using Hybrid Logic (DocID vs CustomID)
       List<String> keys = attempt.responses.keys.toList();
       List<Question> questions = [];
+      // Heuristic: If key length > 10, it's likely a Firestore Doc ID. Otherwise, it's a Custom ID.
       bool useDocIds = keys.isNotEmpty && keys.first.length > 10;
 
       for (var i = 0; i < keys.length; i += 10) {
@@ -51,18 +53,21 @@ class AttemptListWidget extends StatelessWidget {
         }
       }
 
-      // Sort
+      // Sort questions based on the q_no stored in the attempt response
       questions.sort((a, b) {
         String keyA = useDocIds ? a.id : a.customId;
         String keyB = useDocIds ? b.id : b.customId;
+
+        // Fallback check
         if (!attempt.responses.containsKey(keyA)) keyA = useDocIds ? a.customId : a.id;
         if (!attempt.responses.containsKey(keyB)) keyB = useDocIds ? b.customId : b.id;
+
         int seqA = attempt.responses[keyA]?.q_no ?? 999;
         int seqB = attempt.responses[keyB]?.q_no ?? 999;
         return seqA.compareTo(seqB);
       });
 
-      // 2. Map Answers
+      // 2. Map Answers for visual representation
       Map<int, AnswerState> answerStates = {};
       for (int i = 0; i < questions.length; i++) {
         final q = questions[i];
@@ -71,8 +76,9 @@ class AttemptListWidget extends StatelessWidget {
 
         final response = attempt.responses[lookupKey];
         AnswerStatus status = AnswerStatus.notVisited;
+
         if (response != null) {
-          if (response.status == 'CORRECT' || response.status == 'INCORRECT') {
+          if (response.status == 'CORRECT' || response.status == 'INCORRECT' || response.status == 'PARTIALLY_CORRECT') {
             status = AnswerStatus.answered;
           } else if (response.status == 'SKIPPED') {
             status = AnswerStatus.notAnswered;
@@ -85,27 +91,11 @@ class AttemptListWidget extends StatelessWidget {
         answerStates[i] = AnswerState(status: status, userAnswer: response?.selectedOption);
       }
 
-      // 3. Create TestResult (POPULATING FROM ATTEMPT MODEL)
+      // 3. Create TestResult (FIXED: Using new wrapper constructor)
       final result = TestResult(
-        attemptId: attempt.id,
+        attempt: attempt,
         questions: questions,
         answerStates: answerStates,
-        responses: attempt.responses,
-
-        // Pass Aggregated Stats
-        score: attempt.score,
-        maxMarks: attempt.maxMarks,
-        correctCount: attempt.correctCount,
-        incorrectCount: attempt.incorrectCount,
-        skippedCount: attempt.skippedCount,
-        totalQuestions: attempt.totalQuestions,
-        timeTakenSeconds: attempt.timeTakenSeconds,
-        timeLimitMinutes: attempt.timeLimitMinutes,
-
-        // Pass Breakdown Maps
-        secondsBreakdownHighLevel: attempt.secondsBreakdownHighLevel,
-        smartTimeAnalysisCounts: attempt.smartTimeAnalysisCounts,
-        secondsBreakdownSmartTimeAnalysis: attempt.secondsBreakdownSmartTimeAnalysis,
       );
 
       if (context.mounted) {
@@ -122,26 +112,41 @@ class AttemptListWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ... (Build method remains same as before) ...
     final currentUser = FirebaseAuth.instance.currentUser;
     final String? uidToQuery = targetUserId ?? currentUser?.uid;
     if (uidToQuery == null) return const SizedBox.shrink();
 
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('attempts').where('userId', isEqualTo: uidToQuery).orderBy('completedAt', descending: true).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('attempts')
+          .where('userId', isEqualTo: uidToQuery)
+          .orderBy('completedAt', descending: true)
+          .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return _buildEmptyState();
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return _buildEmptyState();
+        }
 
+        // Client-side filtering for fields that might be missing in older docs or complex queries
         final docs = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
+
+          // Filter by Mode (Test vs Practice)
           if (filterMode != null) {
             final String mode = data['mode'] ?? '';
             if (mode.toLowerCase() != filterMode!.toLowerCase()) return false;
           }
+
+          // Filter by Single Attempt flag
           final bool docSingleAttempt = data['onlySingleAttempt'] ?? false;
           if (docSingleAttempt != onlySingleAttempt) return false;
+
           return true;
         }).toList();
 
@@ -152,7 +157,10 @@ class AttemptListWidget extends StatelessWidget {
           itemCount: docs.length,
           itemBuilder: (context, index) {
             final attempt = AttemptModel.fromFirestore(docs[index]);
-            return AttemptDisplayCard(attempt: attempt, onTap: () => _navigateToAnalysis(context, attempt));
+            return AttemptDisplayCard(
+                attempt: attempt,
+                onTap: () => _navigateToAnalysis(context, attempt)
+            );
           },
         );
       },
@@ -160,6 +168,15 @@ class AttemptListWidget extends StatelessWidget {
   }
 
   Widget _buildEmptyState() {
-    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.history, size: 64, color: Colors.grey.shade300), const SizedBox(height: 16), const Text("No attempts found.", style: TextStyle(color: Colors.grey))]));
+    return Center(
+        child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.history, size: 64, color: Colors.grey.shade300),
+              const SizedBox(height: 16),
+              const Text("No attempts found.", style: TextStyle(color: Colors.grey))
+            ]
+        )
+    );
   }
 }

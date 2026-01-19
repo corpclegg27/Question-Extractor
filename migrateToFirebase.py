@@ -161,9 +161,8 @@ try:
     # SORT DESCENDING BY QUESTION_ID
     # Converting to string first to ensure sorting works even if mixed types
     df['question_id'] = df['question_id'].astype(str)
-    df.sort_values(by='question_id', ascending=False, inplace=True)
     
-    print(f"Loaded Master CSV with {len(df)} rows (Sorted Descending).")
+    print(f"Loaded Master CSV with {len(df)} rows.")
 except Exception as e:
     print(f"CRITICAL ERROR: {e}")
     exit()
