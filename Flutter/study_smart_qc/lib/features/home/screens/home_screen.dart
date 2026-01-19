@@ -1,5 +1,5 @@
 // lib/features/home/screens/home_screen.dart
-// Description: Main Student Dashboard. Updated to fetch 'markingSchemes' during Resume Session.
+// Description: Main Student Dashboard. Updated to pass correct analytics params during Resume/Discard logic.
 
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -194,7 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
         qIds = List<String>.from(data['questionIds'] ?? []);
         isSingleAttempt = data['onlySingleAttempt'] ?? false;
 
-        // --- PARSE CONFIG LOGIC (Copied from TestModel to avoid refetch) ---
+        // --- PARSE CONFIG LOGIC ---
         if (data['markingSchemes'] != null && data['markingSchemes'] is Map) {
           (data['markingSchemes'] as Map).forEach((key, value) {
             QuestionType type = _mapStringToType(key.toString());
@@ -285,7 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final responseMap = _localSessionService.parseResponses(
         Map<String, dynamic>.from(state['responses']));
 
-    // Basic scoring for discard submission - Logic engine is better but this is fallback
+    // Basic scoring for discard submission
     int correct = 0;
     int incorrect = 0;
     responseMap.forEach((k, v) {
@@ -304,6 +304,10 @@ class _HomeScreenState extends State<HomeScreen> {
       score: score,
       timeTakenSeconds: 0,
       responses: responseMap,
+
+      // [FIXED] Pass correct keys for discarded sessions
+      markingSchemes: {},
+      marksBreakdown: {},
     );
 
     await _localSessionService.clearSession();

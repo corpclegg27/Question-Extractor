@@ -5,7 +5,7 @@ import os
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "JEE Advanced submit button worked, pending: enrich the attempts document and results screen"
+COMMIT_MESSAGE = "JEE Advanced submit button worked, attempts document enriched. Next: Update Results screen to include Overall and subject wise sections. Also for jee advanced view marks by question type"
 # ==========================================
 
 def run_command(command, step_name):

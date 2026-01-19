@@ -1,4 +1,6 @@
-//lib/models/attempt_model.dart
+// lib/models/attempt_model.dart
+// Description: Updated AttemptModel to store Marking Schemes and Marks Breakdown.
+// Updated ResponseObject to store per-question Marks Obtained and Type.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -29,6 +31,12 @@ class AttemptModel {
   final Map<String, int> secondsBreakdownSmartTimeAnalysis;
   final Map<String, ResponseObject> responses;
 
+  // [NEW] RICH ANALYTICS
+  // Stores the exact rules used (e.g. { "Single Correct": {"correct": 3, "wrong": -1} })
+  final Map<String, dynamic> markingSchemes;
+  // Stores { "Physics": { "maxMarks": 40, "marksObtained": 20, "Numerical": {...} } }
+  final Map<String, dynamic> marksBreakdown;
+
   AttemptModel({
     required this.id,
     required this.sourceId,
@@ -51,9 +59,10 @@ class AttemptModel {
     required this.secondsBreakdownHighLevel,
     required this.secondsBreakdownSmartTimeAnalysis,
     required this.responses,
+    required this.markingSchemes, // [NEW]
+    required this.marksBreakdown, // [NEW]
   });
 
-  /// Factory to create AttemptModel from Firestore Document
   factory AttemptModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
 
@@ -69,7 +78,6 @@ class AttemptModel {
       onlySingleAttempt: data['onlySingleAttempt'] ?? false,
       score: data['score'] ?? 0,
 
-      // === FIX: Read BOTH snake_case (Old) and camelCase (New) ===
       totalQuestions: (data['totalQuestions'] ?? data['total_questions'] ?? 0) as int,
       maxMarks: (data['maxMarks'] ?? data['max_marks'] ?? 0) as int,
       correctCount: (data['correctCount'] ?? data['correct_count'] ?? 0) as int,
@@ -86,10 +94,13 @@ class AttemptModel {
       responses: (data['responses'] as Map<String, dynamic>? ?? {}).map(
             (key, value) => MapEntry(key, ResponseObject.fromMap(value)),
       ),
+
+      // [NEW] Reading new fields
+      markingSchemes: Map<String, dynamic>.from(data['markingSchemes'] ?? {}),
+      marksBreakdown: Map<String, dynamic>.from(data['marksBreakdown'] ?? {}),
     );
   }
 
-  /// Converts Model to Map for Firestore writing
   Map<String, dynamic> toFirestore() {
     return {
       'sourceId': sourceId,
@@ -101,20 +112,20 @@ class AttemptModel {
       'completedAt': completedAt,
       'onlySingleAttempt': onlySingleAttempt,
       'score': score,
-
-      // === FIX: Write CLEAN camelCase ===
       'totalQuestions': totalQuestions,
       'maxMarks': maxMarks,
       'correctCount': correctCount,
       'incorrectCount': incorrectCount,
       'skippedCount': skippedCount,
-
       'timeTakenSeconds': timeTakenSeconds,
       'timeLimitMinutes': timeLimitMinutes,
       'smartTimeAnalysisCounts': smartTimeAnalysisCounts,
       'secondsBreakdownHighLevel': secondsBreakdownHighLevel,
       'secondsBreakdownSmartTimeAnalysis': secondsBreakdownSmartTimeAnalysis,
       'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
+      // [NEW] Writing new fields
+      'markingSchemes': markingSchemes,
+      'marksBreakdown': marksBreakdown,
     };
   }
 }
@@ -130,7 +141,7 @@ class ResponseObject {
   final String subject;
   final String chapter;
   final String topic;
-  final String topicL2; // Added
+  final String topicL2;
   final String chapterId;
   final String topicId;
   final String topicL2Id;
@@ -139,6 +150,10 @@ class ResponseObject {
   final String? mistakeNote;
   final String pyq;
   final String difficultyTag;
+
+  // [NEW] Per-Question Analytics
+  final String questionType;
+  final num marksObtained;
 
   ResponseObject({
     required this.status,
@@ -151,7 +166,7 @@ class ResponseObject {
     this.subject = '',
     this.chapter = '',
     this.topic = '',
-    this.topicL2 = '', // Added
+    this.topicL2 = '',
     this.chapterId = '',
     this.topicId = '',
     this.topicL2Id = '',
@@ -160,12 +175,12 @@ class ResponseObject {
     this.mistakeNote,
     this.pyq = '',
     this.difficultyTag = '',
+    this.questionType = '', // [NEW]
+    this.marksObtained = 0, // [NEW]
   });
 
-  // === NEW: ALIASES FOR LOCAL SESSION SERVICE ===
   factory ResponseObject.fromJson(Map<String, dynamic> json) => ResponseObject.fromMap(json);
   Map<String, dynamic> toJson() => toMap();
-  // ==============================================
 
   ResponseObject copyWith({
     String? status,
@@ -187,6 +202,8 @@ class ResponseObject {
     String? mistakeNote,
     String? pyq,
     String? difficultyTag,
+    String? questionType, // [NEW]
+    num? marksObtained, // [NEW]
   }) {
     return ResponseObject(
       status: status ?? this.status,
@@ -208,6 +225,8 @@ class ResponseObject {
       mistakeNote: mistakeNote ?? this.mistakeNote,
       pyq: pyq ?? this.pyq,
       difficultyTag: difficultyTag ?? this.difficultyTag,
+      questionType: questionType ?? this.questionType, // [NEW]
+      marksObtained: marksObtained ?? this.marksObtained, // [NEW]
     );
   }
 
@@ -223,7 +242,7 @@ class ResponseObject {
       subject: map['subject'] ?? '',
       chapter: map['chapter'] ?? '',
       topic: map['topic'] ?? '',
-      topicL2: map['topicL2'] ?? '', // Added
+      topicL2: map['topicL2'] ?? '',
       chapterId: map['chapterId'] ?? '',
       topicId: map['topicId'] ?? '',
       topicL2Id: map['topicL2Id'] ?? '',
@@ -232,6 +251,8 @@ class ResponseObject {
       mistakeNote: map['mistakeNote'],
       pyq: map['pyq'] ?? '',
       difficultyTag: map['difficultyTag'] ?? '',
+      questionType: map['questionType'] ?? '', // [NEW]
+      marksObtained: map['marksObtained'] ?? 0, // [NEW]
     );
   }
 
@@ -247,7 +268,7 @@ class ResponseObject {
       'subject': subject,
       'chapter': chapter,
       'topic': topic,
-      'topicL2': topicL2, // Added
+      'topicL2': topicL2,
       'chapterId': chapterId,
       'topicId': topicId,
       'topicL2Id': topicL2Id,
@@ -256,6 +277,8 @@ class ResponseObject {
       'mistakeNote': mistakeNote,
       'pyq': pyq,
       'difficultyTag': difficultyTag,
+      'questionType': questionType, // [NEW]
+      'marksObtained': marksObtained, // [NEW]
     };
   }
 }

@@ -1,4 +1,5 @@
 // lib/features/test_taking/screens/test_screen.dart
+// Description: Main test interface. Fixed Map typing error in Marks Breakdown logic.
 
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,13 +13,13 @@ import 'package:study_smart_qc/models/attempt_model.dart';
 import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
-import 'package:study_smart_qc/models/marking_configuration.dart'; // [NEW]
+import 'package:study_smart_qc/models/marking_configuration.dart';
 
 // 2. IMPORT SCREENS & SERVICES
 import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
 import 'package:study_smart_qc/services/local_session_service.dart';
-import 'package:study_smart_qc/services/universal_scoring_engine.dart'; // [NEW]
+import 'package:study_smart_qc/services/universal_scoring_engine.dart';
 import 'package:study_smart_qc/widgets/expandable_image.dart';
 import 'package:study_smart_qc/widgets/question_input_widget.dart';
 
@@ -35,7 +36,7 @@ class TestScreen extends StatefulWidget {
   final int? resumedPageIndex;
   final Map<String, ResponseObject>? resumedResponses;
 
-  // NEW: Configuration passed from Teacher Service
+  // Configuration passed from Teacher Service
   final Map<QuestionType, MarkingConfiguration>? markingSchemes;
 
   const TestScreen({
@@ -65,7 +66,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
 
   final ScrollController _paletteController = ScrollController();
 
-  // --- NEW: SORTING & CONFIG STATE ---
+  // --- SORTING & CONFIG STATE ---
   List<Question> _sortedQuestions = [];
   List<String> _subjects = [];
   final Map<String, int> _subjectStartIndex = {};
@@ -137,7 +138,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
 
         final savedResponse = widget.resumedResponses![question.id]!;
 
-        // FIX: Handle restoration of List from comma-separated String
+        // Handle restoration of List from comma-separated String
         dynamic restoredAnswer = savedResponse.selectedOption;
         if (restoredAnswer is String && restoredAnswer.contains(',') && question.type == QuestionType.oneOrMoreOptionsCorrect) {
           restoredAnswer = restoredAnswer.split(',').map((e) => e.trim()).toList();
@@ -254,7 +255,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     );
   }
 
-  // --- UPDATED: Flatten List to String to fix Submission Error ---
+  // --- Flatten List to String for DB compatibility ---
   Map<String, ResponseObject> _buildResponseMap() {
     Map<String, ResponseObject> responses = {};
     for (int i = 0; i < _sortedQuestions.length; i++) {
@@ -267,7 +268,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       else if (state.status == AnswerStatus.markedForReview) statusString = 'REVIEW';
       else if (state.status == AnswerStatus.answeredAndMarked) statusString = 'REVIEW_ANSWERED';
 
-      // **FIX**: Flatten List<String> to "A,B" String for database
       dynamic finalAnswer = state.userAnswer;
       if (finalAnswer is List) {
         finalAnswer = finalAnswer.join(',');
@@ -358,7 +358,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     }
   }
 
-  // --- UPDATED: Check Answer Logic (Fixes List vs String bug) ---
+  // --- UPDATED: Check Answer Logic ---
   bool _checkEquality(dynamic userAns, dynamic correctAns) {
     if (userAns == null || correctAns == null) return false;
 
@@ -403,7 +403,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     _triggerLocalSave();
   }
 
-  // --- UPDATED: Submit Logic with Error Handling & Scoring Engine ---
+  // --- UPDATED: Submit Logic with Rich Analytics Aggregation ---
   void _handleSubmit() async {
     _timer.cancel();
     _timeTrackers.values.forEach((sw) => sw.stop());
@@ -422,6 +422,12 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       int incorrectCount = 0;
       int skippedCount = 0;
       num totalScore = 0;
+
+      // [NEW] Rich Analytics Breakdown Structure
+      // FIX: Use <String, dynamic> to prevent Type Error when adding Maps later
+      Map<String, dynamic> marksBreakdown = {
+        "Overall": <String, dynamic>{"maxMarks": 0.0, "marksObtained": 0.0}
+      };
 
       // 2. Run Scoring Engine on Sorted Questions
       for (var i = 0; i < _sortedQuestions.length; i++) {
@@ -442,12 +448,43 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         totalScore += result.score;
         String finalStatus = result.status;
 
-        // Manual override for empty inputs (Double check)
+        // Manual override for empty inputs
         if (response.selectedOption == null) finalStatus = QuestionStatus.skipped;
         if (response.selectedOption is String && (response.selectedOption as String).isEmpty) finalStatus = QuestionStatus.skipped;
         if (response.selectedOption is List && (response.selectedOption as List).isEmpty) finalStatus = QuestionStatus.skipped;
 
-        sanitizedResponses[q.id] = response.copyWith(status: finalStatus);
+        // --- AGGREGATION LOGIC ---
+        String subject = q.subject.isEmpty ? "General" : q.subject;
+        String typeStr = _mapTypeToString(q.type);
+        double qMaxMarks = config.correctScore; // e.g. 4.0
+
+        // A. Ensure Subject Keys Exist with correct Dynamic Type
+        if (!marksBreakdown.containsKey(subject)) {
+          marksBreakdown[subject] = <String, dynamic>{"maxMarks": 0.0, "marksObtained": 0.0};
+        }
+
+        // B. Ensure Type Keys Exist inside Subject
+        // marksBreakdown[subject] is explicitly <String, dynamic>, so we can add a Map key to it
+        if (!marksBreakdown[subject].containsKey(typeStr)) {
+          marksBreakdown[subject][typeStr] = <String, dynamic>{"maxMarks": 0.0, "marksObtained": 0.0};
+        }
+
+        // C. Update Totals (Using Inner Maps)
+        marksBreakdown[subject]["maxMarks"] += qMaxMarks;
+        marksBreakdown[subject]["marksObtained"] += result.score;
+
+        marksBreakdown[subject][typeStr]["maxMarks"] += qMaxMarks;
+        marksBreakdown[subject][typeStr]["marksObtained"] += result.score;
+
+        marksBreakdown["Overall"]["maxMarks"] += qMaxMarks;
+        marksBreakdown["Overall"]["marksObtained"] += result.score;
+
+        // [NEW] Inject Type and Marks into Response
+        sanitizedResponses[q.id] = response.copyWith(
+          status: finalStatus,
+          questionType: typeStr,
+          marksObtained: result.score,
+        );
 
         if (finalStatus == QuestionStatus.correct || finalStatus == QuestionStatus.partiallyCorrect) {
           correctCount++;
@@ -457,6 +494,12 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
           skippedCount++;
         }
       }
+
+      // Prepare Schemes for Storage
+      Map<String, dynamic> schemesMapForStorage = {};
+      _activeMarkingSchemes.forEach((key, value) {
+        schemesMapForStorage[_mapTypeToString(key)] = value.toMap();
+      });
 
       final int maxMarks = _sortedQuestions.length * 4;
       final finalTime = widget.testMode == TestMode.test
@@ -475,6 +518,10 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         timeTakenSeconds: finalTime,
         responses: sanitizedResponses,
         timeLimitMinutes: widget.testMode == TestMode.test ? widget.timeLimitInMinutes : null,
+
+        // Pass Analytics Data
+        markingSchemes: schemesMapForStorage,
+        marksBreakdown: marksBreakdown,
       );
 
       if (mounted) {
@@ -515,6 +562,17 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         print("Submission Error: $e");
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Submission Failed: $e")));
       }
+    }
+  }
+
+  String _mapTypeToString(QuestionType type) {
+    switch (type) {
+      case QuestionType.singleCorrect: return 'Single Correct';
+      case QuestionType.numerical: return 'Numerical type';
+      case QuestionType.oneOrMoreOptionsCorrect: return 'One or more options correct';
+      case QuestionType.matrixSingle: return 'Single Matrix Match';
+      case QuestionType.matrixMulti: return 'Multi Matrix Match';
+      default: return 'Unknown';
     }
   }
 

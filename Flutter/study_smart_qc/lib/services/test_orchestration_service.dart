@@ -1,6 +1,8 @@
 // lib/services/test_orchestration_service.dart
 // Description: Manages test submission, analytics generation, and Firestore saves.
-// Updated: Fixed Ideal Time parsing (String/Num) and added Granular Type lookup.
+// Updated:
+// 1. Updated submitAttempt to accept markingSchemes and marksBreakdown.
+// 2. Updated _generateSmartTag to treat PARTIALLY_CORRECT as INCORRECT for analysis.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -55,6 +57,10 @@ class TestOrchestrationService {
     required int timeTakenSeconds,
     required Map<String, ResponseObject> responses,
     int? timeLimitMinutes,
+
+    // [NEW] Required Analytics Fields
+    required Map<String, dynamic> markingSchemes,
+    required Map<String, dynamic> marksBreakdown,
   }) async {
     if (_userId == null) return null;
 
@@ -64,11 +70,7 @@ class TestOrchestrationService {
     double goodSkipFactorRaw = 20.0;
 
     try {
-      final configSnap = await _firestore
-          .collection('static_data')
-          .doc('option_sets')
-          .get();
-
+      final configSnap = await _firestore.collection('static_data').doc('option_sets').get();
       if (configSnap.exists) {
         final data = configSnap.data()!;
         if (data['idealTimePerQuestion'] != null) {
@@ -88,28 +90,17 @@ class TestOrchestrationService {
     Map<String, ResponseObject> enrichedResponses = {};
 
     Map<String, int> analysisCounts = {
-      "Perfect Attempt": 0,
-      "Overtime Correct": 0,
-      "Careless Mistake": 0,
-      "Wasted Attempt": 0,
-      "Good Skip": 0,
-      "Time Wasted": 0
+      "Perfect Attempt": 0, "Overtime Correct": 0, "Careless Mistake": 0,
+      "Wasted Attempt": 0, "Good Skip": 0, "Time Wasted": 0
     };
 
     Map<String, int> highLevelTime = {
-      "CORRECT": 0,
-      "INCORRECT": 0,
-      "SKIPPED": 0,
-      "PARTIALLY_CORRECT": 0
+      "CORRECT": 0, "INCORRECT": 0, "SKIPPED": 0, "PARTIALLY_CORRECT": 0
     };
 
     Map<String, int> smartTimeBreakdown = {
-      "Perfect Attempt": 0,
-      "Overtime Correct": 0,
-      "Careless Mistake": 0,
-      "Wasted Attempt": 0,
-      "Good Skip": 0,
-      "Time Wasted": 0
+      "Perfect Attempt": 0, "Overtime Correct": 0, "Careless Mistake": 0,
+      "Wasted Attempt": 0, "Good Skip": 0, "Time Wasted": 0
     };
 
     int correctCount = 0;
@@ -121,14 +112,12 @@ class TestOrchestrationService {
       final userResponse = responses[question.id];
 
       String status = userResponse?.status ?? QuestionStatus.skipped;
-
-      if (status.contains('REVIEW')) {
-        status = QuestionStatus.skipped;
-      }
+      if (status.contains('REVIEW')) status = QuestionStatus.skipped;
 
       final int timeSpent = userResponse?.timeSpent ?? 0;
 
       // --- COUNTERS ---
+      // We still count Partial as Correct for the high-level dashboard "Correct/Incorrect" count
       if (status == QuestionStatus.correct || status == QuestionStatus.partiallyCorrect) {
         correctCount++;
       } else if (status == QuestionStatus.incorrect) {
@@ -145,7 +134,7 @@ class TestOrchestrationService {
         timeTaken: timeSpent,
         examName: question.exam,
         subject: question.subject,
-        questionType: question.type, // Pass Type
+        questionType: question.type,
         idealTimeMap: idealTimeMap,
         carelessFactor: carelessFactor,
         goodSkipFactorRaw: goodSkipFactorRaw,
@@ -177,6 +166,9 @@ class TestOrchestrationService {
         mistakeNote: userResponse?.mistakeNote,
         pyq: question.isPyq ? 'Yes' : 'No',
         difficultyTag: question.difficulty,
+        // [NEW] Persist Analytics Fields
+        questionType: userResponse?.questionType ?? '',
+        marksObtained: userResponse?.marksObtained ?? 0,
       );
       enrichedResponses[question.id] = enrichedResponse;
     }
@@ -205,6 +197,10 @@ class TestOrchestrationService {
       secondsBreakdownHighLevel: highLevelTime,
       secondsBreakdownSmartTimeAnalysis: smartTimeBreakdown,
       responses: enrichedResponses,
+
+      // [NEW] Persist Breakdown
+      markingSchemes: markingSchemes,
+      marksBreakdown: marksBreakdown,
     );
     batch.set(attemptRef, newAttempt.toFirestore());
 
@@ -311,23 +307,16 @@ class TestOrchestrationService {
     String eName = examName.isEmpty ? "JEE Main" : examName;
     String sName = subject.isEmpty ? "Physics" : subject;
 
-    // Normalize keys: Replace spaces with underscores for lookup
     String eNameNorm = eName.replaceAll(' ', '_');
     String sNameNorm = sName.replaceAll(' ', '_');
 
-    // 1. GRANULAR KEY: Exam_Subject_Type (e.g., JEE_Advanced_Physics_NumericalType)
     String typeStr = _mapTypeToConfigString(questionType);
     String granularKey = "${eNameNorm}_${sNameNorm}_$typeStr";
-
-    // 2. FALLBACK KEY: Exam_Subject (e.g., JEE_Advanced_Physics)
     String fallbackKey1 = "${eNameNorm}_${sNameNorm}";
-
-    // 3. FALLBACK KEY (Original format): Exam Name_Subject (e.g., JEE Main_Physics)
     String fallbackKey2 = "${eName}_${sName}";
 
     int idealTime = 120; // Default
 
-    // Lookup with priority
     if (_hasTime(idealTimeMap, granularKey)) {
       idealTime = _parseIdealTime(idealTimeMap[granularKey]);
     } else if (_hasTime(idealTimeMap, fallbackKey1)) {
@@ -340,15 +329,21 @@ class TestOrchestrationService {
     double skipFactor = (goodSkipFactorRaw > 1) ? goodSkipFactorRaw / 100 : goodSkipFactorRaw;
     double goodSkipThreshold = idealTime * skipFactor;
 
-    if (status == QuestionStatus.correct || status == QuestionStatus.partiallyCorrect) {
+    // [UPDATED LOGIC] Treat PARTIALLY_CORRECT like INCORRECT for time analysis
+    if (status == QuestionStatus.correct) {
+      // Logic for FULLY Correct
       return (timeTaken <= idealTime)
           ? "Perfect Attempt (Correct & answered within reasonable time)"
           : "Overtime Correct (Correct but took too long)";
-    } else if (status == QuestionStatus.incorrect) {
+
+    } else if (status == QuestionStatus.incorrect || status == QuestionStatus.partiallyCorrect) {
+      // Logic for Incorrect OR Partial (grouped as 'Mistake' context)
       return (timeTaken < fastThreshold)
           ? "Careless Mistake (Incorrect & answered too fast)"
           : "Wasted Attempt (Incorrect & took too long)";
+
     } else {
+      // Logic for Skipped
       return (timeTaken < goodSkipThreshold)
           ? "Good Skip (Skipped quickly)"
           : "Time Wasted (Skipped but spent too much time)";
@@ -359,14 +354,12 @@ class TestOrchestrationService {
     return map.containsKey(key) && map[key] != null;
   }
 
-  // Safely parse ideal time which might be String ("180") or Int (180)
   int _parseIdealTime(dynamic value) {
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value) ?? 120;
     return 120;
   }
 
-  // Map Enum to the specific string suffix used in Firestore
   String _mapTypeToConfigString(QuestionType type) {
     switch (type) {
       case QuestionType.singleCorrect: return 'Single_Correct';
