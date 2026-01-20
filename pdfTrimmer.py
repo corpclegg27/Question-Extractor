@@ -59,9 +59,9 @@ def trim_pdf(input_filename, start_page, end_page, chapter_label):
 
 if __name__ == "__main__":
     # --- UPDATE THESE PARAMETERS FOR EACH CHAPTER ---
-    FILE_NAME = "PYQs JEE Advanced Arihant 41 Years Physics.pdf" 
-    CHAPTER_NAME = "Units"
-    START = 12   # Starting page number (as seen in PDF viewer)
-    END = 13    # Ending page number (as seen in PDF viewer)
+    FILE_NAME = "PYQ NEET Digvijay.pdf" 
+    CHAPTER_NAME = "Magnetism"
+    START = 612   # Starting page number (as seen in PDF viewer)
+    END = 613    # Ending page number (as seen in PDF viewer)
 
     trim_pdf(FILE_NAME, START, END, CHAPTER_NAME)

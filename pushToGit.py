@@ -5,7 +5,7 @@ import os
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "Platform is now compliant with JEE Advanced. Fixed local resuming functionality"
+COMMIT_MESSAGE = "Platform is now compliant with JEE Advanced. Fixed local resuming functionality. Minor improvements in teacher filter"
 # ==========================================
 
 def run_command(command, step_name):

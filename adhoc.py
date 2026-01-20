@@ -1,4 +1,5 @@
 import pandas as pd
+from google.cloud import firestore as google_firestore
 import os
 import sys
 from PIL import Image
@@ -746,6 +747,80 @@ def generate_smart_tag(status, time_taken, subject, ideal_map, careless_factor, 
 
 # Run
 
+#### Backfill attempt images urls
+
+def backfill_attempt_images():
+    print("🚀 Starting Backfill Process...")
+    
+    batch_size = 50
+    attempts_ref = db.collection('attempts')
+    
+    # Get all attempts
+    docs = list(attempts_ref.stream())
+    total_attempts = len(docs)
+    print(f"found {total_attempts} attempts to process.")
+
+    question_cache = {}
+    
+    for i in range(0, total_attempts, batch_size):
+        batch_docs = docs[i : i + batch_size]
+        print(f"Processing batch {i} to {i + len(batch_docs)}...")
+        
+        needed_q_ids = set()
+        for doc in batch_docs:
+            data = doc.to_dict()
+            responses = data.get('responses', {})
+            for q_id in responses.keys():
+                if q_id not in question_cache:
+                    needed_q_ids.add(q_id)
+        
+        if needed_q_ids:
+            needed_list = list(needed_q_ids)
+            for j in range(0, len(needed_list), 10):
+                chunk = needed_list[j : j + 10]
+                
+                # [FIX] Used '__name__' instead of FieldPath object to avoid AttributeError
+                q_snaps = db.collection('questions').where('__name__', 'in', chunk).get()
+                
+                for q_snap in q_snaps:
+                    q_data = q_snap.to_dict()
+                    question_cache[q_snap.id] = {
+                        'image_url': q_data.get('image_url'),
+                        'solution_url': q_data.get('solution_url')
+                    }
+
+        batch_writer = db.batch()
+        updates_count = 0
+        
+        for doc in batch_docs:
+            data = doc.to_dict()
+            responses = data.get('responses', {})
+            doc_updates = {}
+            
+            for q_id, response_item in responses.items():
+                if q_id in question_cache:
+                    q_details = question_cache[q_id]
+                    
+                    # Only add if the field is missing in the attempt but exists in the question
+                    if q_details['image_url'] and 'image_url' not in response_item:
+                        doc_updates[f'responses.{q_id}.image_url'] = q_details['image_url']
+                    
+                    if q_details['solution_url'] and 'solution_url' not in response_item:
+                        doc_updates[f'responses.{q_id}.solution_url'] = q_details['solution_url']
+
+            if doc_updates:
+                doc_ref = attempts_ref.document(doc.id)
+                batch_writer.update(doc_ref, doc_updates)
+                updates_count += 1
+
+        if updates_count > 0:
+            batch_writer.commit()
+            print(f"   ✅ Updated {updates_count} attempts in this batch.")
+        else:
+            print("   💤 No updates needed for this batch.")
+
+    print("🎉 Backfill Complete!")
+
 
 
 def main():
@@ -763,6 +838,7 @@ def main():
         print ("8. Sanitize answer key of csv provided")
         print ("9. Delete Exam Questions (Exam already specified in py file)")
         print ("10. Backfill attempts documents")
+        print ("11. Backfill q and sol img urls in attempts documents")
         print("0. Exit")
         print("-" * 40)
         
@@ -798,6 +874,10 @@ def main():
 
         if choice == '10':
             backfill_attempts_docs()
+
+        if choice == '11':
+            backfill_attempt_images()
+
 
 
         elif choice == '0':

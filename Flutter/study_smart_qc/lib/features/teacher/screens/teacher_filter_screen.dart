@@ -1,4 +1,5 @@
 // lib/features/teacher/screens/teacher_filter_screen.dart
+// Description: Teacher Filter Screen. Implements "Fetch All & Shuffle" for results < 500 to ensure perfect randomization and completeness.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -43,7 +44,9 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   List<String> _examsList = [];
   List<String> _subjectsList = [];
 
-  // 1. ADDED: Filter List for Question Types
+  // Master list of tags
+  List<String> _tagsList = [];
+
   final List<String> _questionTypesList = [
     'Single Correct',
     'One or more options correct',
@@ -56,12 +59,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
   String? _selectedExam;
   String? _selectedSubject;
-
-  // 2. ADDED: Selected Type State
   String? _selectedQuestionType;
 
   final Set<String> _selectedChapters = {};
   final Set<String> _selectedTopics = {};
+
+  // Selected tags
+  final Set<String> _selectedTags = {};
+
   bool _isPyqOnly = false;
 
   bool _isSearching = false;
@@ -87,10 +92,16 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     try {
       final firestore = FirebaseFirestore.instance;
       final optionsDoc = await firestore.collection('static_data').doc('option_sets').get();
+
       if (optionsDoc.exists) {
         final data = optionsDoc.data()!;
         _examsList = List<String>.from(data['exams_list'] ?? []);
         _subjectsList = List<String>.from(data['subjects_list'] ?? []);
+
+        // Fetch 'tags' (lowercase)
+        if (data.containsKey('tags')) {
+          _tagsList = List<String>.from(data['tags'] ?? []);
+        }
       }
 
       final syllabusDoc = await firestore.collection('static_data').doc('syllabus').get();
@@ -182,40 +193,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     return tree;
   }
 
-  void _navigateToEdit(Question q) {
-    final Map<String, dynamic> specificTree = _buildTreeForSubject(q.subject);
-    final Map<String, dynamic> manualDataMap = {
-      'id': q.id,
-      'customId': q.customId,
-      'Exam': q.exam,
-      'Subject': q.subject,
-      'Chapter': q.chapter,
-      'Topic': q.topic,
-      'TopicL2': q.topicL2,
-      'QuestionType': q.type,
-      'Question type': q.type,
-      'image_url': q.imageUrl,
-      'solution_url': q.solutionUrl,
-      'Difficulty': q.difficulty,
-      'Correct Answer': q.correctAnswer,
-      'PYQ': q.isPyq ? "Yes" : "No",
-      'PYQ_Year': q.pyqYear,
-      'Question No.': q.questionNo,
-      'Difficulty_score': q.difficultyScore,
-    };
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ModifyQuestionScreen(
-          questionId: q.id,
-          questionData: manualDataMap,
-          syllabusTree: specificTree,
-        ),
-      ),
-    ).then((_) { });
-  }
-
   String _generateRandomId() {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final rnd = Random();
@@ -223,10 +200,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   }
 
   Future<void> _performSearch() async {
-    if (_selectedExam == null || _selectedSubject == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select Exam and Subject")));
+    bool hasBasicContext = _selectedExam != null && _selectedSubject != null;
+    bool hasTags = _selectedTags.isNotEmpty;
+
+    if (!hasBasicContext && !hasTags) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select (Exam & Subject) OR Tags")));
       return;
     }
+
     setState(() {
       _isSearching = true;
       _searchResults = [];
@@ -235,48 +216,97 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
     try {
       Query query = FirebaseFirestore.instance.collection('questions');
-      query = query.where('Exam', isEqualTo: _selectedExam);
-      query = query.where('Subject', isEqualTo: _selectedSubject);
 
-      // 3. UPDATED: Apply Question Type Filter
+      if (_selectedExam != null) {
+        query = query.where('Exam', isEqualTo: _selectedExam);
+      }
+      if (_selectedSubject != null) {
+        query = query.where('Subject', isEqualTo: _selectedSubject);
+      }
+
       if (_selectedQuestionType != null) {
         query = query.where('Question type', isEqualTo: _selectedQuestionType);
-      }
-
-      if (_selectedChapters.isNotEmpty && _selectedChapters.length <= 10) {
-        query = query.where('Chapter', whereIn: _selectedChapters.toList());
-      }
-      if (_selectedTopics.isNotEmpty && _selectedTopics.length <= 10) {
-        query = query.where('Topic', whereIn: _selectedTopics.toList());
       }
       if (_isPyqOnly) {
         query = query.where('PYQ', isEqualTo: "Yes");
       }
 
+      // Priority Branching Logic
+      bool isFilteringChaptersClientSide = false;
+      bool isFilteringTopicsClientSide = false;
+
+      if (_selectedTags.isNotEmpty) {
+        final cleanTags = _selectedTags.map((e) => e.trim()).toList();
+
+        debugPrint("🔍 Searching Tags: $cleanTags");
+        query = query.where('tags', arrayContainsAny: cleanTags);
+
+        // Defer Chapter/Topic filtering to client-side
+        if (_selectedChapters.isNotEmpty) isFilteringChaptersClientSide = true;
+        if (_selectedTopics.isNotEmpty) isFilteringTopicsClientSide = true;
+
+      } else {
+        if (_selectedChapters.isNotEmpty && _selectedChapters.length <= 10) {
+          query = query.where('Chapter', whereIn: _selectedChapters.toList());
+        } else if (_selectedChapters.length > 10) {
+          isFilteringChaptersClientSide = true;
+        }
+
+        if (_selectedTopics.isNotEmpty && _selectedTopics.length <= 10) {
+          query = query.where('Topic', whereIn: _selectedTopics.toList());
+        } else if (_selectedTopics.length > 10) {
+          isFilteringTopicsClientSide = true;
+        }
+      }
+
+      // 1. Get Total Count
       AggregateQuerySnapshot countSnapshot = await query.count().get();
       int totalCount = countSnapshot.count ?? 0;
+      debugPrint("🔍 Total Matches Found in Firestore: $totalCount");
 
-      String randomAnchor = _generateRandomId();
-      Query randomQuery = query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(50);
+      QuerySnapshot snapshot;
 
-      QuerySnapshot snapshot = await randomQuery.get();
-      if (snapshot.docs.isEmpty) {
-        snapshot = await query.limit(50).get();
+      // [CRITICAL CHANGE] "Fetch All & Shuffle" Strategy
+      // If results are <= 500, we fetch ALL of them. This allows us to show the user
+      // every possible question (perfect completeness) and shuffle them perfectly (perfect randomness).
+      if (totalCount <= 500) {
+        snapshot = await query.limit(500).get();
+      } else {
+        // If results > 500, downloading all is too slow.
+        // We use the "Random Anchor" strategy to jump into the middle of the dataset and fetch a slice.
+        String randomAnchor = _generateRandomId();
+        snapshot = await query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(20).get();
+
+        if (snapshot.docs.length < 20) {
+          QuerySnapshot fallbackSnapshot = await query.limit(20).get();
+          if (snapshot.docs.isEmpty) {
+            snapshot = fallbackSnapshot;
+          } else if (snapshot.docs.length < 5) {
+            snapshot = fallbackSnapshot;
+          }
+        }
       }
 
       List<Question> fetched = snapshot.docs
           .map((doc) => Question.fromFirestore(doc))
           .toList();
 
-      if (_selectedChapters.length > 10) {
+      // 3. Client-Side Filtering
+      if (isFilteringChaptersClientSide) {
         fetched = fetched.where((q) => _selectedChapters.contains(q.chapter)).toList();
       }
-      if (_selectedTopics.length > 10) {
+      if (isFilteringTopicsClientSide) {
         fetched = fetched.where((q) => _selectedTopics.contains(q.topic)).toList();
       }
 
+      // 4. Shuffle locally
       fetched.shuffle();
-      if (fetched.length > 20) fetched = fetched.sublist(0, 20);
+
+      // [FIX] NO slicing if we are in "Fetch All" mode.
+      // If we fetched 120 documents, we display all 120.
+      // We only slice if we intentionally did a partial fetch (the >500 case).
+      // Since the >500 query uses limit(20), fetched.length is naturally 20, so no slicing needed there either.
+      // The logic self-regulates.
 
       setState(() {
         _searchResults = fetched;
@@ -284,9 +314,11 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
       });
 
     } catch (e) {
-      debugPrint("Search Error: $e");
+      debugPrint("❌ Search Error: $e");
       String msg = "Error fetching data.";
-      if (e.toString().contains("failed-precondition")) msg = "Missing Index. Check debug console.";
+      if (e.toString().contains("failed-precondition")) {
+        msg = "Missing Index. Check debug console for link.";
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       setState(() {
@@ -314,7 +346,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     final timeCtrl = TextEditingController(text: "${_selectedQuestions.length * 2}");
     bool isSingleAttempt = false;
 
-    // 4. UPDATED: Default Deadline Logic (Tomorrow 11:59 PM)
     final now = DateTime.now();
     DateTime? selectedDeadline = DateTime(now.year, now.month, now.day + 1, 23, 59);
 
@@ -381,8 +412,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
                     ...markingConfigs.keys.map((type) {
                       MarkingConfiguration cfg = markingConfigs[type]!;
-
-                      // 5. UPDATED: Display as Integers (remove .0)
                       String initCorrect = cfg.correctScore.toString().replaceAll(RegExp(r'([.]*0)(?!.*\d)'), '');
                       String initIncorrect = cfg.incorrectScore.toString().replaceAll(RegExp(r'([.]*0)(?!.*\d)'), '');
 
@@ -637,7 +666,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                               ),
                               Expanded(
                                 child: QuestionPreviewCard(
-                                  question: q
+                                    question: q
                                 ),
                               ),
                             ],
@@ -648,15 +677,19 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                   },
                 ),
                 const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.refresh),
-                    label: const Text("Get More Questions"),
-                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), side: const BorderSide(color: Colors.deepPurple)),
-                    onPressed: _performSearch,
+
+                // [CRITICAL UX FIX] Only show "Get More Questions" if total matches > 500.
+                // If matches <= 500, we have already displayed ALL of them, so "Get More" is pointless.
+                if (_totalMatchCount > 500)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.refresh),
+                      label: const Text("Get More Questions"),
+                      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), side: const BorderSide(color: Colors.deepPurple)),
+                      onPressed: _performSearch,
+                    ),
                   ),
-                ),
               ],
             ),
         ],
@@ -695,7 +728,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                   children: [
                     Expanded(
                       child: QuestionPreviewCard(
-                        question: q
+                          question: q
                       ),
                     ),
                     IconButton(
@@ -758,7 +791,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           decoration: decoration.copyWith(labelText: "Subject"),
         ),
         const SizedBox(height: 10),
-        // 6. ADDED: Question Type Filter Dropdown
         DropdownButtonFormField<String>(
           value: _selectedQuestionType,
           hint: const Text("Select Type (Optional)"),
@@ -798,6 +830,20 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           child: InputDecorator(
             decoration: decoration.copyWith(labelText: "Topics", suffixIcon: const Icon(Icons.arrow_drop_down)),
             child: Text(_selectedTopics.isEmpty ? "All" : "${_selectedTopics.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+        ),
+        const SizedBox(height: 10),
+        // [NEW] Tags Multi-Select Dropdown
+        InkWell(
+          onTap: () => _showMultiSelectDialog(
+            title: "Select Tags",
+            items: _tagsList,
+            selectedItems: _selectedTags,
+            onConfirm: (set) => setState(() { _selectedTags.clear(); _selectedTags.addAll(set); }),
+          ),
+          child: InputDecorator(
+            decoration: decoration.copyWith(labelText: "Tags (Optional)", suffixIcon: const Icon(Icons.arrow_drop_down)),
+            child: Text(_selectedTags.isEmpty ? "All" : "${_selectedTags.length} Selected", maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
         ),
         const SizedBox(height: 10),
