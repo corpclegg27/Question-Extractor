@@ -1,5 +1,5 @@
 // lib/services/test_orchestration_service.dart
-// Description: Manages test submission. Added logic to fetch authoritative Title from DB to fix "Resumed Session" naming issue.
+// Description: Manages test submission. Updated to include image_url and solution_url in ResponseObject for permanent storage.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -66,7 +66,7 @@ class TestOrchestrationService {
     double carelessFactor = 0.25;
     double goodSkipFactorRaw = 20.0;
 
-    // [FIX] Initialize with UI title, but try to fetch real title from DB
+    // Initialize with UI title, but try to fetch real title from DB
     String finalTitle = title;
 
     try {
@@ -81,7 +81,7 @@ class TestOrchestrationService {
         goodSkipFactorRaw = (data['factorForGoodSkip'] ?? 20.0).toDouble();
       }
 
-      // 2. [FIX] Fetch Authoritative Title (Fix for "Resumed Session")
+      // 2. Fetch Authoritative Title (Fix for "Resumed Session")
       if (sourceId.isNotEmpty) {
         // Check assignments first
         final curationDoc = await _firestore.collection('questions_curation').doc(sourceId).get();
@@ -183,6 +183,9 @@ class TestOrchestrationService {
         difficultyTag: question.difficulty,
         questionType: userResponse?.questionType ?? '',
         marksObtained: userResponse?.marksObtained ?? 0,
+        // [NEW] Persist visual data for Result Screen
+        imageUrl: question.imageUrl,
+        solutionUrl: question.solutionUrl,
       );
       enrichedResponses[question.id] = enrichedResponse;
     }
@@ -200,7 +203,7 @@ class TestOrchestrationService {
       id: attemptRef.id,
       sourceId: sourceId,
       assignmentCode: assignmentCode,
-      title: finalTitle, // [FIX] Use the authoritative title fetched from DB
+      title: finalTitle,
       onlySingleAttempt: onlySingleAttempt,
       mode: mode,
       userId: _userId!,

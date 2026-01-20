@@ -1,11 +1,13 @@
 // lib/features/analytics/screens/results_screen.dart
-// Description: Detailed analysis screen. Uses TestResult.attempt for data.
-// Fixed consistency between Overall Score and Breakdown bars. Implemented Partial Marking logic.
+// Description: Detailed analysis screen. Added "Full Paper Review" with Filters (All, Correct, Incorrect, Skipped).
+// UI matches solution_detail_sheet for consistency (Time box, Tags, Answer Status).
+// Solutions are now hidden inside an expandable section, only shown on click.
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/widgets/solution_detail_sheet.dart';
+import 'package:study_smart_qc/widgets/expandable_image.dart';
 
 class ResultsScreen extends StatefulWidget {
   final TestResult result;
@@ -17,6 +19,8 @@ class ResultsScreen extends StatefulWidget {
 }
 
 class _ResultsScreenState extends State<ResultsScreen> {
+  String _selectedFilter = 'All'; // Options: All, Correct, Incorrect, Skipped
+
   final List<String> _behavioralOrder = [
     "Perfect Attempt", "Overtime Correct", "Careless Mistake",
     "Wasted Attempt", "Good Skip", "Time Wasted"
@@ -43,14 +47,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
       _smartAnalysisGroups[key] = [];
     }
 
-    // Access responses directly from the attempt model
     final responses = widget.result.attempt.responses;
 
     for (int i = 0; i < widget.result.questions.length; i++) {
       final qId = widget.result.questions[i].id;
       String keyToUse = qId;
 
-      // Safe fallback for customId
       if (!responses.containsKey(keyToUse)) {
         keyToUse = widget.result.questions[i].customId;
       }
@@ -100,15 +102,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // [UPDATED] Prioritizes breakdown data for consistency
   Widget _buildScoreCard() {
     final attempt = widget.result.attempt;
-
-    // Default to root values
     double max = attempt.maxMarks.toDouble();
     double score = attempt.score.toDouble();
 
-    // Prefer "Overall" breakdown if available (Fixes the 36 vs 40 mismatch)
     if (attempt.marksBreakdown.containsKey('Overall')) {
       final overall = attempt.marksBreakdown['Overall'];
       if (overall != null) {
@@ -118,11 +116,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     }
 
     final double percent = (max > 0) ? (score.abs() / max).clamp(0.0, 1.0) : 0.0;
-
-    // Dynamic color based on percentage
     final theme = _getDynamicColors(score, max);
-
-    // Format: "20 / 36" (No decimals)
     final String scoreText = "${score.toStringAsFixed(0)} / ${max.toStringAsFixed(0)}";
 
     return Container(
@@ -148,29 +142,22 @@ class _ResultsScreenState extends State<ResultsScreen> {
               minHeight: 12,
             ),
           ),
-
-          // Question Type Breakdown
           _buildTypeBreakdownList(attempt.marksBreakdown),
         ],
       ),
     );
   }
 
-  // [UPDATED] Shows "Obtained / Max" and sorts by Max Marks
   Widget _buildTypeBreakdownList(Map<String, dynamic> breakdown) {
-    if (breakdown.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    if (breakdown.isEmpty) return const SizedBox.shrink();
 
-    // 1. Flatten Data: Aggregate across subjects
     Map<String, Map<String, double>> typeStats = {};
 
     breakdown.forEach((subjectKey, subjectValue) {
-      if (subjectKey == "Overall") return; // Skip overall summary
+      if (subjectKey == "Overall") return;
       if (subjectValue is Map) {
         subjectValue.forEach((typeKey, typeData) {
           if (typeData is Map && typeKey != "maxMarks" && typeKey != "marksObtained") {
-            // Found a Question Type (e.g., "Numerical type")
             if (!typeStats.containsKey(typeKey)) {
               typeStats[typeKey] = {"max": 0.0, "obtained": 0.0};
             }
@@ -186,7 +173,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
     if (typeStats.isEmpty) return const SizedBox.shrink();
 
-    // 2. Sort by Max Marks (Descending) -> Highest weightage first
     List<MapEntry<String, Map<String, double>>> sortedStats = typeStats.entries.toList()
       ..sort((a, b) => b.value["max"]!.compareTo(a.value["max"]!));
 
@@ -207,7 +193,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
             padding: const EdgeInsets.symmetric(vertical: 8.0),
             child: Row(
               children: [
-                // Label (e.g. "Numerical type")
                 SizedBox(
                   width: 120,
                   child: Text(label,
@@ -216,7 +201,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                // Bar
                 Expanded(
                   child: Stack(
                     children: [
@@ -229,7 +213,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Value (e.g. "8 / 12")
                 SizedBox(
                   width: 50,
                   child: Text(
@@ -260,7 +243,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final int attempted = correct + partial + incorrect;
     final int totalQs = widget.result.attempt.totalQuestions;
 
-    // Accuracy: Strictly Correct / Attempted (Partial does not count as Accuracy hit)
     final double accuracy = (attempted > 0) ? (correct / attempted) * 100 : 0.0;
     final double attemptPercent = (totalQs > 0) ? (attempted / totalQs) * 100 : 0.0;
     final String timeStr = _formatTimeHHMMSS(widget.result.attempt.timeTakenSeconds);
@@ -294,13 +276,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
       else s++;
     });
 
-    // Fallback if map is empty but summary exists
     if (c == 0 && p == 0 && i == 0 && s == 0) {
       c = widget.result.attempt.correctCount;
       i = widget.result.attempt.incorrectCount;
       s = widget.result.attempt.skippedCount;
     } else {
-      // Ensure skipped matches total
       int calculated = c + p + i + s;
       if (calculated < widget.result.attempt.totalQuestions) {
         s += (widget.result.attempt.totalQuestions - calculated);
@@ -321,7 +301,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
                 sections: [
                   if(c>0) _buildSection(c.toDouble(), '$c', Colors.green),
-                  if(p>0) _buildSection(p.toDouble(), '$p', Colors.orange), // Orange for Partial
+                  if(p>0) _buildSection(p.toDouble(), '$p', Colors.orange),
                   if(i>0) _buildSection(i.toDouble(), '$i', Colors.red),
                   if(s>0) _buildSection(s.toDouble(), '$s', Colors.grey.shade300, textColor: Colors.black54),
                 ],
@@ -568,6 +548,276 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  // [NEW] Filters for Paper Review
+  Widget _buildFilterChips() {
+    final options = ['All', 'Correct', 'Incorrect', 'Skipped'];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: options.map((option) {
+          final isSelected = _selectedFilter == option;
+          Color activeColor = Colors.deepPurple;
+          if (option == 'Correct') activeColor = Colors.green;
+          if (option == 'Incorrect') activeColor = Colors.red;
+          if (option == 'Skipped') activeColor = Colors.grey;
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: FilterChip(
+              label: Text(option),
+              selected: isSelected,
+              onSelected: (val) {
+                if (val) setState(() => _selectedFilter = option);
+              },
+              backgroundColor: Colors.white,
+              selectedColor: activeColor.withOpacity(0.2),
+              checkmarkColor: activeColor,
+              labelStyle: TextStyle(
+                color: isSelected ? activeColor : Colors.grey.shade700,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(color: isSelected ? activeColor : Colors.grey.shade300),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // [NEW] Full Paper Review Section with Matched UI and Expandable Solution
+  Widget _buildFullPaperReview() {
+    // 1. Filter Questions
+    List<int> filteredIndices = [];
+    for (int i = 0; i < widget.result.questions.length; i++) {
+      final question = widget.result.questions[i];
+      String keyToUse = question.id;
+      if (!widget.result.attempt.responses.containsKey(keyToUse)) {
+        keyToUse = question.customId;
+      }
+      final response = widget.result.attempt.responses[keyToUse];
+      final status = response?.status ?? 'SKIPPED';
+
+      bool matches = false;
+      if (_selectedFilter == 'All') matches = true;
+      else if (_selectedFilter == 'Correct' && status == 'CORRECT') matches = true;
+      else if (_selectedFilter == 'Incorrect' && (status == 'INCORRECT' || status == 'PARTIALLY_CORRECT')) matches = true;
+      else if (_selectedFilter == 'Skipped' && (status == 'SKIPPED' || status == 'NOT_VISITED')) matches = true;
+
+      if (matches) filteredIndices.add(i);
+    }
+
+    if (filteredIndices.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Center(child: Text("No questions match '$_selectedFilter' filter.", style: const TextStyle(color: Colors.grey))),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: filteredIndices.length,
+      itemBuilder: (context, index) {
+        final realIndex = filteredIndices[index];
+        final question = widget.result.questions[realIndex];
+        String keyToUse = question.id;
+        if (!widget.result.attempt.responses.containsKey(keyToUse)) {
+          keyToUse = question.customId;
+        }
+        final response = widget.result.attempt.responses[keyToUse];
+
+        // Safe Fallbacks
+        final status = response?.status ?? 'SKIPPED';
+        final isCorrect = status == 'CORRECT';
+        final isPartial = status == 'PARTIALLY_CORRECT';
+        final timeSpent = response?.timeSpent ?? 0;
+        final smartTag = response?.smartTimeAnalysis ?? '';
+        final userOption = response?.selectedOption ?? 'Not Answered';
+        final correctOption = response?.correctOption ?? question.correctAnswer;
+        final marks = response?.marksObtained ?? 0;
+
+        // Image Sources
+        final questionImage = response?.imageUrl ?? question.imageUrl;
+        final solutionImage = response?.solutionUrl ?? question.solutionUrl;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 24),
+          decoration: _standardCardDecoration,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. Header (Q No + Type + Marks)
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: Colors.deepPurple.shade50, borderRadius: BorderRadius.circular(8)),
+                    child: Text("Q.${realIndex + 1}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(question.type.name.toUpperCase().replaceAll("_", " "), style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: marks > 0 ? Colors.green.shade50 : (marks < 0 ? Colors.red.shade50 : Colors.grey.shade100),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: marks > 0 ? Colors.green.shade200 : (marks < 0 ? Colors.red.shade200 : Colors.grey.shade300)),
+                    ),
+                    child: Text("${marks > 0 ? '+' : ''}${marks.toStringAsFixed(marks.truncateToDouble() == marks ? 0 : 1)}",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: marks > 0 ? Colors.green : (marks < 0 ? Colors.red : Colors.grey))),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+
+              // 2. Question Image
+              if (questionImage != null && questionImage.isNotEmpty)
+                Center(
+                  child: Container(
+                    constraints: const BoxConstraints(maxHeight: 250),
+                    child: ExpandableImage(imageUrl: questionImage),
+                  ),
+                )
+              else
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(child: Text("Image not available", style: TextStyle(color: Colors.grey))),
+                ),
+              const SizedBox(height: 16),
+
+              // 3. Time Box (Matches Solution Sheet)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade100)
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.timer, size: 16, color: Colors.blue),
+                    const SizedBox(width: 8),
+                    const Text("Time Spent: ", style: TextStyle(fontSize: 14, color: Colors.black54)),
+                    Text(_formatDuration(timeSpent), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
+                  ],
+                ),
+              ),
+
+              // 4. Smart Tag (Matches Solution Sheet)
+              if (smartTag.isNotEmpty)
+                Builder(builder: (context) {
+                  final shortTag = smartTag.split('(').first.trim();
+                  final color = _getSmartColor(shortTag);
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: color)
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.label, size: 16, color: color),
+                        const SizedBox(width: 8),
+                        Flexible(child: Text(shortTag, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color))),
+                      ],
+                    ),
+                  );
+                }),
+
+              // 5. Your Answer
+              _buildAnswerStatus(
+                'Your Answer: $userOption',
+                isCorrect,
+                isPartial,
+                status,
+              ),
+              const SizedBox(height: 8),
+
+              // 6. Correct Answer
+              _buildAnswerStatus(
+                'Correct Answer: $correctOption',
+                true, // Force Green for Correct Answer row
+                false,
+                'CORRECT',
+              ),
+
+              // 7. Expandable Solution (Only if available)
+              if (solutionImage != null && solutionImage.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Divider(),
+                Theme(
+                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    title: const Text("Show solution", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    initiallyExpanded: false,
+                    trailing: const SizedBox.shrink(), // Remove trailing arrow
+                    children: [
+                      const SizedBox(height: 8),
+                      const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text("Solution:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))
+                      ),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: Container(
+                          constraints: const BoxConstraints(maxHeight: 250),
+                          child: ExpandableImage(imageUrl: solutionImage),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ]
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // --- ANSWER STATUS WIDGET (Replicated from Solution Sheet) ---
+  Widget _buildAnswerStatus(String text, bool isCorrect, bool isPartial, String statusStr) {
+    Color color = Colors.grey;
+    IconData icon = Icons.help_outline;
+
+    if (statusStr == 'SKIPPED' || statusStr == 'NOT_VISITED') {
+      color = Colors.orange;
+      icon = Icons.warning_amber_rounded;
+    } else {
+      if (isPartial) {
+        color = Colors.orange;
+        icon = Icons.warning_amber_rounded;
+      } else {
+        color = isCorrect ? Colors.green : Colors.red;
+        icon = isCorrect ? Icons.check_circle : Icons.cancel;
+      }
+    }
+
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+        ),
+      ],
+    );
+  }
+
   // --- UTILS ---
 
   String _formatTimeHHMMSS(int totalSeconds) {
@@ -583,6 +833,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
     if (totalSeconds < 60) return "${totalSeconds}s";
     int m = totalSeconds ~/ 60;
     int s = totalSeconds % 60;
+    return '${m}m ${s}s';
+  }
+
+  String _formatDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
     return '${m}m ${s}s';
   }
 
@@ -689,6 +946,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
             const SizedBox(height: 32),
             _buildHeader("Questions Breakdown"),
             _buildSmartAnalysisList(),
+
+            // [NEW] Full Paper Review Section
+            const SizedBox(height: 32),
+            _buildHeader("Full Paper Review"),
+            _buildFilterChips(), // Added Filters
+            const SizedBox(height: 16),
+            _buildFullPaperReview(),
           ],
         ),
       ),

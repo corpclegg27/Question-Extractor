@@ -1,6 +1,5 @@
 // lib/models/attempt_model.dart
-// Description: Updated AttemptModel to store Marking Schemes and Marks Breakdown.
-// Updated ResponseObject to store per-question Marks Obtained and Type.
+// Description: Updated AttemptModel. ResponseObject now includes image_url and solution_url for direct access in results.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -31,10 +30,8 @@ class AttemptModel {
   final Map<String, int> secondsBreakdownSmartTimeAnalysis;
   final Map<String, ResponseObject> responses;
 
-  // [NEW] RICH ANALYTICS
-  // Stores the exact rules used (e.g. { "Single Correct": {"correct": 3, "wrong": -1} })
+  // RICH ANALYTICS
   final Map<String, dynamic> markingSchemes;
-  // Stores { "Physics": { "maxMarks": 40, "marksObtained": 20, "Numerical": {...} } }
   final Map<String, dynamic> marksBreakdown;
 
   AttemptModel({
@@ -59,8 +56,8 @@ class AttemptModel {
     required this.secondsBreakdownHighLevel,
     required this.secondsBreakdownSmartTimeAnalysis,
     required this.responses,
-    required this.markingSchemes, // [NEW]
-    required this.marksBreakdown, // [NEW]
+    required this.markingSchemes,
+    required this.marksBreakdown,
   });
 
   factory AttemptModel.fromFirestore(DocumentSnapshot doc) {
@@ -95,7 +92,6 @@ class AttemptModel {
             (key, value) => MapEntry(key, ResponseObject.fromMap(value)),
       ),
 
-      // [NEW] Reading new fields
       markingSchemes: Map<String, dynamic>.from(data['markingSchemes'] ?? {}),
       marksBreakdown: Map<String, dynamic>.from(data['marksBreakdown'] ?? {}),
     );
@@ -123,7 +119,6 @@ class AttemptModel {
       'secondsBreakdownHighLevel': secondsBreakdownHighLevel,
       'secondsBreakdownSmartTimeAnalysis': secondsBreakdownSmartTimeAnalysis,
       'responses': responses.map((key, value) => MapEntry(key, value.toMap())),
-      // [NEW] Writing new fields
       'markingSchemes': markingSchemes,
       'marksBreakdown': marksBreakdown,
     };
@@ -151,9 +146,13 @@ class ResponseObject {
   final String pyq;
   final String difficultyTag;
 
-  // [NEW] Per-Question Analytics
+  // Per-Question Analytics
   final String questionType;
   final num marksObtained;
+
+  // [NEW] Visual Data for Result Cards
+  final String? imageUrl;
+  final String? solutionUrl;
 
   ResponseObject({
     required this.status,
@@ -175,8 +174,10 @@ class ResponseObject {
     this.mistakeNote,
     this.pyq = '',
     this.difficultyTag = '',
-    this.questionType = '', // [NEW]
-    this.marksObtained = 0, // [NEW]
+    this.questionType = '',
+    this.marksObtained = 0,
+    this.imageUrl, // [NEW]
+    this.solutionUrl, // [NEW]
   });
 
   factory ResponseObject.fromJson(Map<String, dynamic> json) => ResponseObject.fromMap(json);
@@ -202,8 +203,10 @@ class ResponseObject {
     String? mistakeNote,
     String? pyq,
     String? difficultyTag,
-    String? questionType, // [NEW]
-    num? marksObtained, // [NEW]
+    String? questionType,
+    num? marksObtained,
+    String? imageUrl, // [NEW]
+    String? solutionUrl, // [NEW]
   }) {
     return ResponseObject(
       status: status ?? this.status,
@@ -225,8 +228,10 @@ class ResponseObject {
       mistakeNote: mistakeNote ?? this.mistakeNote,
       pyq: pyq ?? this.pyq,
       difficultyTag: difficultyTag ?? this.difficultyTag,
-      questionType: questionType ?? this.questionType, // [NEW]
-      marksObtained: marksObtained ?? this.marksObtained, // [NEW]
+      questionType: questionType ?? this.questionType,
+      marksObtained: marksObtained ?? this.marksObtained,
+      imageUrl: imageUrl ?? this.imageUrl, // [NEW]
+      solutionUrl: solutionUrl ?? this.solutionUrl, // [NEW]
     );
   }
 
@@ -251,8 +256,10 @@ class ResponseObject {
       mistakeNote: map['mistakeNote'],
       pyq: map['pyq'] ?? '',
       difficultyTag: map['difficultyTag'] ?? '',
-      questionType: map['questionType'] ?? '', // [NEW]
-      marksObtained: map['marksObtained'] ?? 0, // [NEW]
+      questionType: map['questionType'] ?? '',
+      marksObtained: map['marksObtained'] ?? 0,
+      imageUrl: map['image_url'], // [NEW] Read snake_case
+      solutionUrl: map['solution_url'], // [NEW] Read snake_case
     );
   }
 
@@ -277,8 +284,10 @@ class ResponseObject {
       'mistakeNote': mistakeNote,
       'pyq': pyq,
       'difficultyTag': difficultyTag,
-      'questionType': questionType, // [NEW]
-      'marksObtained': marksObtained, // [NEW]
+      'questionType': questionType,
+      'marksObtained': marksObtained,
+      'image_url': imageUrl, // [NEW] Write snake_case
+      'solution_url': solutionUrl, // [NEW] Write snake_case
     };
   }
 }

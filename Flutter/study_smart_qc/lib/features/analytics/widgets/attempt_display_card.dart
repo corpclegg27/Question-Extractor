@@ -206,7 +206,7 @@ class AttemptDisplayCard extends StatelessWidget {
                         _buildStatRow(
                           icon: isPositive ? Icons.analytics_outlined : Icons.warning_amber_rounded,
                           label: isPositive ? "Score" : "Negative Score",
-                          value: "${attempt.score} / ${attempt.maxMarks}",
+                          value: "${attempt.score.toStringAsFixed(0)} / ${attempt.maxMarks.toStringAsFixed(0)}",
                           color: statusColor,     // Bar color
                           valueColor: statusTextColor, // Text color (darker)
                           percent: scorePercentage,
