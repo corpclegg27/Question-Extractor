@@ -1,10 +1,12 @@
 // lib/features/common/widgets/display_results_for_student_id.dart
 // Description: Main Dashboard Widget.
 // FULL CODE: Contains Dashboard, Chapter Insights, Results Tabs, and all Chart Widgets.
+// UPDATED: Added 'Chapter Breakdown' Expandable List below Time Chart.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:study_smart_qc/features/analytics/widgets/attempt_list_widget.dart';
 import 'package:study_smart_qc/features/analytics/screens/student_chapter_detailed_view.dart';
@@ -40,7 +42,6 @@ class _DisplayResultsForStudentIdState extends State<DisplayResultsForStudentId>
     super.dispose();
   }
 
-  // Helper for consistent "Pill" styled tabs
   Widget _buildPillTabBar({
     required TabController? controller,
     required List<Tab> tabs,
@@ -74,7 +75,6 @@ class _DisplayResultsForStudentIdState extends State<DisplayResultsForStudentId>
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // 1. MAIN TAB BAR
         Container(
           margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           height: 48,
@@ -108,27 +108,20 @@ class _DisplayResultsForStudentIdState extends State<DisplayResultsForStudentId>
             ],
           ),
         ),
-
-        // 2. TAB VIEW
         Expanded(
           child: TabBarView(
             controller: _mainTabController,
             children: [
-              // Tab 1: Dashboard (Charts)
               _DashboardTab(
                 targetUserId: widget.targetStudentUid,
                 isActive: widget.isVisible,
                 viewType: DashboardViewType.dashboard,
               ),
-
-              // Tab 2: Chapter Insights (List)
               _DashboardTab(
                 targetUserId: widget.targetStudentUid,
                 isActive: widget.isVisible,
                 viewType: DashboardViewType.chapters,
               ),
-
-              // Tab 3: Results (Assignments + Tests)
               _buildResultsTab(),
             ],
           ),
@@ -207,7 +200,7 @@ class _DisplayResultsForStudentIdState extends State<DisplayResultsForStudentId>
 }
 
 // =============================================================================
-// INTERNAL WIDGET: DASHBOARD TAB
+// INTERNAL WIDGET: DASHBOARD TAB WRAPPER
 // =============================================================================
 
 class _DashboardTab extends StatefulWidget {
@@ -227,12 +220,6 @@ class _DashboardTab extends StatefulWidget {
 
 class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderStateMixin {
   late TabController _timeTabController;
-  int _animationKey = 0;
-
-  final List<String> _behavioralOrder = const [
-    "Perfect Attempt", "Overtime Correct", "Careless Mistake",
-    "Wasted Attempt", "Good Skip", "Time Wasted"
-  ];
 
   @override
   void initState() {
@@ -241,22 +228,11 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
   }
 
   @override
-  void didUpdateWidget(covariant _DashboardTab oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.isActive && !oldWidget.isActive) {
-      setState(() {
-        _animationKey++;
-      });
-    }
-  }
-
-  @override
   void dispose() {
     _timeTabController.dispose();
     super.dispose();
   }
 
-  // Consistent Pill Style for Time Filters
   Widget _buildTimeTabBar() {
     return Container(
       height: 40,
@@ -279,9 +255,9 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
         dividerColor: Colors.transparent,
         labelPadding: EdgeInsets.zero,
         tabs: const [
-          Tab(text: "All Time"),
-          Tab(text: "Last Month"),
           Tab(text: "Last Week"),
+          Tab(text: "Last Month"),
+          Tab(text: "All Time"),
         ],
       ),
     );
@@ -313,10 +289,7 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
           );
         }
 
-        return KeyedSubtree(
-          key: ValueKey(_animationKey),
-          child: _buildContent(snapshot.data!.data() as Map<String, dynamic>, uid),
-        );
+        return _buildContent(snapshot.data!.data() as Map<String, dynamic>, uid);
       },
     );
   }
@@ -327,13 +300,19 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
     final lastWeek = data['summary_lastWeek'] as Map<String, dynamic>? ?? {};
     final chapterData = data['breakdownByChapter'] as Map<String, dynamic>? ?? {};
 
+    // Daily Breakdown (Counts & Time)
+    final dailyData = (data['dailyQuestionsBreakdown'] ?? data['dailyQuestionsBreakdownbyStatus']) as Map<String, dynamic>? ?? {};
+
+    // [NEW] Daily Chapter Breakdown
+    final dailyChapterData = data['dailyQuestionsBreakdownbyChapter'] as Map<String, dynamic>? ?? {};
+
     final Timestamp? lastUpdated = data['lastUpdated'];
     String lastUpdatedStr = "Unknown";
     if (lastUpdated != null) {
       lastUpdatedStr = DateFormat('d MMM y, h:mm a').format(lastUpdated.toDate());
     }
 
-    // CASE 1: CHAPTER INSIGHTS (Direct List)
+    // CASE 1: CHAPTER INSIGHTS
     if (widget.viewType == DashboardViewType.chapters) {
       return Column(
         children: [
@@ -351,13 +330,22 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
             ),
           ),
           Expanded(
-            child: _buildSinglePageView(summary, chapterData, "No chapter data found.", fullDoc: data, userId: uid),
+            child: _DashboardPageView(
+              stats: summary,
+              chapterData: chapterData,
+              dailyData: dailyData,
+              dailyChapterData: dailyChapterData, // Pass data
+              viewType: widget.viewType,
+              emptyMsg: "No chapter data found.",
+              fullDoc: data,
+              userId: uid,
+            ),
           ),
         ],
       );
     }
 
-    // CASE 2: DASHBOARD (Charts)
+    // CASE 2: DASHBOARD
     return Column(
       children: [
         Padding(
@@ -383,31 +371,97 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
           child: TabBarView(
             controller: _timeTabController,
             children: [
-              _buildSinglePageView(summary, chapterData, "No activity yet.", fullDoc: data, userId: uid),
-              _buildSinglePageView(lastMonth, null, "No activity in the last 30 days."),
-              _buildSinglePageView(lastWeek, null, "No activity in the last 7 days."),
+              _DashboardPageView(
+                stats: lastWeek,
+                dailyData: dailyData,
+                dailyChapterData: dailyChapterData, // Pass data
+                viewType: widget.viewType,
+                emptyMsg: "No activity in the last 7 days.",
+                chartDays: 7,
+              ),
+              _DashboardPageView(
+                stats: lastMonth,
+                dailyData: dailyData,
+                dailyChapterData: dailyChapterData, // Pass data
+                viewType: widget.viewType,
+                emptyMsg: "No activity in the last 30 days.",
+                chartDays: 30,
+              ),
+              _DashboardPageView(
+                stats: summary,
+                chapterData: chapterData,
+                dailyData: dailyData,
+                dailyChapterData: dailyChapterData, // Pass data
+                viewType: widget.viewType,
+                emptyMsg: "No activity yet.",
+                fullDoc: data,
+                userId: uid,
+              ),
             ],
           ),
         ),
       ],
     );
   }
+}
 
-  Widget _buildSinglePageView(
-      Map<String, dynamic> stats,
-      Map<String, dynamic>? chapterData,
-      String emptyMsg, {
-        Map<String, dynamic>? fullDoc,
-        String? userId,
-      }) {
-    if ((stats['total'] ?? 0) == 0) {
+// =============================================================================
+// ISOLATED PAGE WIDGET
+// =============================================================================
+
+class _DashboardPageView extends StatefulWidget {
+  final Map<String, dynamic> stats;
+  final Map<String, dynamic>? chapterData;
+  final Map<String, dynamic> dailyData;
+  final Map<String, dynamic> dailyChapterData; // [NEW]
+  final DashboardViewType viewType;
+  final String emptyMsg;
+  final int? chartDays;
+  final Map<String, dynamic>? fullDoc;
+  final String? userId;
+
+  const _DashboardPageView({
+    required this.stats,
+    required this.dailyData,
+    required this.dailyChapterData,
+    required this.viewType,
+    required this.emptyMsg,
+    this.chapterData,
+    this.chartDays,
+    this.fullDoc,
+    this.userId,
+  });
+
+  @override
+  State<_DashboardPageView> createState() => _DashboardPageViewState();
+}
+
+class _DashboardPageViewState extends State<_DashboardPageView> {
+  bool _playAnimation = false;
+
+  final List<String> _behavioralOrder = const [
+    "Perfect Attempt", "Overtime Correct", "Careless Mistake",
+    "Wasted Attempt", "Good Skip", "Time Wasted"
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) setState(() => _playAnimation = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if ((widget.stats['total'] ?? 0) == 0) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.bar_chart, size: 48, color: Colors.grey.shade300),
             const SizedBox(height: 16),
-            Text(emptyMsg, style: TextStyle(color: Colors.grey[500], fontSize: 16)),
+            Text(widget.emptyMsg, style: TextStyle(color: Colors.grey[500], fontSize: 16)),
           ],
         ),
       );
@@ -416,13 +470,27 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
     if (widget.viewType == DashboardViewType.dashboard) {
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-        child: _buildMetricSection(stats),
+        child: Column(
+          children: [
+            if (widget.chartDays != null) ...[
+              _buildDailyActivityChart(widget.dailyData, widget.chartDays!),
+              const SizedBox(height: 16),
+              _buildTimeSpentChart(widget.dailyData, widget.chartDays!),
+              const SizedBox(height: 16),
+              // [NEW] Add Chapter Breakdown Widget
+              _buildChapterBreakdown(widget.dailyChapterData, widget.chartDays!),
+              const SizedBox(height: 24),
+            ],
+            _buildMetricSection(widget.stats),
+          ],
+        ),
       );
     }
 
+    // Chapter List Logic
     List<MapEntry<String, dynamic>> sortedChapters = [];
-    if (chapterData != null) {
-      sortedChapters = chapterData.entries.toList();
+    if (widget.chapterData != null) {
+      sortedChapters = widget.chapterData!.entries.toList();
       sortedChapters.sort((a, b) {
         final totalA = a.value['total'] ?? 0;
         final totalB = b.value['total'] ?? 0;
@@ -437,7 +505,7 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       children: [
-        if (fullDoc != null && userId != null)
+        if (widget.fullDoc != null && widget.userId != null)
           ...sortedChapters.map((entry) {
             return _ChapterCard(
               name: entry.key,
@@ -447,10 +515,10 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
                   context,
                   MaterialPageRoute(
                     builder: (context) => StudentChapterDetailedView(
-                      userId: userId,
+                      userId: widget.userId!,
                       chapterName: entry.key,
                       subjectName: entry.value['subject'] ?? 'Unknown',
-                      analysisDoc: fullDoc,
+                      analysisDoc: widget.fullDoc!,
                     ),
                   ),
                 );
@@ -461,6 +529,407 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
           ...sortedChapters.map((entry) {
             return _ChapterCard(name: entry.key, stats: entry.value);
           })
+      ],
+    );
+  }
+
+  // --- [NEW] CHAPTER BREAKDOWN EXPANSION TILE ---
+  Widget _buildChapterBreakdown(Map<String, dynamic> dailyChapterData, int days) {
+    final now = DateTime.now();
+    List<DateTime> dateRange = [];
+    for (int i = 0; i < days; i++) {
+      dateRange.add(now.subtract(Duration(days: i)));
+    }
+    // We keep dates Newest -> Oldest for the list view
+
+    // Check if we have data to show
+    bool hasData = false;
+    for (var date in dateRange) {
+      String key = DateFormat('yyyy-MM-dd').format(date);
+      if (dailyChapterData.containsKey(key)) {
+        hasData = true;
+        break;
+      }
+    }
+
+    if (!hasData) return const SizedBox.shrink();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade300, width: 1.5),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          title: const Text(
+            "Show Chapters Studied",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.deepPurple),
+          ),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                children: dateRange.map((date) {
+                  String key = DateFormat('yyyy-MM-dd').format(date);
+                  if (!dailyChapterData.containsKey(key)) return const SizedBox.shrink();
+
+                  Map<String, dynamic> chapters = dailyChapterData[key] as Map<String, dynamic>;
+                  String niceDate = DateFormat('EEE, d MMM').format(date);
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(niceDate, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                        const SizedBox(height: 8),
+                        ...chapters.entries.map((e) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 6.0),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                      e.key,
+                                      style: const TextStyle(fontSize: 12, color: Colors.black54),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.deepPurple.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                      "${e.value} qs",
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.deepPurple.shade700)
+                                  ),
+                                )
+                              ],
+                            ),
+                          );
+                        }),
+                        Divider(color: Colors.grey.shade100),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- CHART 1: QUESTIONS ---
+  Widget _buildDailyActivityChart(Map<String, dynamic> dailyData, int days) {
+    final now = DateTime.now();
+    List<DateTime> dateRange = [];
+    for (int i = 0; i < days; i++) {
+      dateRange.add(now.subtract(Duration(days: i)));
+    }
+    dateRange = dateRange.reversed.toList();
+
+    List<BarChartGroupData> barGroups = [];
+    double maxY = 0;
+
+    double multiplier = _playAnimation ? 1.0 : 0.0;
+
+    for (int i = 0; i < dateRange.length; i++) {
+      final dateStr = DateFormat('yyyy-MM-dd').format(dateRange[i]);
+      final dayStats = dailyData[dateStr] ?? {};
+
+      double correct = (dayStats['correct'] ?? 0).toDouble() * multiplier;
+      double incorrect = (dayStats['incorrect'] ?? 0).toDouble() * multiplier;
+      double skipped = (dayStats['skipped'] ?? 0).toDouble() * multiplier;
+      double total = correct + incorrect + skipped;
+
+      double actualTotal = ((dayStats['correct'] ?? 0) + (dayStats['incorrect'] ?? 0) + (dayStats['skipped'] ?? 0)).toDouble();
+      if (actualTotal > maxY) maxY = actualTotal;
+
+      barGroups.add(
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: total,
+              rodStackItems: [
+                BarChartRodStackItem(0, correct, Colors.green),
+                BarChartRodStackItem(correct, correct + incorrect, Colors.red),
+                BarChartRodStackItem(correct + incorrect, total, Colors.grey.shade300),
+              ],
+              width: days == 7 ? 16 : 8,
+              borderRadius: BorderRadius.circular(4),
+              color: Colors.transparent,
+            ),
+          ],
+          showingTooltipIndicators: days == 7 && total > 0 ? [0] : [],
+        ),
+      );
+    }
+
+    double interval = _calculateYInterval(maxY, isTime: false);
+    double adjustedMaxY = (maxY > 0) ? (maxY / interval).ceil() * interval : 5;
+
+    return Container(
+      height: 220,
+      width: double.infinity,
+      decoration: _standardCardDecoration,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                days == 7 ? "# Questions" : "# Questions",
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+              ),
+              Row(
+                children: [
+                  _buildChartLegend(Colors.green, "Correct"),
+                  const SizedBox(width: 8),
+                  _buildChartLegend(Colors.red, "Incorrect"),
+                  const SizedBox(width: 8),
+                  _buildChartLegend(Colors.grey.shade300, "Skipped"),
+                ],
+              )
+            ],
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: BarChart(
+              BarChartData(
+                maxY: adjustedMaxY,
+                barTouchData: BarTouchData(
+                  enabled: true,
+                  touchTooltipData: BarTouchTooltipData(
+                    getTooltipColor: (_) => days == 7 ? Colors.transparent : Colors.blueGrey,
+                    tooltipPadding: days == 7 ? EdgeInsets.zero : const EdgeInsets.all(8),
+                    tooltipMargin: days == 7 ? 2 : 8,
+                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                      final date = dateRange[group.x.toInt()];
+                      if (days == 7) {
+                        return BarTooltipItem(
+                          rod.toY < 1 ? '' : rod.toY.toInt().toString(),
+                          const TextStyle(color: Colors.black54, fontWeight: FontWeight.bold, fontSize: 11),
+                        );
+                      }
+                      final dateStr = DateFormat('d MMM').format(date);
+                      return BarTooltipItem(
+                        '$dateStr\n',
+                        const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                        children: [TextSpan(text: 'Total: ${rod.toY.toInt()}', style: const TextStyle(color: Colors.yellowAccent))],
+                      );
+                    },
+                  ),
+                ),
+                titlesData: _buildChartTitles(dateRange, days, interval, showLeftTitles: days == 30),
+                borderData: FlBorderData(
+                  show: true,
+                  border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 1)),
+                ),
+                gridData: FlGridData(
+                  show: days == 30,
+                  drawVerticalLine: false,
+                  horizontalInterval: interval,
+                  getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                ),
+                barGroups: barGroups,
+              ),
+              swapAnimationDuration: const Duration(milliseconds: 1000),
+              swapAnimationCurve: Curves.easeOutQuart,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- CHART 2: TIME SPENT ---
+  Widget _buildTimeSpentChart(Map<String, dynamic> dailyData, int days) {
+    final now = DateTime.now();
+    List<DateTime> dateRange = [];
+    for (int i = 0; i < days; i++) {
+      dateRange.add(now.subtract(Duration(days: i)));
+    }
+    dateRange = dateRange.reversed.toList();
+
+    List<BarChartGroupData> barGroups = [];
+    double maxY = 0;
+
+    double multiplier = _playAnimation ? 1.0 : 0.0;
+
+    for (int i = 0; i < dateRange.length; i++) {
+      final dateStr = DateFormat('yyyy-MM-dd').format(dateRange[i]);
+      final dayStats = dailyData[dateStr] ?? {};
+
+      double seconds = (dayStats['timeSpent'] ?? 0).toDouble();
+      double minutes = (seconds / 60.0);
+
+      if (minutes > maxY) maxY = minutes;
+
+      minutes = minutes * multiplier;
+
+      barGroups.add(
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: minutes,
+              width: days == 7 ? 16 : 8,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+              color: Colors.deepPurple.shade300,
+            ),
+          ],
+          showingTooltipIndicators: days == 7 && minutes > 0 ? [0] : [],
+        ),
+      );
+    }
+
+    double interval = _calculateYInterval(maxY, isTime: true);
+    double adjustedMaxY = (maxY > 0) ? (maxY / interval).ceil() * interval : 10;
+
+    return Container(
+      height: 220,
+      width: double.infinity,
+      decoration: _standardCardDecoration,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            days == 7 ? "Time Invested (Mins)" : "Time Invested (Mins)",
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: BarChart(
+              BarChartData(
+                maxY: adjustedMaxY,
+                barTouchData: BarTouchData(
+                  enabled: true,
+                  touchTooltipData: BarTouchTooltipData(
+                    getTooltipColor: (_) => days == 7 ? Colors.transparent : Colors.blueGrey,
+                    tooltipPadding: days == 7 ? EdgeInsets.zero : const EdgeInsets.all(8),
+                    tooltipMargin: days == 7 ? 2 : 8,
+                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                      final date = dateRange[group.x.toInt()];
+                      if (days == 7) {
+                        return BarTooltipItem(
+                          rod.toY < 1 ? '' : '${rod.toY.toInt()}m',
+                          const TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold, fontSize: 11),
+                        );
+                      }
+                      final dateStr = DateFormat('d MMM').format(date);
+                      return BarTooltipItem(
+                        '$dateStr\n',
+                        const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                        children: [TextSpan(text: '${rod.toY.toInt()} mins', style: const TextStyle(color: Colors.yellowAccent))],
+                      );
+                    },
+                  ),
+                ),
+                titlesData: _buildChartTitles(dateRange, days, interval, showLeftTitles: days == 30),
+                borderData: FlBorderData(
+                  show: true,
+                  border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 1)),
+                ),
+                gridData: FlGridData(
+                  show: days == 30,
+                  drawVerticalLine: false,
+                  horizontalInterval: interval,
+                  getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                ),
+                barGroups: barGroups,
+              ),
+              swapAnimationDuration: const Duration(milliseconds: 1000),
+              swapAnimationCurve: Curves.easeOutQuart,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _calculateYInterval(double max, {required bool isTime}) {
+    if (max <= 0) return 10;
+
+    if (isTime) {
+      if (max <= 30) return 10;
+      if (max <= 60) return 15;
+      if (max <= 120) return 30;
+      if (max <= 300) return 60;
+      return 120;
+    } else {
+      if (max <= 10) return 2;
+      if (max <= 20) return 5;
+      if (max <= 50) return 10;
+      if (max <= 100) return 25;
+      if (max <= 200) return 50;
+      return 100;
+    }
+  }
+
+  FlTitlesData _buildChartTitles(List<DateTime> dateRange, int days, double interval, {bool showLeftTitles = false}) {
+    return FlTitlesData(
+      show: true,
+      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: showLeftTitles,
+            reservedSize: 30,
+            interval: interval,
+            getTitlesWidget: (value, meta) {
+              if (value == 0) return const SizedBox.shrink();
+              return Text(value.toInt().toString(), style: const TextStyle(color: Colors.grey, fontSize: 10));
+            },
+          )
+      ),
+      bottomTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          getTitlesWidget: (double value, TitleMeta meta) {
+            int index = value.toInt();
+            if (index < 0 || index >= dateRange.length) return const SizedBox.shrink();
+
+            DateTime date = dateRange[index];
+            if (days == 7) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(DateFormat('E').format(date)[0], style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              );
+            } else {
+              if (index % 5 == 0) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(DateFormat('d/M').format(date), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                );
+              }
+              return const SizedBox.shrink();
+            }
+          },
+          reservedSize: 30,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChartLegend(Color color, String text) {
+    return Row(
+      children: [
+        Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 4),
+        Text(text, style: const TextStyle(fontSize: 10, color: Colors.grey)),
       ],
     );
   }
@@ -593,9 +1062,9 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
           Wrap(
             spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
             children: [
-              if (correct > 0) _buildLegendItem(Colors.green, 'Correct ($correct)'),
-              if (incorrect > 0) _buildLegendItem(Colors.red, 'Incorrect ($incorrect)'),
-              if (skipped > 0) _buildLegendItem(Colors.grey.shade300, 'Unattempted ($skipped)'),
+              if (correct > 0) _buildLegendItem(Colors.green, 'Correct', correct),
+              if (incorrect > 0) _buildLegendItem(Colors.red, 'Incorrect', incorrect),
+              if (skipped > 0) _buildLegendItem(Colors.grey.shade300, 'Unattempted', skipped),
             ],
           ),
         ],
@@ -655,10 +1124,11 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
           ),
           const SizedBox(height: 24),
           Wrap(
-            spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
             children: _behavioralOrder.map((key) {
               int val = (counts[key] is int) ? counts[key] : (counts[key] as num?)?.toInt() ?? 0;
-              if (val > 0) return _buildLegendItem(_getSmartColor(key), '$key ($val)');
+              if (val > 0) return _buildLegendItem(_getSmartColor(key), key, val);
               return const SizedBox.shrink();
             }).toList(),
           ),
@@ -667,13 +1137,50 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
     );
   }
 
-  Widget _buildLegendItem(Color color, String text) {
+  Widget _buildLegendItem(Color color, String text, int count) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 6),
-        Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+        Text("$text ($count)", style: const TextStyle(fontSize: 12, color: Colors.black87)),
+      ],
+    );
+  }
+
+  Widget _buildSlimBar(String label, double pct, Color color) {
+    return Row(
+      children: [
+        SizedBox(width: 60, child: Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600))),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: pct / 100),
+              duration: const Duration(milliseconds: 1000),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, _) {
+                return LinearProgressIndicator(
+                  value: value,
+                  minHeight: 12,
+                  backgroundColor: color.withOpacity(0.1),
+                  color: color,
+                );
+              },
+            ),
+          ),
+        ),
+        SizedBox(width: 45, child: Text(" ${pct.toStringAsFixed(0)}%", textAlign: TextAlign.end, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color))),
+      ],
+    );
+  }
+
+  Widget _buildBoldStat(String value, String label) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.black87)),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
       ],
     );
   }
@@ -754,9 +1261,8 @@ class _ChapterCardState extends State<_ChapterCard> {
       final now = DateTime.now();
       final diff = now.difference(date);
       String timeAgo = "";
-      if (diff.inDays > 365) {
-        timeAgo = "${(diff.inDays/365).round()}y ago";
-      } else if (diff.inDays > 30) timeAgo = "${(diff.inDays/30).round()}mo ago";
+      if (diff.inDays > 365) timeAgo = "${(diff.inDays/365).round()}y ago";
+      else if (diff.inDays > 30) timeAgo = "${(diff.inDays/30).round()}mo ago";
       else if (diff.inDays > 0) timeAgo = "${diff.inDays}d ago";
       else if (diff.inHours > 0) timeAgo = "${diff.inHours}h ago";
       else timeAgo = "Just now";
@@ -816,7 +1322,6 @@ class _ChapterCardState extends State<_ChapterCard> {
     );
   }
 
-  // Helper to build the animated stacked bar inside the card
   Widget _buildBehavioralHorizontalBar(Map<String, dynamic> counts) {
     int totalCount = 0;
     for (var key in _behavioralOrder) {
@@ -879,7 +1384,7 @@ class _ChapterCardState extends State<_ChapterCard> {
       children: [
         Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 6),
-        Text("$text ($count)", style: const TextStyle(fontSize: 11, color: Colors.black87)),
+        Text("$text ($count)", style: const TextStyle(fontSize: 12, color: Colors.black87)),
       ],
     );
   }

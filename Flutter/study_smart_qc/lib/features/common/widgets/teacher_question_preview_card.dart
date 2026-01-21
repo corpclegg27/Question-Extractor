@@ -1,15 +1,19 @@
 // lib/features/common/widgets/teacher_question_preview_card.dart
+// Description: Widget to preview question. Includes Edit button to navigate to QC/Edit page.
 
 import 'package:flutter/material.dart';
+import 'package:study_smart_qc/features/teacher/screens/teacher_edit_question_screen.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 
 class QuestionPreviewCard extends StatefulWidget {
   final Question question;
+  final Map<String, dynamic>? rawSyllabus; // [NEW] To pass to Edit Screen
 
   const QuestionPreviewCard({
     super.key,
     required this.question,
+    this.rawSyllabus,
   });
 
   @override
@@ -42,9 +46,9 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // HEADER: ID + Type + Tags
+          // HEADER: ID + Type + Edit Button
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
             decoration: BoxDecoration(
               color: Colors.grey.shade50,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
@@ -70,16 +74,34 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
                     const SizedBox(width: 8),
 
                     // Question Type Badge
-                    _buildTag(
-                        _getQuestionTypeLabel(q.type),
-                        Colors.blue.shade50,
-                        Colors.blue.shade800
+                    Flexible(
+                      child: _buildTag(
+                          _getQuestionTypeLabel(q.type),
+                          Colors.blue.shade50,
+                          Colors.blue.shade800
+                      ),
                     ),
 
                     const Spacer(),
 
-                    // Difficulty Badge
-                    _buildTag(q.difficulty, _getDifficultyColor(q.difficulty), Colors.black87),
+                    // [NEW] Edit Button
+                    IconButton(
+                      icon: const Icon(Icons.edit, size: 20, color: Colors.blueGrey),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () {
+                        // Navigate to Edit Screen
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => TeacherEditQuestionScreen(
+                              question: q,
+                              rawSyllabus: widget.rawSyllabus,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -206,15 +228,6 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
     return text.split('_').map((str) => str.isNotEmpty ? str[0].toUpperCase() + str.substring(1) : '').join(' ');
   }
 
-  Color _getDifficultyColor(String diff) {
-    switch (diff.toLowerCase()) {
-      case 'easy': return Colors.green.shade100;
-      case 'medium': return Colors.yellow.shade100;
-      case 'hard': return Colors.red.shade100;
-      default: return Colors.grey.shade200;
-    }
-  }
-
   String _getQuestionTypeLabel(QuestionType type) {
     switch (type) {
       case QuestionType.singleCorrect: return "Single Correct";
@@ -234,7 +247,7 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: bg.withOpacity(0.5)),
       ),
-      child: Text(text, style: TextStyle(fontSize: 10, color: fg, fontWeight: FontWeight.w500)),
+      child: Text(text, style: TextStyle(fontSize: 10, color: fg, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
     );
   }
 }

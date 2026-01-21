@@ -1,8 +1,8 @@
-# generate_analytics.py
-# Description: Analytics Engine V5.1 (Topic Support).
-# - Adds 'breakdownByTopic' nested aggregation (Chapter -> Topic -> Stats).
-# - PRESERVES all existing Chapter/Subject logic.
-# - Adds migration flag to safe-fill history without duplicating detailed item logs.
+# studentAnalytics.py
+# Description: Analytics Engine V6.2 (Daily Insights + Time Tracking).
+# - Renamed 'dailyQuestionsBreakdownbyStatus' -> 'dailyQuestionsBreakdown'.
+# - Added 'timeSpent' to daily breakdown (Date -> {Correct, Incorrect, Skipped, Total, TimeSpent, Accuracy%, Attempt%}).
+# - PRESERVES all existing Chapter/Subject/Topic/Detailed Item logic.
 
 import firebase_admin
 from firebase_admin import credentials
@@ -14,8 +14,8 @@ from datetime import datetime, timedelta, timezone
 # --- CONFIGURATION ---
 KEY_PATH = 'serviceAccountKey.json' 
 
-# [NEW] Set to True to re-read ALL history and populate Topic stats for the first time.
-# Set to False for daily incremental updates.
+# Set to True to re-read ALL history. 
+# CRITICAL: Keep TRUE for this run to populate the new 'timeSpent' field for past dates.
 FORCE_FULL_RECALCULATION = True 
 
 # --- GLOBAL METRICS ---
@@ -47,7 +47,7 @@ def generate_analytics():
     global TOTAL_READS, TOTAL_WRITES
     start_time = time.time()
     
-    print("\n🚀 STARTING ANALYTICS ENGINE (V5.1 - TOPIC INSIGHTS)")
+    print("\n🚀 STARTING ANALYTICS ENGINE (V6.2 - DAILY TIME TRACKING)")
     print("=====================================================")
     if FORCE_FULL_RECALCULATION:
         print("⚠️  MODE: FORCE FULL RECALCULATION (Reading ALL history)")
@@ -60,7 +60,7 @@ def generate_analytics():
     syllabus_skeleton = {
         "breakdownBySubject": {},
         "breakdownByChapter": {},
-        "breakdownByTopic": {} # [NEW] Added Root Container for Topics
+        "breakdownByTopic": {} 
     }
     
     try:
@@ -79,14 +79,13 @@ def generate_analytics():
                 for chap_key, chap_data in raw_chapters.items():
                     chapter_name = chap_data.get('name', chap_key)
                     
-                    # [UNCHANGED] Init Chapter Stats
+                    # Init Chapter Stats
                     stats = _get_empty_stats_object()
                     stats['subject'] = subject_name
                     stats['lastCorrectlySolvedAt'] = None
                     syllabus_skeleton["breakdownByChapter"][chapter_name] = stats
                     
-                    # [NEW] Init nested Topic container for this chapter
-                    # Structure: breakdownByTopic -> ChapterName -> {}
+                    # Init nested Topic container
                     syllabus_skeleton["breakdownByTopic"][chapter_name] = {}
 
             print(f"   -> Syllabus Loaded: {len(syllabus_skeleton['breakdownByChapter'])} chapters.")
@@ -147,7 +146,6 @@ def generate_analytics():
         
         incremental_query = db.collection('attempts').where('userId', '==', user_id)
         
-        # [MODIFIED] If FORCE_FULL_RECALCULATION is True, we ignore the timestamp
         if not FORCE_FULL_RECALCULATION and last_processed_timestamp:
             incremental_query = incremental_query.where('completedAt', '>', last_processed_timestamp)
         
@@ -181,9 +179,17 @@ def generate_analytics():
         if analysis_doc.exists and not FORCE_FULL_RECALCULATION:
             # Incremental Mode: Load existing state
             aggregator = analysis_doc.to_dict()
-            # [NEW] Ensure field exists if previously missing
+            
+            # Ensure new fields exist if migrating
             if 'breakdownByTopic' not in aggregator:
                 aggregator['breakdownByTopic'] = copy.deepcopy(syllabus_skeleton["breakdownByTopic"])
+            
+            # [RENAMED] Check for new field name
+            if 'dailyQuestionsBreakdown' not in aggregator:
+                aggregator['dailyQuestionsBreakdown'] = {}
+            
+            if 'dailyQuestionsBreakdownbyChapter' not in aggregator:
+                aggregator['dailyQuestionsBreakdownbyChapter'] = {}
         else:
             # Full Recalc Mode or New User: Start Fresh
             aggregator = {
@@ -192,19 +198,30 @@ def generate_analytics():
                 "summary": _get_empty_stats_object(),
                 "breakdownBySubject": copy.deepcopy(syllabus_skeleton["breakdownBySubject"]),
                 "breakdownByChapter": copy.deepcopy(syllabus_skeleton["breakdownByChapter"]),
-                "breakdownByTopic": copy.deepcopy(syllabus_skeleton["breakdownByTopic"]) # [NEW]
+                "breakdownByTopic": copy.deepcopy(syllabus_skeleton["breakdownByTopic"]),
+                "dailyQuestionsBreakdown": {},          # [RENAMED & UPDATED]
+                "dailyQuestionsBreakdownbyChapter": {}
             }
 
         aggregator["lastUpdated"] = firestore.SERVER_TIMESTAMP
 
-        # --- Process Attempts (Global Stats) ---
+        # --- Process Attempts (Global Stats + Daily) ---
         for attempt in new_attempts:
             att_data = attempt.to_dict()
             attempt_id = attempt.id
             responses = att_data.get('responses', {})
-            completed_at = att_data.get('completedAt')
+            completed_at = att_data.get('completedAt') # Firestore Timestamp
 
             if not responses: continue
+
+            # Format Date Key (YYYY-MM-DD)
+            date_key = "Unknown"
+            if completed_at:
+                dt = completed_at
+                if hasattr(dt, 'date'): 
+                    date_key = dt.strftime("%Y-%m-%d")
+                else:
+                    date_key = str(dt)[:10]
 
             for q_id, response in responses.items():
                 status = response.get('status', 'SKIPPED')
@@ -214,15 +231,15 @@ def generate_analytics():
                 time_spent = response.get('timeSpent', 0)
                 smart_tag = _extract_smart_tag(response.get('smartTimeAnalysis', ""))
 
-                # 1. Update Global Summary [UNCHANGED]
+                # 1. Global Updates
                 _increment_stats(aggregator["summary"], status, time_spent, smart_tag)
 
-                # 2. Update Subject Breakdown [UNCHANGED]
+                # 2. Subject Updates
                 if subject not in aggregator["breakdownBySubject"]:
                     aggregator["breakdownBySubject"][subject] = _get_empty_stats_object()
                 _increment_stats(aggregator["breakdownBySubject"][subject], status, time_spent, smart_tag)
 
-                # 3. Update Chapter Breakdown [UNCHANGED]
+                # 3. Chapter Updates
                 if chapter not in aggregator["breakdownByChapter"]:
                     stats = _get_empty_stats_object()
                     stats['subject'] = subject
@@ -230,27 +247,50 @@ def generate_analytics():
                     aggregator["breakdownByChapter"][chapter] = stats
                 _increment_stats(aggregator["breakdownByChapter"][chapter], status, time_spent, smart_tag)
 
-                # 4. [NEW] Update Topic Breakdown (Nested under Chapter)
-                # Ensure Chapter key exists
+                # 4. Topic Updates
                 if chapter not in aggregator["breakdownByTopic"]:
                     aggregator["breakdownByTopic"][chapter] = {}
-                
-                # Ensure Topic key exists
                 if topic not in aggregator["breakdownByTopic"][chapter]:
                     aggregator["breakdownByTopic"][chapter][topic] = _get_empty_stats_object()
-                
-                # Actual Stats update
                 _increment_stats(aggregator["breakdownByTopic"][chapter][topic], status, time_spent, smart_tag)
 
-                # 5. Spaced Repetition [UNCHANGED]
+                # 5. [RENAMED] Daily Breakdown with Time Spent
+                if date_key != "Unknown":
+                    if date_key not in aggregator["dailyQuestionsBreakdown"]:
+                        aggregator["dailyQuestionsBreakdown"][date_key] = {
+                            "total": 0, "correct": 0, "incorrect": 0, "skipped": 0,
+                            "timeSpent": 0, # [NEW] Added time spent field
+                            "accuracyPercentage": 0.0, "attemptPercentage": 0.0
+                        }
+                    
+                    daily_stats = aggregator["dailyQuestionsBreakdown"][date_key]
+                    daily_stats["total"] += 1
+                    daily_stats["timeSpent"] += time_spent # [NEW] Accumulate time
+                    
+                    if status == 'CORRECT':
+                        daily_stats["correct"] += 1
+                    elif status == 'INCORRECT' or status == 'PARTIALLY_CORRECT': 
+                        daily_stats["incorrect"] += 1
+                    else:
+                        daily_stats["skipped"] += 1
+
+                # 6. Daily Breakdown by Chapter
+                if date_key != "Unknown" and chapter != "Unknown":
+                    if date_key not in aggregator["dailyQuestionsBreakdownbyChapter"]:
+                        aggregator["dailyQuestionsBreakdownbyChapter"][date_key] = {}
+                    
+                    daily_chap_map = aggregator["dailyQuestionsBreakdownbyChapter"][date_key]
+                    if chapter not in daily_chap_map:
+                        daily_chap_map[chapter] = 0
+                    daily_chap_map[chapter] += 1
+
+                # 7. Spaced Repetition
                 if status == 'CORRECT' and completed_at:
                     current_last = aggregator["breakdownByChapter"][chapter].get('lastCorrectlySolvedAt')
                     if _should_update_timestamp(current_last, completed_at):
                         aggregator["breakdownByChapter"][chapter]['lastCorrectlySolvedAt'] = completed_at
 
-                # 6. Create Granular Detail Doc 
-                # [MODIFIED] Only create detail items if NOT force-recalculating.
-                # This prevents creating duplicate 'attempt_items_detailed' entries during migration.
+                # 8. Detailed Log
                 if not FORCE_FULL_RECALCULATION:
                     detailed_item = {
                         "userId": user_id,
@@ -283,7 +323,7 @@ def generate_analytics():
                         batch = db.batch()
                         batch_op_count = 0
 
-        # --- D. ROLLING STATS [UNCHANGED] ---
+        # --- D. ROLLING STATS ---
         aggregator["summary_lastWeek"] = _get_empty_stats_object()
         aggregator["summary_lastMonth"] = _get_empty_stats_object()
 
@@ -310,25 +350,28 @@ def generate_analytics():
                 if is_in_last_7:
                     _increment_stats(aggregator["summary_lastWeek"], status, time_spent, smart_tag)
 
-        # --- E. FINALIZE CALCULATIONS [UPDATED] ---
+        # --- E. FINALIZE CALCULATIONS ---
         
-        # 1. Global, Subject, Chapter
+        # 1. Standard aggregations
         _recalculate_percentages(aggregator["summary"])
         for s in aggregator["breakdownBySubject"].values():
             _recalculate_percentages(s)
         for c in aggregator["breakdownByChapter"].values():
             _recalculate_percentages(c)
-            
-        # 2. [NEW] Topic Breakdown Percentages
         for chap_key, topic_map in aggregator["breakdownByTopic"].items():
             for topic_key, topic_stats in topic_map.items():
                 _recalculate_percentages(topic_stats)
 
-        # 3. Rolling
+        # 2. Rolling aggregations
         _recalculate_percentages(aggregator["summary_lastWeek"])
         _recalculate_percentages(aggregator["summary_lastMonth"])
 
-        # --- F. SAVE UPDATES [UNCHANGED] ---
+        # 3. [RENAMED] Daily Breakdown Percentages
+        if "dailyQuestionsBreakdown" in aggregator:
+            for date_key, daily_stats in aggregator["dailyQuestionsBreakdown"].items():
+                _recalculate_percentages(daily_stats)
+
+        # --- F. SAVE UPDATES ---
         
         batch.set(analysis_ref, aggregator) 
         batch_op_count += 1
@@ -354,7 +397,7 @@ def generate_analytics():
             batch_op_count = 0
 
     # ==============================================================================
-    # 5. FINAL COMMIT [UNCHANGED]
+    # 5. FINAL COMMIT
     # ==============================================================================
     
     if batch_op_count > 0:
@@ -378,7 +421,7 @@ def generate_analytics():
     print("="*40 + "\n")
 
 
-# --- HELPER FUNCTIONS [UNCHANGED] ---
+# --- HELPER FUNCTIONS ---
 
 def _get_empty_stats_object():
     """Returns a fresh dictionary for stats counting."""
@@ -405,7 +448,7 @@ def _increment_stats(stats_dict, status, time_spent, smart_tag):
     
     if status == 'CORRECT':
         stats_dict["correct"] += 1
-    elif status == 'INCORRECT':
+    elif status == 'INCORRECT' or status == 'PARTIALLY_CORRECT':
         stats_dict["incorrect"] += 1
     else:
         stats_dict["skipped"] += 1
@@ -422,7 +465,9 @@ def _recalculate_percentages(stats_dict):
     correct = stats_dict["correct"]
     incorrect = stats_dict["incorrect"]
     
+    # Attempted = Correct + Incorrect (Skipped is ignored for attempted count)
     attempted_count = correct + incorrect
+    
     if attempted_count > 0:
         stats_dict["accuracyPercentage"] = round((correct / attempted_count) * 100, 2)
     else:

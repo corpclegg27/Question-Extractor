@@ -5,7 +5,7 @@ import os
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "Platform is now compliant with JEE Advanced. Added Full paper review in results"
+COMMIT_MESSAGE = "Added day wise questions charts and chapter studies to student dashboard"
 # ==========================================
 
 def run_command(command, step_name):

@@ -1,5 +1,6 @@
 // lib/features/teacher/screens/teacher_filter_screen.dart
-// Description: Teacher Filter Screen. Implements "Fetch All & Shuffle" for results < 500 to ensure perfect randomization and completeness.
+// Description: Teacher Filter Screen.
+// UPDATED: QC Filter Logic (All bypasses check), Raw Syllabus passing, Sorting helpers.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -42,8 +43,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   bool _isLoadingFilters = true;
   List<String> _examsList = [];
   List<String> _subjectsList = [];
-
-  // Master list of tags
   List<String> _tagsList = [];
 
   final List<String> _questionTypesList = [
@@ -54,7 +53,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     'Multi Matrix Match'
   ];
 
+  // QC Filter Options
+  final List<String> _qcFilterOptions = ['All', 'QC Passed', 'QC Failed/Pending'];
+  String _qcStatusFilter = 'All';
+
   final Map<String, List<SyllabusChapter>> _syllabusCache = {};
+
+  // Raw data to pass to Edit Screen
+  Map<String, dynamic>? _rawSyllabusData;
 
   String? _selectedExam;
   String? _selectedSubject;
@@ -62,12 +68,9 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
   final Set<String> _selectedChapters = {};
   final Set<String> _selectedTopics = {};
-
-  // Selected tags
   final Set<String> _selectedTags = {};
 
   bool _isPyqOnly = false;
-
   bool _isSearching = false;
   List<Question> _searchResults = [];
   int _totalMatchCount = 0;
@@ -96,8 +99,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         final data = optionsDoc.data()!;
         _examsList = List<String>.from(data['exams_list'] ?? []);
         _subjectsList = List<String>.from(data['subjects_list'] ?? []);
-
-        // Fetch 'tags' (lowercase)
         if (data.containsKey('tags')) {
           _tagsList = List<String>.from(data['tags'] ?? []);
         }
@@ -106,6 +107,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
       final syllabusDoc = await firestore.collection('static_data').doc('syllabus').get();
       if (syllabusDoc.exists) {
         final data = syllabusDoc.data()!;
+        _rawSyllabusData = data;
+
         if (data.containsKey('subjects') && data['subjects'] is Map) {
           final subjectsMap = data['subjects'] as Map<String, dynamic>;
           subjectsMap.forEach((subjectKey, subjectVal) {
@@ -177,21 +180,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     });
   }
 
-  Map<String, dynamic> _buildTreeForSubject(String subjectName) {
-    String key = _normalizeSubject(subjectName);
-    if (!_syllabusCache.containsKey(key)) return {};
-    final chapters = _syllabusCache[key] ?? [];
-    Map<String, dynamic> tree = {};
-    for (var chap in chapters) {
-      Map<String, dynamic> topicMap = {};
-      for (var topicName in chap.topics.values) {
-        topicMap[topicName] = <String>[];
-      }
-      tree[chap.name] = topicMap;
-    }
-    return tree;
-  }
-
   String _generateRandomId() {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final rnd = Random();
@@ -230,20 +218,22 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         query = query.where('PYQ', isEqualTo: "Yes");
       }
 
-      // Priority Branching Logic
+      // QC Filter Logic
+      // If "All", we bypass any isQCPass filter to include old data
+      if (_qcStatusFilter == 'QC Passed') {
+        query = query.where('isQCPass', isEqualTo: true);
+      } else if (_qcStatusFilter == 'QC Failed/Pending') {
+        query = query.where('isQCPass', isEqualTo: false);
+      }
+
       bool isFilteringChaptersClientSide = false;
       bool isFilteringTopicsClientSide = false;
 
       if (_selectedTags.isNotEmpty) {
         final cleanTags = _selectedTags.map((e) => e.trim()).toList();
-
-        debugPrint("🔍 Searching Tags: $cleanTags");
         query = query.where('tags', arrayContainsAny: cleanTags);
-
-        // Defer Chapter/Topic filtering to client-side
         if (_selectedChapters.isNotEmpty) isFilteringChaptersClientSide = true;
         if (_selectedTopics.isNotEmpty) isFilteringTopicsClientSide = true;
-
       } else {
         if (_selectedChapters.isNotEmpty && _selectedChapters.length <= 10) {
           query = query.where('Chapter', whereIn: _selectedChapters.toList());
@@ -258,21 +248,15 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         }
       }
 
-      // 1. Get Total Count
       AggregateQuerySnapshot countSnapshot = await query.count().get();
       int totalCount = countSnapshot.count ?? 0;
       debugPrint("🔍 Total Matches Found in Firestore: $totalCount");
 
       QuerySnapshot snapshot;
 
-      // [CRITICAL CHANGE] "Fetch All & Shuffle" Strategy
-      // If results are <= 500, we fetch ALL of them. This allows us to show the user
-      // every possible question (perfect completeness) and shuffle them perfectly (perfect randomness).
       if (totalCount <= 500) {
         snapshot = await query.limit(500).get();
       } else {
-        // If results > 500, downloading all is too slow.
-        // We use the "Random Anchor" strategy to jump into the middle of the dataset and fetch a slice.
         String randomAnchor = _generateRandomId();
         snapshot = await query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(20).get();
 
@@ -290,7 +274,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           .map((doc) => Question.fromFirestore(doc))
           .toList();
 
-      // 3. Client-Side Filtering
       if (isFilteringChaptersClientSide) {
         fetched = fetched.where((q) => _selectedChapters.contains(q.chapter)).toList();
       }
@@ -298,31 +281,27 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         fetched = fetched.where((q) => _selectedTopics.contains(q.topic)).toList();
       }
 
-      // 4. Shuffle locally
       fetched.shuffle();
 
-      // [FIX] NO slicing if we are in "Fetch All" mode.
-      // If we fetched 120 documents, we display all 120.
-      // We only slice if we intentionally did a partial fetch (the >500 case).
-      // Since the >500 query uses limit(20), fetched.length is naturally 20, so no slicing needed there either.
-      // The logic self-regulates.
-
-      setState(() {
-        _searchResults = fetched;
-        _totalMatchCount = totalCount;
-      });
+      if (mounted) {
+        setState(() {
+          _searchResults = fetched;
+          _totalMatchCount = totalCount;
+        });
+      }
 
     } catch (e) {
       debugPrint("❌ Search Error: $e");
-      String msg = "Error fetching data.";
-      if (e.toString().contains("failed-precondition")) {
-        msg = "Missing Index. Check debug console for link.";
+      String msg = "Error fetching data. Check Indexes.";
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
-      setState(() {
-        _isSearching = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSearching = false;
+        });
+      }
     }
   }
 
@@ -503,7 +482,9 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         Navigator.pop(context);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
     }
   }
 
@@ -581,6 +562,22 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         );
       },
     );
+  }
+
+  int _getSubjectWeight(String s) {
+    s = s.toLowerCase();
+    if (s.contains('physic')) return 1;
+    if (s.contains('chem')) return 2;
+    if (s.contains('math')) return 3;
+    if (s.contains('bio')) return 4;
+    return 5;
+  }
+
+  int _getTypeWeight(QuestionType t) {
+    if (t == QuestionType.singleCorrect) return 1;
+    if (t == QuestionType.oneOrMoreOptionsCorrect) return 2;
+    if (t == QuestionType.numerical) return 3;
+    return 4;
   }
 
   @override
@@ -665,7 +662,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                               ),
                               Expanded(
                                 child: QuestionPreviewCard(
-                                    question: q
+                                  question: q,
+                                  rawSyllabus: _rawSyllabusData, // Pass data
                                 ),
                               ),
                             ],
@@ -676,9 +674,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                   },
                 ),
                 const SizedBox(height: 20),
-
-                // [CRITICAL UX FIX] Only show "Get More Questions" if total matches > 500.
-                // If matches <= 500, we have already displayed ALL of them, so "Get More" is pointless.
                 if (_totalMatchCount > 500)
                   SizedBox(
                     width: double.infinity,
@@ -694,80 +689,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         ],
       ),
     );
-  }
-
-  Widget _buildSelectedTab() {
-    if (_selectedQuestions.isEmpty) return const Center(child: Text("No questions selected."));
-
-    final selectedList = _selectedQuestions.values.toList();
-    selectedList.sort((a, b) {
-      int sA = _getSubjectWeight(a.subject);
-      int sB = _getSubjectWeight(b.subject);
-      if (sA != sB) return sA.compareTo(sB);
-
-      int tA = _getTypeWeight(a.type);
-      int tB = _getTypeWeight(b.type);
-      return tA.compareTo(tB);
-    });
-
-    return Stack(
-      children: [
-        ListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-          itemCount: selectedList.length,
-          itemBuilder: (context, index) {
-            final q = selectedList[index];
-            return Card(
-              elevation: 2,
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: QuestionPreviewCard(
-                          question: q
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () => _toggleSelection(q),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-        Positioned(
-          bottom: 20,
-          left: 20,
-          right: 20,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), elevation: 4),
-            onPressed: _onAssign,
-            child: Text("Assign ${_selectedQuestions.length} Questions", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  int _getSubjectWeight(String s) {
-    s = s.toLowerCase();
-    if (s.contains('physic')) return 1;
-    if (s.contains('chem')) return 2;
-    if (s.contains('math')) return 3;
-    if (s.contains('bio')) return 4;
-    return 5;
-  }
-
-  int _getTypeWeight(QuestionType t) {
-    if (t == QuestionType.singleCorrect) return 1;
-    if (t == QuestionType.oneOrMoreOptionsCorrect) return 2;
-    if (t == QuestionType.numerical) return 3;
-    return 4;
   }
 
   Widget _buildFilters() {
@@ -802,6 +723,16 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           decoration: decoration.copyWith(labelText: "Question Type"),
         ),
         const SizedBox(height: 10),
+
+        // QC Status Dropdown
+        DropdownButtonFormField<String>(
+          initialValue: _qcStatusFilter,
+          items: _qcFilterOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+          onChanged: (val) => setState(() => _qcStatusFilter = val ?? 'All'),
+          decoration: decoration.copyWith(labelText: "QC Status"),
+        ),
+        const SizedBox(height: 10),
+
         InkWell(
           onTap: _selectedSubject == null || _currentChaptersList.isEmpty
               ? null
@@ -832,7 +763,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           ),
         ),
         const SizedBox(height: 10),
-        // [NEW] Tags Multi-Select Dropdown
         InkWell(
           onTap: () => _showMultiSelectDialog(
             title: "Select Tags",
@@ -852,6 +782,66 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           onChanged: (val) => setState(() => _isPyqOnly = val ?? false),
           contentPadding: EdgeInsets.zero,
           activeColor: Colors.deepPurple,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectedTab() {
+    if (_selectedQuestions.isEmpty) return const Center(child: Text("No questions selected."));
+
+    final selectedList = _selectedQuestions.values.toList();
+
+    selectedList.sort((a, b) {
+      int sA = _getSubjectWeight(a.subject);
+      int sB = _getSubjectWeight(b.subject);
+      if (sA != sB) return sA.compareTo(sB);
+
+      int tA = _getTypeWeight(a.type);
+      int tB = _getTypeWeight(b.type);
+      return tA.compareTo(tB);
+    });
+
+    return Stack(
+      children: [
+        ListView.builder(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+          itemCount: selectedList.length,
+          itemBuilder: (context, index) {
+            final q = selectedList[index];
+            return Card(
+              elevation: 2,
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: QuestionPreviewCard(
+                        question: q,
+                        rawSyllabus: _rawSyllabusData,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _toggleSelection(q),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        Positioned(
+          bottom: 20,
+          left: 20,
+          right: 20,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), elevation: 4),
+            onPressed: _onAssign,
+            child: Text("Assign ${_selectedQuestions.length} Questions", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
         ),
       ],
     );
