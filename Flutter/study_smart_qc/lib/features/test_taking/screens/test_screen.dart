@@ -2,9 +2,6 @@
 // Description: Main test interface. Updated _handleSubmit for Rich Analytics, fixed TestResult instantiation, and retained all UI logic.
 
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 // 1. IMPORT MODELS
@@ -68,7 +65,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
 
   // --- SORTING & CONFIG STATE ---
   List<Question> _sortedQuestions = [];
-  List<String> _subjects = [];
+  final List<String> _subjects = [];
   final Map<String, int> _subjectStartIndex = {};
   late Map<QuestionType, MarkingConfiguration> _activeMarkingSchemes;
   String _currentSubject = "";
@@ -264,8 +261,9 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       final int totalTimeSpent = (_accumulatedTime[i] ?? 0) + (_timeTrackers[i]?.elapsed.inSeconds ?? 0);
 
       String statusString = 'SKIPPED';
-      if (state.status == AnswerStatus.answered) statusString = 'ANSWERED';
-      else if (state.status == AnswerStatus.markedForReview) statusString = 'REVIEW';
+      if (state.status == AnswerStatus.answered) {
+        statusString = 'ANSWERED';
+      } else if (state.status == AnswerStatus.markedForReview) statusString = 'REVIEW';
       else if (state.status == AnswerStatus.answeredAndMarked) statusString = 'REVIEW_ANSWERED';
 
       dynamic finalAnswer = state.userAnswer;
@@ -365,15 +363,17 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
 
     // Normalize User Answer
     List<String> uList = [];
-    if (userAns is String) uList = [userAns];
-    else if (userAns is List) uList = List<String>.from(userAns);
+    if (userAns is String) {
+      uList = [userAns];
+    } else if (userAns is List) uList = List<String>.from(userAns);
     else if (userAns is num) uList = [userAns.toString()];
     else return false;
 
     // Normalize Correct Answer
     List<String> cList = [];
-    if (correctAns is String) cList = [correctAns];
-    else if (correctAns is List) cList = List<String>.from(correctAns);
+    if (correctAns is String) {
+      cList = [correctAns];
+    } else if (correctAns is List) cList = List<String>.from(correctAns);
     else if (correctAns is num) cList = [correctAns.toString()];
 
     // Compare
@@ -409,7 +409,9 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   // ===========================================================================
   void _handleSubmit() async {
     _timer.cancel();
-    _timeTrackers.values.forEach((sw) => sw.stop());
+    for (var sw in _timeTrackers.values) {
+      sw.stop();
+    }
 
     showDialog(
       context: context,
@@ -776,8 +778,9 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
 
     // Normalize User Answer
     List<String> uList = [];
-    if (userAns is List) uList = List<String>.from(userAns);
-    else if (userAns is String) uList = userAns.split(',');
+    if (userAns is List) {
+      uList = List<String>.from(userAns);
+    } else if (userAns is String) uList = userAns.split(',');
 
     // Normalize Correct Answer
     List<String> cList = q.actualCorrectAnswers;
@@ -1177,11 +1180,15 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   void _handleSaveAndNext() {
     final state = _answerStates[_currentPage]!;
     bool hasAnswer = false;
-    if (state.userAnswer is List) hasAnswer = (state.userAnswer as List).isNotEmpty;
-    else if (state.userAnswer is String) hasAnswer = (state.userAnswer as String).isNotEmpty;
+    if (state.userAnswer is List) {
+      hasAnswer = (state.userAnswer as List).isNotEmpty;
+    } else if (state.userAnswer is String) hasAnswer = (state.userAnswer as String).isNotEmpty;
 
-    if (hasAnswer) setState(() => state.status = AnswerStatus.answered);
-    else setState(() => state.status = AnswerStatus.notAnswered);
+    if (hasAnswer) {
+      setState(() => state.status = AnswerStatus.answered);
+    } else {
+      setState(() => state.status = AnswerStatus.notAnswered);
+    }
 
     _triggerLocalSave().then((_) { if (mounted) _moveToNextPage(); });
   }
@@ -1189,8 +1196,9 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   void _handleSaveAndMarkForReview() {
     final state = _answerStates[_currentPage]!;
     bool hasAnswer = false;
-    if (state.userAnswer is List) hasAnswer = (state.userAnswer as List).isNotEmpty;
-    else if (state.userAnswer is String) hasAnswer = (state.userAnswer as String).isNotEmpty;
+    if (state.userAnswer is List) {
+      hasAnswer = (state.userAnswer as List).isNotEmpty;
+    } else if (state.userAnswer is String) hasAnswer = (state.userAnswer as String).isNotEmpty;
 
     if (hasAnswer) {
       setState(() => state.status = AnswerStatus.answeredAndMarked);

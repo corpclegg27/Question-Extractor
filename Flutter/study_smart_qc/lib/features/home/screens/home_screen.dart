@@ -1,7 +1,7 @@
 // lib/features/home/screens/home_screen.dart
-// Description: Main Dashboard. Implements 'onRefreshNeeded' callback to update "Resume" state immediately after a test session ends.
+// Description: Main Dashboard.
+// UPDATED: Used IndexedStack to save reads, but passes 'isVisible' to trigger animations.
 
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -52,7 +52,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkPendingSession();
   }
 
-  // [NEW] Central Refresh Logic
   Future<void> _refreshState() async {
     await _fetchUserData();
     await _checkPendingSession();
@@ -76,7 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ---------------------------------------------------------------------------
   //  RESUME LOGIC
   // ---------------------------------------------------------------------------
-
+  // (Keeping existing resume logic intact)
   Future<void> _checkPendingSession() async {
     final hasSession = await _localSessionService.hasPendingSession();
     if (hasSession) {
@@ -86,8 +85,6 @@ class _HomeScreenState extends State<HomeScreen> {
           _hasPendingSession = true;
           _pendingSessionData = data;
         });
-        // Note: Removed auto-dialog on init to be less intrusive.
-        // The Card UI will now show "Resume" button.
       }
     } else {
       if (mounted) {
@@ -97,37 +94,6 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
-  }
-
-  void _showResumeDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Resume Session?"),
-        content: const Text("You have an unfinished session saved on this device. Would you like to continue?"),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _handleSubmitPending();
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.grey),
-            child: const Text("Discard & Submit"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _handleResumePending();
-            },
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6200EA),
-                foregroundColor: Colors.white),
-            child: const Text("Resume"),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _handleResumePending() async {
@@ -234,7 +200,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ).then((_) {
-          // [CRITICAL] Refresh state when returning from test (Finished or Quit)
           _refreshState();
         });
       }
@@ -343,6 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       drawer: _buildDrawer(context),
 
+      // [CRITICAL] Use IndexedStack to preserve state (SAVING READS)
       body: IndexedStack(
         index: _currentTabIndex,
         children: [
@@ -352,21 +318,20 @@ class _HomeScreenState extends State<HomeScreen> {
             resumableAssignmentCode: _pendingAssignmentCode,
             onResumeTap: _handleResumePending,
             onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
-            // [NEW] Pass Refresh Logic
             onRefreshNeeded: _refreshState,
           ),
-
           _AssignmentTabContainer(
             user: _userModel!,
             isTest: true,
             resumableAssignmentCode: _pendingAssignmentCode,
             onResumeTap: _handleResumePending,
             onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
-            // [NEW] Pass Refresh Logic
             onRefreshNeeded: _refreshState,
           ),
-
-          const DisplayResultsForStudentId(),
+          // [CRITICAL] Pass 'isVisible' flag to trigger animation without re-read
+          DisplayResultsForStudentId(
+            isVisible: _currentTabIndex == 2,
+          ),
         ],
       ),
 
@@ -450,7 +415,6 @@ class _AssignmentTabContainer extends StatefulWidget {
   final String? resumableAssignmentCode;
   final Future<void> Function() onResumeTap;
   final VoidCallback onViewAnalysisTap;
-  // [NEW]
   final VoidCallback onRefreshNeeded;
 
   const _AssignmentTabContainer({
@@ -536,7 +500,6 @@ class _PaginatedListWrapper extends StatefulWidget {
   final String? resumableAssignmentCode;
   final Future<void> Function() onResumeTap;
   final VoidCallback onViewAnalysisTap;
-  // [NEW]
   final VoidCallback onRefreshNeeded;
 
   const _PaginatedListWrapper({
@@ -630,7 +593,6 @@ class _PaginatedListWrapperState extends State<_PaginatedListWrapper> {
       isLoadingMore: _isLoading,
       hasMore: _hasMore,
       onLoadMore: _fetchNextBatch,
-      // [NEW] Pass callback
       onRefreshNeeded: widget.onRefreshNeeded,
     );
   }

@@ -1,20 +1,24 @@
 // lib/features/common/widgets/display_results_for_student_id.dart
-// Description: Reusable widget that displays the analytics dashboard.
-// Updated: Behavioral breakdown row order changed to Text -> Graph -> Number.
+// Description: Main Dashboard Widget.
+// FULL CODE: Contains Dashboard, Chapter Insights, Results Tabs, and all Chart Widgets.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:study_smart_qc/features/analytics/widgets/attempt_list_widget.dart';
+import 'package:study_smart_qc/features/analytics/screens/student_chapter_detailed_view.dart';
+
+enum DashboardViewType { dashboard, chapters }
 
 class DisplayResultsForStudentId extends StatefulWidget {
-  final String? targetStudentUid; // If null, defaults to current user
+  final String? targetStudentUid;
+  final bool isVisible;
 
   const DisplayResultsForStudentId({
     super.key,
     this.targetStudentUid,
+    this.isVisible = true,
   });
 
   @override
@@ -34,6 +38,36 @@ class _DisplayResultsForStudentIdState extends State<DisplayResultsForStudentId>
   void dispose() {
     _mainTabController.dispose();
     super.dispose();
+  }
+
+  // Helper for consistent "Pill" styled tabs
+  Widget _buildPillTabBar({
+    required TabController? controller,
+    required List<Tab> tabs,
+  }) {
+    return Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: TabBar(
+        controller: controller,
+        indicator: BoxDecoration(
+          color: Colors.deepPurple.shade50,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.deepPurple.shade100),
+        ),
+        labelColor: Colors.deepPurple,
+        unselectedLabelColor: Colors.grey,
+        labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        indicatorSize: TabBarIndicatorSize.tab,
+        dividerColor: Colors.transparent,
+        labelPadding: EdgeInsets.zero,
+        tabs: tabs,
+      ),
+    );
   }
 
   @override
@@ -63,14 +97,14 @@ class _DisplayResultsForStudentIdState extends State<DisplayResultsForStudentId>
             ),
             labelColor: const Color(0xFF6200EA),
             unselectedLabelColor: Colors.grey.shade600,
-            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
             indicatorSize: TabBarIndicatorSize.tab,
             dividerColor: Colors.transparent,
-            indicatorPadding: const EdgeInsets.all(4),
+            labelPadding: const EdgeInsets.symmetric(horizontal: 4),
             tabs: const [
               Tab(text: "Dashboard"),
-              Tab(text: "Assignments"),
-              Tab(text: "Tests"),
+              Tab(text: "Chapter Insights"),
+              Tab(text: "Results"),
             ],
           ),
         ),
@@ -80,13 +114,22 @@ class _DisplayResultsForStudentIdState extends State<DisplayResultsForStudentId>
           child: TabBarView(
             controller: _mainTabController,
             children: [
-              _DashboardTab(targetUserId: widget.targetStudentUid),
-              _buildAssignmentsAnalysisTab(),
-              AttemptListWidget(
-                filterMode: 'Test',
-                onlySingleAttempt: true,
+              // Tab 1: Dashboard (Charts)
+              _DashboardTab(
                 targetUserId: widget.targetStudentUid,
+                isActive: widget.isVisible,
+                viewType: DashboardViewType.dashboard,
               ),
+
+              // Tab 2: Chapter Insights (List)
+              _DashboardTab(
+                targetUserId: widget.targetStudentUid,
+                isActive: widget.isVisible,
+                viewType: DashboardViewType.chapters,
+              ),
+
+              // Tab 3: Results (Assignments + Tests)
+              _buildResultsTab(),
             ],
           ),
         ),
@@ -94,21 +137,48 @@ class _DisplayResultsForStudentIdState extends State<DisplayResultsForStudentId>
     );
   }
 
-  Widget _buildAssignmentsAnalysisTab() {
+  Widget _buildResultsTab() {
     return DefaultTabController(
       length: 2,
       child: Column(
         children: [
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            height: 36,
-            child: const TabBar(
-              isScrollable: false,
-              labelColor: Colors.deepPurple,
-              unselectedLabelColor: Colors.grey,
-              indicatorColor: Colors.deepPurple,
-              labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              tabs: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: _buildPillTabBar(
+              controller: null,
+              tabs: const [
+                Tab(text: "Assignments"),
+                Tab(text: "Tests"),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _buildAssignmentsSubTabs(),
+                AttemptListWidget(
+                  filterMode: 'Test',
+                  onlySingleAttempt: true,
+                  targetUserId: widget.targetStudentUid,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAssignmentsSubTabs() {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: _buildPillTabBar(
+              controller: null,
+              tabs: const [
                 Tab(text: "Practice Mode"),
                 Tab(text: "Test Mode"),
               ],
@@ -142,13 +212,27 @@ class _DisplayResultsForStudentIdState extends State<DisplayResultsForStudentId>
 
 class _DashboardTab extends StatefulWidget {
   final String? targetUserId;
-  const _DashboardTab({this.targetUserId});
+  final bool isActive;
+  final DashboardViewType viewType;
+
+  const _DashboardTab({
+    this.targetUserId,
+    required this.isActive,
+    required this.viewType,
+  });
+
   @override
   State<_DashboardTab> createState() => _DashboardTabState();
 }
 
 class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderStateMixin {
   late TabController _timeTabController;
+  int _animationKey = 0;
+
+  final List<String> _behavioralOrder = const [
+    "Perfect Attempt", "Overtime Correct", "Careless Mistake",
+    "Wasted Attempt", "Good Skip", "Time Wasted"
+  ];
 
   @override
   void initState() {
@@ -157,9 +241,50 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
   }
 
   @override
+  void didUpdateWidget(covariant _DashboardTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      setState(() {
+        _animationKey++;
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _timeTabController.dispose();
     super.dispose();
+  }
+
+  // Consistent Pill Style for Time Filters
+  Widget _buildTimeTabBar() {
+    return Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: TabBar(
+        controller: _timeTabController,
+        indicator: BoxDecoration(
+          color: Colors.deepPurple.shade50,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.deepPurple.shade100),
+        ),
+        labelColor: Colors.deepPurple,
+        unselectedLabelColor: Colors.grey,
+        labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        indicatorSize: TabBarIndicatorSize.tab,
+        dividerColor: Colors.transparent,
+        labelPadding: EdgeInsets.zero,
+        tabs: const [
+          Tab(text: "All Time"),
+          Tab(text: "Last Month"),
+          Tab(text: "Last Week"),
+        ],
+      ),
+    );
   }
 
   @override
@@ -188,83 +313,93 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
           );
         }
 
-        final data = snapshot.data!.data() as Map<String, dynamic>;
-
-        final summary = data['summary'] as Map<String, dynamic>? ?? {};
-        final lastMonth = data['summary_lastMonth'] as Map<String, dynamic>? ?? {};
-        final lastWeek = data['summary_lastWeek'] as Map<String, dynamic>? ?? {};
-        final chapterData = data['breakdownByChapter'] as Map<String, dynamic>? ?? {};
-
-        final Timestamp? lastUpdated = data['lastUpdated'];
-        String lastUpdatedStr = "Unknown";
-        if (lastUpdated != null) {
-          lastUpdatedStr = DateFormat('d MMM y, h:mm a').format(lastUpdated.toDate());
-        }
-
-        return Column(
-          children: [
-            // --- HEADER: ANALYSIS AS ON ---
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: Row(
-                children: [
-                  const Icon(Icons.sync, size: 14, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Text(
-                    "Analysis as on $lastUpdatedStr",
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 11, fontStyle: FontStyle.italic),
-                  ),
-                ],
-              ),
-            ),
-
-            // --- NESTED TIME PERIOD TABS ---
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: TabBar(
-                controller: _timeTabController,
-                indicator: BoxDecoration(
-                  color: Colors.deepPurple.shade50,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.deepPurple.shade100),
-                ),
-                labelColor: Colors.deepPurple,
-                unselectedLabelColor: Colors.grey,
-                labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                indicatorSize: TabBarIndicatorSize.tab,
-                dividerColor: Colors.transparent,
-                tabs: const [
-                  Tab(text: "All Time"),
-                  Tab(text: "Last Month"),
-                  Tab(text: "Last Week"),
-                ],
-              ),
-            ),
-
-            // --- CONTENT AREA ---
-            Expanded(
-              child: TabBarView(
-                controller: _timeTabController,
-                children: [
-                  _buildSinglePageView(summary, chapterData, "No activity yet."),
-                  _buildSinglePageView(lastMonth, null, "No activity in the last 30 days."),
-                  _buildSinglePageView(lastWeek, null, "No activity in the last 7 days."),
-                ],
-              ),
-            ),
-          ],
+        return KeyedSubtree(
+          key: ValueKey(_animationKey),
+          child: _buildContent(snapshot.data!.data() as Map<String, dynamic>, uid),
         );
       },
     );
   }
 
-  Widget _buildSinglePageView(Map<String, dynamic> stats, Map<String, dynamic>? chapterData, String emptyMsg) {
+  Widget _buildContent(Map<String, dynamic> data, String uid) {
+    final summary = data['summary'] as Map<String, dynamic>? ?? {};
+    final lastMonth = data['summary_lastMonth'] as Map<String, dynamic>? ?? {};
+    final lastWeek = data['summary_lastWeek'] as Map<String, dynamic>? ?? {};
+    final chapterData = data['breakdownByChapter'] as Map<String, dynamic>? ?? {};
+
+    final Timestamp? lastUpdated = data['lastUpdated'];
+    String lastUpdatedStr = "Unknown";
+    if (lastUpdated != null) {
+      lastUpdatedStr = DateFormat('d MMM y, h:mm a').format(lastUpdated.toDate());
+    }
+
+    // CASE 1: CHAPTER INSIGHTS (Direct List)
+    if (widget.viewType == DashboardViewType.chapters) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Row(
+              children: [
+                const Icon(Icons.sync, size: 14, color: Colors.grey),
+                const SizedBox(width: 4),
+                Text(
+                  "Analysis as on $lastUpdatedStr",
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11, fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _buildSinglePageView(summary, chapterData, "No chapter data found.", fullDoc: data, userId: uid),
+          ),
+        ],
+      );
+    }
+
+    // CASE 2: DASHBOARD (Charts)
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Row(
+            children: [
+              const Icon(Icons.sync, size: 14, color: Colors.grey),
+              const SizedBox(width: 4),
+              Text(
+                "Analysis as on $lastUpdatedStr",
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 11, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ),
+        ),
+
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: _buildTimeTabBar(),
+        ),
+
+        Expanded(
+          child: TabBarView(
+            controller: _timeTabController,
+            children: [
+              _buildSinglePageView(summary, chapterData, "No activity yet.", fullDoc: data, userId: uid),
+              _buildSinglePageView(lastMonth, null, "No activity in the last 30 days."),
+              _buildSinglePageView(lastWeek, null, "No activity in the last 7 days."),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSinglePageView(
+      Map<String, dynamic> stats,
+      Map<String, dynamic>? chapterData,
+      String emptyMsg, {
+        Map<String, dynamic>? fullDoc,
+        String? userId,
+      }) {
     if ((stats['total'] ?? 0) == 0) {
       return Center(
         child: Column(
@@ -278,6 +413,13 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
       );
     }
 
+    if (widget.viewType == DashboardViewType.dashboard) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        child: _buildMetricSection(stats),
+      );
+    }
+
     List<MapEntry<String, dynamic>> sortedChapters = [];
     if (chapterData != null) {
       sortedChapters = chapterData.entries.toList();
@@ -288,29 +430,41 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
       });
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildMetricSection(stats),
-          const SizedBox(height: 32),
+    if (sortedChapters.isEmpty) {
+      return const Center(child: Text("No chapter data available."));
+    }
 
-          if (sortedChapters.isNotEmpty) ...[
-            _buildHeader("Chapter Breakdown"),
-            ...sortedChapters.map((entry) {
-              return _ChapterCard(
-                  name: entry.key,
-                  stats: entry.value
-              );
-            }),
-          ],
-        ],
-      ),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      children: [
+        if (fullDoc != null && userId != null)
+          ...sortedChapters.map((entry) {
+            return _ChapterCard(
+              name: entry.key,
+              stats: entry.value,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => StudentChapterDetailedView(
+                      userId: userId,
+                      chapterName: entry.key,
+                      subjectName: entry.value['subject'] ?? 'Unknown',
+                      analysisDoc: fullDoc,
+                    ),
+                  ),
+                );
+              },
+            );
+          })
+        else
+          ...sortedChapters.map((entry) {
+            return _ChapterCard(name: entry.key, stats: entry.value);
+          })
+      ],
     );
   }
 
-  // --- TOP LEVEL METRICS ---
   Widget _buildMetricSection(Map<String, dynamic> stats) {
     final int total = stats['total'] ?? 0;
     final int correct = stats['correct'] ?? 0;
@@ -339,25 +493,13 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
             _buildStatCard('Total Qs', '$total', 1.0, Colors.teal, Icons.format_list_numbered),
           ],
         ),
-        const SizedBox(height: 24),
-        _buildHeader("Questions by Result"),
-        _buildResultPieChart(correct, incorrect, skipped),
-        const SizedBox(height: 24),
-        _buildHeader("Questions by Behavior"),
-        _buildBehaviorPieChart(behaviorCounts),
-      ],
-    );
-  }
 
-  // --- HELPERS ---
-  Widget _buildHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: Text(
-          title,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)
-      ),
+        const SizedBox(height: 24),
+        _buildResultHorizontalBar(correct, incorrect, skipped),
+
+        const SizedBox(height: 24),
+        _buildBehavioralHorizontalBar(behaviorCounts),
+      ],
     );
   }
 
@@ -383,11 +525,18 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
             const SizedBox(height: 12),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: percentage.clamp(0.0, 1.0),
-                backgroundColor: color.withOpacity(0.1),
-                color: color,
-                minHeight: 6,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: percentage.clamp(0.0, 1.0)),
+                duration: const Duration(milliseconds: 1000),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, _) {
+                  return LinearProgressIndicator(
+                    value: value,
+                    backgroundColor: color.withOpacity(0.1),
+                    color: color,
+                    minHeight: 6,
+                  );
+                },
               ),
             ),
           ],
@@ -396,33 +545,57 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
     );
   }
 
-  Widget _buildResultPieChart(int correct, int incorrect, int skipped) {
-    final bool isEmpty = (correct == 0 && incorrect == 0 && skipped == 0);
+  Widget _buildResultHorizontalBar(int correct, int incorrect, int skipped) {
+    int total = correct + incorrect + skipped;
+    if (total == 0) {
+      return Container(
+        width: double.infinity,
+        decoration: _standardCardDecoration,
+        padding: const EdgeInsets.all(24),
+        child: const Center(child: Text("No data")),
+      );
+    }
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          SizedBox(
-            height: 200,
-            child: isEmpty ? const Center(child: Text("No data")) : PieChart(
-              PieChartData(
-                sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
-                sections: [
-                  if(correct > 0) _buildSection(correct.toDouble(), '$correct', Colors.green),
-                  if(incorrect > 0) _buildSection(incorrect.toDouble(), '$incorrect', Colors.red),
-                  if(skipped > 0) _buildSection(skipped.toDouble(), '$skipped', Colors.grey.shade300, textColor: Colors.black54),
-                ],
-              ),
+          const Text("Questions by Result", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+          const SizedBox(height: 24),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 1200),
+              curve: Curves.easeOutQuart,
+              builder: (context, value, _) {
+                return SizedBox(
+                  width: double.infinity,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: value,
+                    child: SizedBox(
+                      height: 16,
+                      child: Row(
+                        children: [
+                          if (correct > 0) Expanded(flex: correct, child: Container(color: Colors.green)),
+                          if (incorrect > 0) Expanded(flex: incorrect, child: Container(color: Colors.red)),
+                          if (skipped > 0) Expanded(flex: skipped, child: Container(color: Colors.grey.shade300)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 24),
           Wrap(
             spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
             children: [
-              _buildLegendItem(Colors.green, 'Correct'),
-              _buildLegendItem(Colors.red, 'Incorrect'),
-              _buildLegendItem(Colors.grey.shade300, 'Unattempted'),
+              if (correct > 0) _buildLegendItem(Colors.green, 'Correct ($correct)'),
+              if (incorrect > 0) _buildLegendItem(Colors.red, 'Incorrect ($incorrect)'),
+              if (skipped > 0) _buildLegendItem(Colors.grey.shade300, 'Unattempted ($skipped)'),
             ],
           ),
         ],
@@ -430,46 +603,79 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
     );
   }
 
-  Widget _buildBehaviorPieChart(Map<String, dynamic> counts) {
-    // Fixed order
-    final List<String> order = ["Perfect Attempt", "Overtime Correct", "Careless Mistake", "Wasted Attempt", "Good Skip", "Time Wasted"];
-    List<PieChartSectionData> sections = [];
+  Widget _buildBehavioralHorizontalBar(Map<String, dynamic> counts) {
     int totalCount = 0;
-
-    for (var key in order) {
-      int val = (counts[key] is int) ? counts[key] : (counts[key] as num?)?.toInt() ?? 0;
-      if (val > 0) {
-        sections.add(_buildSection(val.toDouble(), '$val', _getSmartColor(key)));
-        totalCount += val;
-      }
+    for (var key in _behavioralOrder) {
+      totalCount += (counts[key] is int) ? (counts[key] as int) : (counts[key] as num?)?.toInt() ?? 0;
     }
-
     if (totalCount == 0) {
-      return Container(width: double.infinity, decoration: _standardCardDecoration, padding: const EdgeInsets.all(24), child: const Center(child: Text("No behavioral data")));
+      return Container(
+        width: double.infinity,
+        decoration: _standardCardDecoration,
+        padding: const EdgeInsets.all(24),
+        child: const Center(child: Text("No behavioral data")),
+      );
     }
-
-    Widget legend = Wrap(
-      spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
-      children: order.map((key) {
-        int val = (counts[key] is int) ? counts[key] : (counts[key] as num?)?.toInt() ?? 0;
-        if (val > 0) return _buildLegendItem(_getSmartColor(key), '$key ($val)');
-        return const SizedBox.shrink();
-      }).toList(),
-    );
-
     return Container(
       decoration: _standardCardDecoration,
-      padding: const EdgeInsets.all(24.0),
-      child: Column(children: [SizedBox(height: 200, child: PieChart(PieChartData(sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270, sections: sections))), const SizedBox(height: 24), legend]),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          const Text("Questions by Behavior", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+          const SizedBox(height: 24),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 1200),
+              curve: Curves.easeOutQuart,
+              builder: (context, value, _) {
+                return SizedBox(
+                  width: double.infinity,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: value,
+                    child: SizedBox(
+                      height: 16,
+                      child: Row(
+                        children: _behavioralOrder.map((key) {
+                          int val = (counts[key] is int) ? counts[key] : (counts[key] as num?)?.toInt() ?? 0;
+                          if (val == 0) return const SizedBox.shrink();
+                          return Expanded(
+                            flex: val,
+                            child: Container(color: _getSmartColor(key)),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
+          Wrap(
+            spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
+            children: _behavioralOrder.map((key) {
+              int val = (counts[key] is int) ? counts[key] : (counts[key] as num?)?.toInt() ?? 0;
+              if (val > 0) return _buildLegendItem(_getSmartColor(key), '$key ($val)');
+              return const SizedBox.shrink();
+            }).toList(),
+          ),
+        ],
+      ),
     );
-  }
-
-  PieChartSectionData _buildSection(double value, String title, Color color, {Color textColor = Colors.white}) {
-    return PieChartSectionData(value: value, title: title, color: color, radius: 50, titleStyle: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14));
   }
 
   Widget _buildLegendItem(Color color, String text) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)), const SizedBox(width: 6), Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87))]);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+      ],
+    );
   }
 
   String _formatTime(int totalSeconds) {
@@ -494,22 +700,21 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
 }
 
 // =============================================================================
-// SEPARATE WIDGET: CHAPTER CARD (With State for Expansion)
+// SEPARATE WIDGET: CHAPTER CARD
 // =============================================================================
 
 class _ChapterCard extends StatefulWidget {
   final String name;
   final Map<String, dynamic> stats;
+  final VoidCallback? onTap;
 
-  const _ChapterCard({required this.name, required this.stats});
+  const _ChapterCard({required this.name, required this.stats, this.onTap});
 
   @override
   State<_ChapterCard> createState() => _ChapterCardState();
 }
 
 class _ChapterCardState extends State<_ChapterCard> {
-  bool _isExpanded = false;
-
   final List<String> _behavioralOrder = const [
     "Perfect Attempt", "Overtime Correct", "Careless Mistake",
     "Wasted Attempt", "Good Skip", "Time Wasted"
@@ -519,7 +724,6 @@ class _ChapterCardState extends State<_ChapterCard> {
   Widget build(BuildContext context) {
     final int total = widget.stats['total'] ?? 0;
 
-    // --- CASE 1: UNATTEMPTED ---
     if (total == 0) {
       return Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -538,20 +742,11 @@ class _ChapterCardState extends State<_ChapterCard> {
       );
     }
 
-    // --- CASE 2: ATTEMPTED ---
     final int timeSpent = widget.stats['timeSpent'] ?? 0;
     final double accuracy = (widget.stats['accuracyPercentage'] ?? 0.0).toDouble();
     final double attemptPct = (widget.stats['attemptPercentage'] ?? 0.0).toDouble();
     final Timestamp? lastSolved = widget.stats['lastCorrectlySolvedAt'];
     final behaviorCounts = widget.stats['smartTimeAnalysisCounts'] as Map<String, dynamic>? ?? {};
-
-    // Calculate Max Count for scaling bars
-    int maxBehaviorCount = 0;
-    behaviorCounts.forEach((k, v) {
-      int c = (v as num).toInt();
-      if (c > maxBehaviorCount) maxBehaviorCount = c;
-    });
-    if (maxBehaviorCount == 0) maxBehaviorCount = 1;
 
     String lastSolvedStr = "Never";
     if (lastSolved != null) {
@@ -559,88 +754,133 @@ class _ChapterCardState extends State<_ChapterCard> {
       final now = DateTime.now();
       final diff = now.difference(date);
       String timeAgo = "";
-      if (diff.inDays > 365) timeAgo = "${(diff.inDays/365).round()}y ago";
-      else if (diff.inDays > 30) timeAgo = "${(diff.inDays/30).round()}mo ago";
+      if (diff.inDays > 365) {
+        timeAgo = "${(diff.inDays/365).round()}y ago";
+      } else if (diff.inDays > 30) timeAgo = "${(diff.inDays/30).round()}mo ago";
       else if (diff.inDays > 0) timeAgo = "${diff.inDays}d ago";
       else if (diff.inHours > 0) timeAgo = "${diff.inHours}h ago";
       else timeAgo = "Just now";
       lastSolvedStr = "${DateFormat('d MMM').format(date)} ($timeAgo)";
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300, width: 1.5),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(widget.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text("Last solved correctly: $lastSolvedStr", style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-          const SizedBox(height: 16),
-
-          // Row 1: Accuracy Bar
-          _buildSlimBar("Accuracy", accuracy, Colors.blue),
-          const SizedBox(height: 12),
-
-          // Row 2: Attempt Bar
-          _buildSlimBar("Attempt", attemptPct, Colors.orange),
-          const SizedBox(height: 16),
-
-          // Row 3: Big Stats
-          Row(
-            children: [
-              _buildBoldStat("$total", "Total Qs"),
-              const SizedBox(width: 32),
-              _buildBoldStat(_formatTime(timeSpent), "Time Spent"),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Row 4: Expand Button
-          GestureDetector(
-            onTap: () => setState(() => _isExpanded = !_isExpanded),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              width: double.infinity,
-              color: Colors.transparent,
-              child: Row(
-                children: [
-                  Text(_isExpanded ? "Hide behavioral analysis" : "View behavioral analysis",
-                      style: const TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold, fontSize: 13)),
-                  const SizedBox(width: 4),
-                  Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.deepPurple, size: 18),
-                ],
-              ),
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade300, width: 1.5),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(widget.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+                ),
+                if (widget.onTap != null)
+                  const Icon(Icons.navigate_next, color: Colors.deepPurple, size: 24),
+              ],
             ),
-          ),
+            const SizedBox(height: 4),
+            Text("Last solved correctly: $lastSolvedStr", style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+            const SizedBox(height: 16),
 
-          // EXPANDED CONTENT
-          if (_isExpanded) ...[
-            const Divider(height: 24),
-            ..._behavioralOrder.map((key) {
-              int count = (behaviorCounts[key] is int) ? behaviorCounts[key] : (behaviorCounts[key] as num?)?.toInt() ?? 0;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: _buildBehaviorRow(key, count, maxBehaviorCount, _getSmartColor(key)),
-              );
-            }).toList(),
+            _buildSlimBar("Accuracy", accuracy, Colors.blue),
+            const SizedBox(height: 12),
+            _buildSlimBar("Attempt", attemptPct, Colors.orange),
+            const SizedBox(height: 16),
+
+            Row(
+              children: [
+                _buildBoldStat("$total", "Total Qs"),
+                const SizedBox(width: 32),
+                _buildBoldStat(_formatTime(timeSpent), "Time Spent"),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 12),
+
+            const Text("Behavioral Analysis", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+            const SizedBox(height: 12),
+            _buildBehavioralHorizontalBar(behaviorCounts),
           ],
-        ],
+        ),
       ),
+    );
+  }
+
+  // Helper to build the animated stacked bar inside the card
+  Widget _buildBehavioralHorizontalBar(Map<String, dynamic> counts) {
+    int totalCount = 0;
+    for (var key in _behavioralOrder) {
+      totalCount += (counts[key] is int) ? (counts[key] as int) : (counts[key] as num?)?.toInt() ?? 0;
+    }
+
+    if (totalCount == 0) {
+      return const Center(child: Text("No behavioral data", style: TextStyle(color: Colors.grey, fontSize: 12)));
+    }
+
+    return Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 1200),
+            curve: Curves.easeOutQuart,
+            builder: (context, value, _) {
+              return SizedBox(
+                width: double.infinity,
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: value,
+                  child: SizedBox(
+                    height: 12,
+                    child: Row(
+                      children: _behavioralOrder.map((key) {
+                        int val = (counts[key] is int) ? counts[key] : (counts[key] as num?)?.toInt() ?? 0;
+                        if (val == 0) return const SizedBox.shrink();
+                        return Expanded(
+                          flex: val,
+                          child: Container(color: _getSmartColor(key)),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: _behavioralOrder.map((key) {
+            int val = (counts[key] is int) ? counts[key] : (counts[key] as num?)?.toInt() ?? 0;
+            if (val == 0) return const SizedBox.shrink();
+            return _buildLegendItem(_getSmartColor(key), key, val);
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLegendItem(Color color, String text, int count) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text("$text ($count)", style: const TextStyle(fontSize: 11, color: Colors.black87)),
+      ],
     );
   }
 
@@ -650,12 +890,19 @@ class _ChapterCardState extends State<_ChapterCard> {
         SizedBox(width: 60, child: Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600))),
         Expanded(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: pct / 100,
-              minHeight: 6,
-              backgroundColor: color.withOpacity(0.1),
-              color: color,
+            borderRadius: BorderRadius.circular(8),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: pct / 100),
+              duration: const Duration(milliseconds: 1000),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, _) {
+                return LinearProgressIndicator(
+                  value: value,
+                  minHeight: 12,
+                  backgroundColor: color.withOpacity(0.1),
+                  color: color,
+                );
+              },
             ),
           ),
         ),
@@ -670,49 +917,6 @@ class _ChapterCardState extends State<_ChapterCard> {
       children: [
         Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.black87)),
         Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-      ],
-    );
-  }
-
-  Widget _buildBehaviorRow(String label, int count, int maxCount, Color color) {
-    // Scaling relative to MAX value in the set, not total.
-    double pct = maxCount > 0 ? count / maxCount : 0;
-
-    return Row(
-      children: [
-        // 1. Label (First)
-        SizedBox(
-          width: 110,
-          child: Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade700), overflow: TextOverflow.ellipsis),
-        ),
-        const SizedBox(width: 8),
-
-        // 2. Bar (Middle)
-        Expanded(
-          child: Stack(
-            children: [
-              // No background track as requested ("no gray areas")
-              Container(height: 8),
-              FractionallySizedBox(
-                widthFactor: pct,
-                child: Container(
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-
-        // 3. Count (Last)
-        SizedBox(
-          width: 24,
-          child: Text("$count", textAlign: TextAlign.end, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-        ),
       ],
     );
   }

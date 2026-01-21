@@ -9,17 +9,17 @@ import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
 
 // WIDGETS
-import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
+import 'package:study_smart_qc/features/common/widgets/teacher_question_preview_card.dart';
 
 class CurationManagementScreen extends StatefulWidget {
   final String curationId; // This is the Firestore Document ID
   final String title;
 
   const CurationManagementScreen({
-    Key? key,
+    super.key,
     required this.curationId,
     required this.title,
-  }) : super(key: key);
+  });
 
   @override
   State<CurationManagementScreen> createState() =>
@@ -500,14 +500,14 @@ class QuestionReorderTile extends StatefulWidget {
   final VoidCallback onRemove;
 
   const QuestionReorderTile({
-    Key? key,
+    super.key,
     required this.index,
     required this.questionId,
     required this.questionData,
     this.isNotFound = false,
     required this.onReorder,
     required this.onRemove,
-  }) : super(key: key);
+  });
 
   @override
   State<QuestionReorderTile> createState() => _QuestionReorderTileState();

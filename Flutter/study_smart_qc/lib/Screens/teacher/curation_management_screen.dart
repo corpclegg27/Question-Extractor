@@ -5,10 +5,10 @@ class CurationManagementScreen extends StatefulWidget {
   final String title;
 
   const CurationManagementScreen({
-    Key? key,
+    super.key,
     required this.curationId,
     required this.title,
-  }) : super(key: key);
+  });
 
   @override
   State<CurationManagementScreen> createState() => _CurationManagementScreenState();

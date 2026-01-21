@@ -2,11 +2,10 @@
 // Description: Slide-up sheet to view detailed solutions for specific questions.
 // Updated to use TestResult.attempt for data and removed Self Analysis features.
 
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:study_smart_qc/models/nta_test_models.dart'; // For AnswerStatus enum if needed, though we use String status mostly here
+// For AnswerStatus enum if needed, though we use String status mostly here
 import 'package:study_smart_qc/models/test_result.dart';
-import 'package:study_smart_qc/models/test_enums.dart'; // Assuming AnswerStatus is here or NTA models
+// Assuming AnswerStatus is here or NTA models
 import 'package:study_smart_qc/widgets/expandable_image.dart';
 
 class SolutionDetailSheet extends StatefulWidget {

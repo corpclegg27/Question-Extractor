@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/features/test_taking/screens/test_preview_screen.dart';
 import 'package:study_smart_qc/services/test_service.dart';
 
@@ -179,7 +178,7 @@ class _TestConfigurationBottomSheetState
                     selected: !_isCustom && _selectedQuestionCount == count,
                     onSelected: (_) => _updateQuestionCount(count),
                   );
-                }).toList(),
+                }),
                 ChoiceChip(
                   label: const Text('Custom'),
                   selected: _isCustom,

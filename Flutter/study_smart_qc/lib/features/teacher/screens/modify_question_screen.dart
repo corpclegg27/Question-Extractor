@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:study_smart_qc/models/question_model.dart';
-import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
+import 'package:study_smart_qc/features/common/widgets/teacher_question_preview_card.dart';
 
 class ModifyQuestionScreen extends StatefulWidget {
   final String questionId;
@@ -11,11 +11,11 @@ class ModifyQuestionScreen extends StatefulWidget {
   final Map<String, dynamic> syllabusTree;
 
   const ModifyQuestionScreen({
-    Key? key,
+    super.key,
     required this.questionId,
     required this.questionData,
     required this.syllabusTree,
-  }) : super(key: key);
+  });
 
   @override
   State<ModifyQuestionScreen> createState() => _ModifyQuestionScreenState();
@@ -241,7 +241,7 @@ class _ModifyQuestionScreenState extends State<ModifyQuestionScreen> {
               // --- SYLLABUS MAPPING ---
               _buildSectionHeader("Syllabus Mapping"),
               DropdownButtonFormField<String>(
-                value: _getValidValue(_selectedChapter, _chapters),
+                initialValue: _getValidValue(_selectedChapter, _chapters),
                 decoration: const InputDecoration(labelText: 'Chapter', border: OutlineInputBorder()),
                 isExpanded: true,
                 items: _chapters.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
@@ -254,7 +254,7 @@ class _ModifyQuestionScreenState extends State<ModifyQuestionScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _getValidValue(_selectedTopic, _topics),
+                initialValue: _getValidValue(_selectedTopic, _topics),
                 decoration: const InputDecoration(labelText: 'Topic', border: OutlineInputBorder()),
                 isExpanded: true,
                 items: _topics.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
@@ -269,7 +269,7 @@ class _ModifyQuestionScreenState extends State<ModifyQuestionScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _getValidValue(_selectedTopicL2, _topicL2s),
+                initialValue: _getValidValue(_selectedTopicL2, _topicL2s),
                 decoration: const InputDecoration(labelText: 'Sub-Topic (L2)', border: OutlineInputBorder()),
                 isExpanded: true,
                 items: _topicL2s.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
@@ -281,7 +281,7 @@ class _ModifyQuestionScreenState extends State<ModifyQuestionScreen> {
               // --- METADATA ---
               _buildSectionHeader("Metadata"),
               DropdownButtonFormField<String>(
-                value: _getValidValue(_selectedQCStatus, _qcOptions),
+                initialValue: _getValidValue(_selectedQCStatus, _qcOptions),
                 decoration: const InputDecoration(labelText: 'QC Status', border: OutlineInputBorder()),
                 items: _qcOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                 onChanged: (val) => setState(() => _selectedQCStatus = val),
@@ -292,7 +292,7 @@ class _ModifyQuestionScreenState extends State<ModifyQuestionScreen> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _getValidValue(_selectedDifficulty, _diffOptions),
+                      initialValue: _getValidValue(_selectedDifficulty, _diffOptions),
                       decoration: const InputDecoration(labelText: 'Difficulty', border: OutlineInputBorder()),
                       items: _diffOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                       onChanged: (val) => setState(() => _selectedDifficulty = val),
@@ -325,7 +325,7 @@ class _ModifyQuestionScreenState extends State<ModifyQuestionScreen> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _getValidValue(_selectedPYQ, _pyqOptions),
+                      initialValue: _getValidValue(_selectedPYQ, _pyqOptions),
                       decoration: const InputDecoration(labelText: 'PYQ?', border: OutlineInputBorder()),
                       items: _pyqOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                       onChanged: (val) => setState(() => _selectedPYQ = val),

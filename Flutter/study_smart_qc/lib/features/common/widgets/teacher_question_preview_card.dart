@@ -1,4 +1,4 @@
-// lib/features/common/widgets/question_preview_card.dart
+// lib/features/common/widgets/teacher_question_preview_card.dart
 
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/question_model.dart';

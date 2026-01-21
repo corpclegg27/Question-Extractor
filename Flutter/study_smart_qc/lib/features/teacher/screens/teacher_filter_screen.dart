@@ -6,10 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:study_smart_qc/features/common/widgets/question_preview_card.dart';
+import 'package:study_smart_qc/features/common/widgets/teacher_question_preview_card.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
-import 'package:study_smart_qc/features/teacher/screens/modify_question_screen.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/models/marking_configuration.dart';
 
@@ -383,7 +382,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         builder: (context, setDialogState) {
           return AlertDialog(
             title: const Text("Confirm Assignment"),
-            content: Container(
+            content: SizedBox(
               width: double.maxFinite,
               child: SingleChildScrollView(
                 child: Column(
@@ -469,7 +468,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                           ],
                         ),
                       );
-                    }).toList(),
+                    }),
                   ],
                 ),
               ),
@@ -776,7 +775,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     return Column(
       children: [
         DropdownButtonFormField<String>(
-          value: _selectedExam,
+          initialValue: _selectedExam,
           hint: const Text("Select Exam"),
           items: _examsList.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
           onChanged: (val) => setState(() { _selectedExam = val; _resetFiltersBelow('Exam'); }),
@@ -784,7 +783,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         ),
         const SizedBox(height: 10),
         DropdownButtonFormField<String>(
-          value: _selectedSubject,
+          initialValue: _selectedSubject,
           hint: const Text("Select Subject"),
           items: _subjectsList.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
           onChanged: (val) => setState(() { _selectedSubject = val; _resetFiltersBelow('Subject'); }),
@@ -792,7 +791,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         ),
         const SizedBox(height: 10),
         DropdownButtonFormField<String>(
-          value: _selectedQuestionType,
+          initialValue: _selectedQuestionType,
           hint: const Text("Select Type (Optional)"),
           isExpanded: true,
           items: [

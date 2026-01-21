@@ -1,7 +1,6 @@
 // lib/features/analytics/screens/results_screen.dart
-// Description: Detailed analysis screen. Added "Full Paper Review" with Filters (All, Correct, Incorrect, Skipped).
-// UI matches solution_detail_sheet for consistency (Time box, Tags, Answer Status).
-// Solutions are now hidden inside an expandable section, only shown on click.
+// Description: Detailed analysis screen.
+// UPDATED: Moved Chart Titles inside the cards for a cohesive UI.
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -19,7 +18,7 @@ class ResultsScreen extends StatefulWidget {
 }
 
 class _ResultsScreenState extends State<ResultsScreen> {
-  String _selectedFilter = 'All'; // Options: All, Correct, Incorrect, Skipped
+  String _selectedFilter = 'All';
 
   final List<String> _behavioralOrder = [
     "Perfect Attempt", "Overtime Correct", "Careless Mistake",
@@ -91,13 +90,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
   // --- HELPERS & WIDGETS ---
 
-  Widget _buildHeader(String title) {
+  // Helper for Section Headers (Still used for non-card sections like "Full Paper Review")
+  Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
       child: Text(
         title,
         textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.deepPurple),
       ),
     );
   }
@@ -135,11 +135,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
           const SizedBox(height: 16),
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: percent,
-              backgroundColor: Colors.grey.shade100,
-              color: theme.bar,
-              minHeight: 12,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: percent),
+              duration: const Duration(milliseconds: 1000),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, _) {
+                return LinearProgressIndicator(
+                  value: value,
+                  backgroundColor: Colors.grey.shade100,
+                  color: theme.bar,
+                  minHeight: 12,
+                );
+              },
             ),
           ),
           _buildTypeBreakdownList(attempt.marksBreakdown),
@@ -207,7 +214,15 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       Container(height: 8, decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4))),
                       FractionallySizedBox(
                         widthFactor: percent,
-                        child: Container(height: 8, decoration: BoxDecoration(color: theme.bar, borderRadius: BorderRadius.circular(4))),
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween<double>(begin: 0, end: 1),
+                          duration: const Duration(milliseconds: 800),
+                          builder: (context, val, _) => Container(
+                              height: 8,
+                              width: double.infinity,
+                              decoration: BoxDecoration(color: theme.bar, borderRadius: BorderRadius.circular(4))
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -224,7 +239,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               ],
             ),
           );
-        }).toList(),
+        }),
       ],
     );
   }
@@ -235,8 +250,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
     int incorrect = 0;
 
     widget.result.attempt.responses.forEach((k, v) {
-      if (v.status == 'CORRECT') correct++;
-      else if (v.status == 'PARTIALLY_CORRECT') partial++;
+      if (v.status == 'CORRECT') {
+        correct++;
+      } else if (v.status == 'PARTIALLY_CORRECT') partial++;
       else if (v.status == 'INCORRECT') incorrect++;
     });
 
@@ -263,6 +279,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  // --- CHART 1: Questions by Result (Horizontal Bar with Title Inside) ---
   Widget _buildQuestionsByResultChart() {
     int c = 0;
     int p = 0;
@@ -270,8 +287,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
     int s = 0;
 
     widget.result.attempt.responses.forEach((k, v) {
-      if (v.status == 'CORRECT') c++;
-      else if (v.status == 'PARTIALLY_CORRECT') p++;
+      if (v.status == 'CORRECT') {
+        c++;
+      } else if (v.status == 'PARTIALLY_CORRECT') p++;
       else if (v.status == 'INCORRECT') i++;
       else s++;
     });
@@ -287,35 +305,63 @@ class _ResultsScreenState extends State<ResultsScreen> {
       }
     }
 
-    final bool isEmpty = (c == 0 && p == 0 && i == 0 && s == 0);
+    int total = c + p + i + s;
+    if (total == 0) {
+      return Container(
+        decoration: _standardCardDecoration,
+        padding: const EdgeInsets.all(24),
+        child: const Center(child: Text("No data")),
+      );
+    }
 
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          SizedBox(
-            height: 200,
-            child: isEmpty ? const Center(child: Text("No data")) : PieChart(
-              PieChartData(
-                sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
-                sections: [
-                  if(c>0) _buildSection(c.toDouble(), '$c', Colors.green),
-                  if(p>0) _buildSection(p.toDouble(), '$p', Colors.orange),
-                  if(i>0) _buildSection(i.toDouble(), '$i', Colors.red),
-                  if(s>0) _buildSection(s.toDouble(), '$s', Colors.grey.shade300, textColor: Colors.black54),
-                ],
-              ),
+          // [NEW] Title Inside Card
+          const Text(
+            "# Questions by Result",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+          ),
+          const SizedBox(height: 24),
+
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 1200),
+              curve: Curves.easeOutQuart,
+              builder: (context, value, _) {
+                return SizedBox(
+                  width: double.infinity,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: value,
+                    child: SizedBox(
+                      height: 16,
+                      child: Row(
+                        children: [
+                          if (c > 0) Expanded(flex: c, child: Container(color: Colors.green)),
+                          if (p > 0) Expanded(flex: p, child: Container(color: Colors.orange)),
+                          if (i > 0) Expanded(flex: i, child: Container(color: Colors.red)),
+                          if (s > 0) Expanded(flex: s, child: Container(color: Colors.grey.shade300)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 24),
           Wrap(
             spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
             children: [
-              _buildLegendItem(Colors.green, 'Correct'),
-              if(p>0) _buildLegendItem(Colors.orange, 'Partial'),
-              _buildLegendItem(Colors.red, 'Incorrect'),
-              _buildLegendItem(Colors.grey.shade300, 'Unattempted'),
+              if (c > 0) _buildLegendItem(Colors.green, 'Correct ($c)'),
+              if (p > 0) _buildLegendItem(Colors.orange, 'Partial ($p)'),
+              if (i > 0) _buildLegendItem(Colors.red, 'Incorrect ($i)'),
+              if (s > 0) _buildLegendItem(Colors.grey.shade300, 'Unattempted ($s)'),
             ],
           ),
         ],
@@ -323,6 +369,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  // --- CHART 2: Time by Result (Horizontal Bar with Title Inside) ---
   Widget _buildTimeByResultChart() {
     final Map<String, int> data = widget.result.attempt.secondsBreakdownHighLevel;
     int c = data['CORRECT'] ?? 0;
@@ -332,33 +379,62 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
     final total = c + p + i + s;
 
+    if (total == 0) {
+      return Container(
+        decoration: _standardCardDecoration,
+        padding: const EdgeInsets.all(24),
+        child: const Center(child: Text("No data")),
+      );
+    }
+
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          SizedBox(
-            height: 200,
-            child: total == 0 ? const Center(child: Text("No data")) : PieChart(
-              PieChartData(
-                sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270,
-                sections: [
-                  if(c>0) _buildTimeSection(c, total, Colors.green),
-                  if(p>0) _buildTimeSection(p, total, Colors.orange),
-                  if(i>0) _buildTimeSection(i, total, Colors.red),
-                  if(s>0) _buildTimeSection(s, total, Colors.grey.shade300, textColor: Colors.black54),
-                ],
-              ),
+          // [NEW] Title Inside Card
+          const Text(
+            "Time spent by Result",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+          ),
+          const SizedBox(height: 24),
+
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 1200),
+              curve: Curves.easeOutQuart,
+              builder: (context, value, _) {
+                return SizedBox(
+                  width: double.infinity,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: value,
+                    child: SizedBox(
+                      height: 16,
+                      child: Row(
+                        children: [
+                          if (c > 0) Expanded(flex: c, child: Container(color: Colors.green)),
+                          if (p > 0) Expanded(flex: p, child: Container(color: Colors.orange)),
+                          if (i > 0) Expanded(flex: i, child: Container(color: Colors.red)),
+                          if (s > 0) Expanded(flex: s, child: Container(color: Colors.grey.shade300)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 24),
           Wrap(
             spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
             children: [
-              _buildLegendItem(Colors.green, 'Correct (${_formatSecondsDetailed(c)})'),
-              if(p>0) _buildLegendItem(Colors.orange, 'Partial (${_formatSecondsDetailed(p)})'),
-              _buildLegendItem(Colors.red, 'Incorrect (${_formatSecondsDetailed(i)})'),
-              _buildLegendItem(Colors.grey.shade300, 'Skipped (${_formatSecondsDetailed(s)})'),
+              if (c > 0) _buildLegendItem(Colors.green, 'Correct (${_formatSecondsDetailed(c)})'),
+              if (p > 0) _buildLegendItem(Colors.orange, 'Partial (${_formatSecondsDetailed(p)})'),
+              if (i > 0) _buildLegendItem(Colors.red, 'Incorrect (${_formatSecondsDetailed(i)})'),
+              if (s > 0) _buildLegendItem(Colors.grey.shade300, 'Skipped (${_formatSecondsDetailed(s)})'),
             ],
           ),
         ],
@@ -366,39 +442,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  // --- CHART 3: Behavior Count (Horizontal Stacked Bar with Title Inside) ---
   Widget _buildBehaviorCountChart() {
     final Map<String, int> counts = widget.result.attempt.smartTimeAnalysisCounts;
-    List<PieChartSectionData> sections = [];
     int totalCount = 0;
-
     for (var key in _behavioralOrder) {
-      String? actualKey = counts.keys.firstWhere(
-              (k) => k.startsWith(key), orElse: () => ''
-      );
-
-      if (actualKey.isNotEmpty) {
-        int val = counts[actualKey] ?? 0;
-        if (val > 0) {
-          sections.add(_buildSection(val.toDouble(), '$val', _getSmartColor(key)));
-          totalCount += val;
-        }
-      }
+      String? actualKey = counts.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
+      if (actualKey.isNotEmpty) totalCount += (counts[actualKey] ?? 0);
     }
-
-    Widget legend = Wrap(
-      spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
-      children: _behavioralOrder.map((key) {
-        String? actualKey = counts.keys.firstWhere(
-                (k) => k.startsWith(key), orElse: () => ''
-        );
-        int val = (actualKey.isNotEmpty) ? counts[actualKey] ?? 0 : 0;
-
-        if (val > 0) {
-          return _buildLegendItem(_getSmartColor(key), '$key ($val)');
-        }
-        return const SizedBox.shrink();
-      }).toList(),
-    );
 
     if (totalCount == 0) {
       return Container(
@@ -413,69 +464,133 @@ class _ResultsScreenState extends State<ResultsScreen> {
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          SizedBox(
-            height: 200,
-            child: PieChart(
-              PieChartData(
-                  sectionsSpace: 2,
-                  centerSpaceRadius: 40,
-                  startDegreeOffset: 270,
-                  sections: sections
-              ),
+          // [NEW] Title Inside Card
+          const Text(
+            "# Questions by Behavior",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+          ),
+          const SizedBox(height: 24),
+
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 1200),
+              curve: Curves.easeOutQuart,
+              builder: (context, value, _) {
+                return SizedBox(
+                  width: double.infinity,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: value,
+                    child: SizedBox(
+                      height: 16, // Height of the bar
+                      child: Row(
+                        children: _behavioralOrder.map((key) {
+                          String? actualKey = counts.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
+                          int val = (actualKey.isNotEmpty) ? counts[actualKey] ?? 0 : 0;
+                          if (val == 0) return const SizedBox.shrink();
+
+                          return Expanded(
+                            flex: val,
+                            child: Container(color: _getSmartColor(key)),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 24),
-          legend,
+          Wrap(
+            spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
+            children: _behavioralOrder.map((key) {
+              String? actualKey = counts.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
+              int val = (actualKey.isNotEmpty) ? counts[actualKey] ?? 0 : 0;
+              if (val > 0) return _buildLegendItem(_getSmartColor(key), '$key ($val)');
+              return const SizedBox.shrink();
+            }).toList(),
+          ),
         ],
       ),
     );
   }
 
+  // --- CHART 4: Behavior Time (Horizontal Stacked Bar with Title Inside) ---
   Widget _buildBehaviorTimeChart() {
     final Map<String, int> times = widget.result.attempt.secondsBreakdownSmartTimeAnalysis;
-    final total = times.values.fold(0, (sum, item) => sum + item);
-    List<PieChartSectionData> sections = [];
-
+    int totalTime = 0;
     for (var key in _behavioralOrder) {
-      String? actualKey = times.keys.firstWhere(
-              (k) => k.startsWith(key), orElse: () => ''
-      );
-
-      if (actualKey.isNotEmpty) {
-        int val = times[actualKey] ?? 0;
-        if (val > 0) {
-          sections.add(_buildTimeSection(val, total, _getSmartColor(key)));
-        }
-      }
+      String? actualKey = times.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
+      if (actualKey.isNotEmpty) totalTime += (times[actualKey] ?? 0);
     }
 
-    Widget legend = Wrap(
-      spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
-      children: _behavioralOrder.map((key) {
-        String? actualKey = times.keys.firstWhere(
-                (k) => k.startsWith(key), orElse: () => ''
-        );
-        int val = (actualKey.isNotEmpty) ? times[actualKey] ?? 0 : 0;
-        if (val > 0) {
-          return _buildLegendItem(_getSmartColor(key), '$key (${_formatSecondsDetailed(val)})');
-        }
-        return const SizedBox.shrink();
-      }).toList(),
-    );
+    if (totalTime == 0) {
+      return Container(
+          decoration: _standardCardDecoration,
+          padding: const EdgeInsets.all(20),
+          child: const Center(child: Text("No time data available"))
+      );
+    }
 
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          SizedBox(
-            height: 200,
-            child: total == 0 ? const Center(child: Text("No data")) : PieChart(
-              PieChartData(sectionsSpace: 2, centerSpaceRadius: 40, startDegreeOffset: 270, sections: sections),
+          // [NEW] Title Inside Card
+          const Text(
+            "Time spent by Behavior",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
+          ),
+          const SizedBox(height: 24),
+
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 1200),
+              curve: Curves.easeOutQuart,
+              builder: (context, value, _) {
+                return SizedBox(
+                  width: double.infinity,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: value,
+                    child: SizedBox(
+                      height: 16,
+                      child: Row(
+                        children: _behavioralOrder.map((key) {
+                          String? actualKey = times.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
+                          int val = (actualKey.isNotEmpty) ? times[actualKey] ?? 0 : 0;
+                          if (val == 0) return const SizedBox.shrink();
+
+                          return Expanded(
+                            flex: val,
+                            child: Container(color: _getSmartColor(key)),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 24),
-          legend,
+          Wrap(
+            spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
+            children: _behavioralOrder.map((key) {
+              String? actualKey = times.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
+              int val = (actualKey.isNotEmpty) ? times[actualKey] ?? 0 : 0;
+              if (val > 0) {
+                return _buildLegendItem(_getSmartColor(key), '$key (${_formatSecondsDetailed(val)})');
+              }
+              return const SizedBox.shrink();
+            }).toList(),
+          ),
         ],
       ),
     );
@@ -548,7 +663,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // [NEW] Filters for Paper Review
+  // Filters for Paper Review
   Widget _buildFilterChips() {
     final options = ['All', 'Correct', 'Incorrect', 'Skipped'];
     return SingleChildScrollView(
@@ -588,9 +703,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // [NEW] Full Paper Review Section with Matched UI and Expandable Solution
+  // Full Paper Review Section
   Widget _buildFullPaperReview() {
-    // 1. Filter Questions
     List<int> filteredIndices = [];
     for (int i = 0; i < widget.result.questions.length; i++) {
       final question = widget.result.questions[i];
@@ -602,8 +716,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
       final status = response?.status ?? 'SKIPPED';
 
       bool matches = false;
-      if (_selectedFilter == 'All') matches = true;
-      else if (_selectedFilter == 'Correct' && status == 'CORRECT') matches = true;
+      if (_selectedFilter == 'All') {
+        matches = true;
+      } else if (_selectedFilter == 'Correct' && status == 'CORRECT') matches = true;
       else if (_selectedFilter == 'Incorrect' && (status == 'INCORRECT' || status == 'PARTIALLY_CORRECT')) matches = true;
       else if (_selectedFilter == 'Skipped' && (status == 'SKIPPED' || status == 'NOT_VISITED')) matches = true;
 
@@ -630,7 +745,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
         }
         final response = widget.result.attempt.responses[keyToUse];
 
-        // Safe Fallbacks
         final status = response?.status ?? 'SKIPPED';
         final isCorrect = status == 'CORRECT';
         final isPartial = status == 'PARTIALLY_CORRECT';
@@ -640,7 +754,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
         final correctOption = response?.correctOption ?? question.correctAnswer;
         final marks = response?.marksObtained ?? 0;
 
-        // Image Sources
         final questionImage = response?.imageUrl ?? question.imageUrl;
         final solutionImage = response?.solutionUrl ?? question.solutionUrl;
 
@@ -651,7 +764,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Header (Q No + Type + Marks)
               Row(
                 children: [
                   Container(
@@ -677,8 +789,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               ),
               const Divider(height: 24),
 
-              // 2. Question Image
-              if (questionImage != null && questionImage.isNotEmpty)
+              if (questionImage.isNotEmpty)
                 Center(
                   child: Container(
                     constraints: const BoxConstraints(maxHeight: 250),
@@ -692,7 +803,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 ),
               const SizedBox(height: 16),
 
-              // 3. Time Box (Matches Solution Sheet)
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -712,7 +822,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 ),
               ),
 
-              // 4. Smart Tag (Matches Solution Sheet)
               if (smartTag.isNotEmpty)
                 Builder(builder: (context) {
                   final shortTag = smartTag.split('(').first.trim();
@@ -736,24 +845,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   );
                 }),
 
-              // 5. Your Answer
-              _buildAnswerStatus(
-                'Your Answer: $userOption',
-                isCorrect,
-                isPartial,
-                status,
-              ),
+              _buildAnswerStatus('Your Answer: $userOption', isCorrect, isPartial, status),
               const SizedBox(height: 8),
+              _buildAnswerStatus('Correct Answer: $correctOption', true, false, 'CORRECT'),
 
-              // 6. Correct Answer
-              _buildAnswerStatus(
-                'Correct Answer: $correctOption',
-                true, // Force Green for Correct Answer row
-                false,
-                'CORRECT',
-              ),
-
-              // 7. Expandable Solution (Only if available)
               if (solutionImage != null && solutionImage.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 const Divider(),
@@ -764,7 +859,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     tilePadding: EdgeInsets.zero,
                     childrenPadding: EdgeInsets.zero,
                     initiallyExpanded: false,
-                    trailing: const SizedBox.shrink(), // Remove trailing arrow
+                    trailing: const SizedBox.shrink(),
                     children: [
                       const SizedBox(height: 8),
                       const Align(
@@ -789,7 +884,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- ANSWER STATUS WIDGET (Replicated from Solution Sheet) ---
   Widget _buildAnswerStatus(String text, bool isCorrect, bool isPartial, String statusStr) {
     Color color = Colors.grey;
     IconData icon = Icons.help_outline;
@@ -865,7 +959,19 @@ class _ResultsScreenState extends State<ResultsScreen> {
             const SizedBox(height: 16),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(value: percentage.clamp(0.0, 1.0), backgroundColor: color.withOpacity(0.1), color: color, minHeight: 6),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: percentage.clamp(0.0, 1.0)),
+                duration: const Duration(milliseconds: 1000),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, _) {
+                  return LinearProgressIndicator(
+                    value: value,
+                    backgroundColor: color.withOpacity(0.1),
+                    color: color,
+                    minHeight: 6,
+                  );
+                },
+              ),
             ),
           ],
         ),
@@ -932,25 +1038,20 @@ class _ResultsScreenState extends State<ResultsScreen> {
             const SizedBox(height: 24),
             _buildStatsRow(),
             const SizedBox(height: 32),
-            _buildHeader("# Questions by Result"),
+            // [UPDATED] Titles now inside cards
             _buildQuestionsByResultChart(),
             const SizedBox(height: 32),
-            _buildHeader("Time spent by Result"),
             _buildTimeByResultChart(),
             const SizedBox(height: 32),
-            _buildHeader("# Questions by Behavior"),
             _buildBehaviorCountChart(),
             const SizedBox(height: 32),
-            _buildHeader("Time spent by Behavior"),
             _buildBehaviorTimeChart(),
             const SizedBox(height: 32),
-            _buildHeader("Questions Breakdown"),
+            _buildSectionHeader("Questions Breakdown"),
             _buildSmartAnalysisList(),
-
-            // [NEW] Full Paper Review Section
             const SizedBox(height: 32),
-            _buildHeader("Full Paper Review"),
-            _buildFilterChips(), // Added Filters
+            _buildSectionHeader("Full Paper Review"),
+            _buildFilterChips(),
             const SizedBox(height: 16),
             _buildFullPaperReview(),
           ],

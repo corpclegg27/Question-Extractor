@@ -86,7 +86,7 @@ class _SyllabusScreenState extends State<SyllabusScreen> {
               final topics = Map<String, String>.from(chapterData['topics'] ?? {});
               _chapterIdToTopicsMap[chapterKey] = topics;
               for (var topicEntry in topics.entries) {
-                _topicIdToNameMap[topicEntry.key] = topicEntry.value as String;
+                _topicIdToNameMap[topicEntry.key] = topicEntry.value;
               }
             }
           }

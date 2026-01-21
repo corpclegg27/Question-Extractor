@@ -42,14 +42,12 @@ class TestPreviewScreen extends StatelessWidget {
     final service = TestOrchestrationService();
     TestModel? testToAttempt = existingTest;
 
-    if (testToAttempt == null) {
-      testToAttempt = await service.createAndSaveTestBlueprint(
+    testToAttempt ??= await service.createAndSaveTestBlueprint(
         questions: questions,
         durationSeconds: timeLimitInMinutes * 60,
         chapterNames: selectedSyllabus.keys.toList(),
         testName: testName,
       );
-    }
 
     if (testToAttempt == null) return;
 

@@ -74,10 +74,12 @@ class _TeacherCurationScreenState extends State<TeacherCurationScreen> {
                   label: Text(type),
                   selected: _targetAudience == type,
                   onSelected: (selected) {
-                    if (selected) setState(() {
+                    if (selected) {
+                      setState(() {
                       _targetAudience = type;
                       _studentStats = null; // Reset stats on change
                     });
+                    }
                   },
                 );
               }).toList(),

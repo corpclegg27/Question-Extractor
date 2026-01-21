@@ -334,8 +334,8 @@ class TestOrchestrationService {
 
     String typeStr = _mapTypeToConfigString(questionType);
     String granularKey = "${eNameNorm}_${sNameNorm}_$typeStr";
-    String fallbackKey1 = "${eNameNorm}_${sNameNorm}";
-    String fallbackKey2 = "${eName}_${sName}";
+    String fallbackKey1 = "${eNameNorm}_$sNameNorm";
+    String fallbackKey2 = "${eName}_$sName";
 
     int idealTime = 120; // Default
 

@@ -1,4 +1,6 @@
 // lib/features/analytics/widgets/attempt_display_card.dart
+// Description: Card widget to display a single attempt summary.
+// UPDATED: Added TweenAnimations to progress bars for a polished UI.
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -37,23 +39,15 @@ class AttemptDisplayCard extends StatelessWidget {
     final double percentage = (score / max).clamp(0.0, 1.0);
 
     // 3. Define Spectrum (Orange -> Amber -> Green -> Dark Green)
-    // We break the 0.0 to 1.0 range into segments for cleaner colors
-
     Color color;
 
     if (percentage < 0.4) {
-      // 0% to 40%: Deep Orange to Amber (Low Score)
-      // Normalizing percentage to 0.0-1.0 range for this segment
       final t = percentage / 0.4;
       color = Color.lerp(Colors.deepOrange, Colors.orange, t)!;
-
     } else if (percentage < 0.75) {
-      // 40% to 75%: Amber to Light Green (Average Score)
       final t = (percentage - 0.4) / 0.35;
       color = Color.lerp(Colors.orange, Colors.lightGreen.shade600, t)!;
-
     } else {
-      // 75% to 100%: Green to Dark Emerald (High Score)
       final t = (percentage - 0.75) / 0.25;
       color = Color.lerp(Colors.green, const Color(0xFF1B5E20), t)!;
     }
@@ -229,7 +223,7 @@ class AttemptDisplayCard extends StatelessWidget {
     required String label,
     required String value,
     required Color color,
-    Color? valueColor, // Optional override for text color
+    Color? valueColor,
     required double percent,
     required Color trackColor,
   }) {
@@ -265,11 +259,18 @@ class AttemptDisplayCard extends StatelessWidget {
         const SizedBox(height: 6),
         ClipRRect(
           borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: percent,
-            backgroundColor: trackColor,
-            color: color,
-            minHeight: 8,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: percent.clamp(0.0, 1.0)),
+            duration: const Duration(milliseconds: 1000),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) {
+              return LinearProgressIndicator(
+                value: value,
+                backgroundColor: trackColor,
+                color: color,
+                minHeight: 8,
+              );
+            },
           ),
         ),
       ],

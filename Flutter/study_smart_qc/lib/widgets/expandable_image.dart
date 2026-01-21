@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class ExpandableImage extends StatelessWidget {
   final String imageUrl;
 
-  const ExpandableImage({Key? key, required this.imageUrl}) : super(key: key);
+  const ExpandableImage({super.key, required this.imageUrl});
 
   @override
   Widget build(BuildContext context) {

@@ -208,7 +208,7 @@ class StudentCurationPreviewCard extends StatelessWidget {
                       style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade700),
                     ),
                   ),
-                  if (statusBadge != null) statusBadge!,
+                  if (statusBadge != null) statusBadge,
                 ],
               ),
 
