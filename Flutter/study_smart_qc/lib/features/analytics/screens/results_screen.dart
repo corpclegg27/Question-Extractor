@@ -1,12 +1,13 @@
 // lib/features/analytics/screens/results_screen.dart
 // Description: Detailed analysis screen.
-// UPDATED: Moved Chart Titles inside the cards for a cohesive UI.
+// UPDATED: Now uses 'QuestionReviewCard' to display questions with support for AI-generated solutions.
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/widgets/solution_detail_sheet.dart';
-import 'package:study_smart_qc/widgets/expandable_image.dart';
+// [NEW] Import the enhanced review card
+import 'package:study_smart_qc/features/analytics/widgets/student_question_review_card.dart';
 
 class ResultsScreen extends StatefulWidget {
   final TestResult result;
@@ -90,7 +91,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
   // --- HELPERS & WIDGETS ---
 
-  // Helper for Section Headers (Still used for non-card sections like "Full Paper Review")
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
@@ -279,21 +279,19 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- CHART 1: Questions by Result (Horizontal Bar with Title Inside) ---
+  // --- CHARTS ---
+
   Widget _buildQuestionsByResultChart() {
-    int c = 0;
-    int p = 0;
-    int i = 0;
-    int s = 0;
+    int c = 0; int p = 0; int i = 0; int s = 0;
 
     widget.result.attempt.responses.forEach((k, v) {
-      if (v.status == 'CORRECT') {
-        c++;
-      } else if (v.status == 'PARTIALLY_CORRECT') p++;
+      if (v.status == 'CORRECT') c++;
+      else if (v.status == 'PARTIALLY_CORRECT') p++;
       else if (v.status == 'INCORRECT') i++;
       else s++;
     });
 
+    // Fallback if manual counts exist
     if (c == 0 && p == 0 && i == 0 && s == 0) {
       c = widget.result.attempt.correctCount;
       i = widget.result.attempt.incorrectCount;
@@ -306,54 +304,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
     }
 
     int total = c + p + i + s;
-    if (total == 0) {
-      return Container(
-        decoration: _standardCardDecoration,
-        padding: const EdgeInsets.all(24),
-        child: const Center(child: Text("No data")),
-      );
-    }
+    if (total == 0) return _buildEmptyChartPlaceholder();
 
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          // [NEW] Title Inside Card
-          const Text(
-            "# Questions by Result",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
-          ),
+          const Text("# Questions by Result", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
           const SizedBox(height: 24),
-
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 1200),
-              curve: Curves.easeOutQuart,
-              builder: (context, value, _) {
-                return SizedBox(
-                  width: double.infinity,
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: value,
-                    child: SizedBox(
-                      height: 16,
-                      child: Row(
-                        children: [
-                          if (c > 0) Expanded(flex: c, child: Container(color: Colors.green)),
-                          if (p > 0) Expanded(flex: p, child: Container(color: Colors.orange)),
-                          if (i > 0) Expanded(flex: i, child: Container(color: Colors.red)),
-                          if (s > 0) Expanded(flex: s, child: Container(color: Colors.grey.shade300)),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+          _buildHorizontalBar(c, p, i, s),
           const SizedBox(height: 24),
           Wrap(
             spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
@@ -369,7 +329,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- CHART 2: Time by Result (Horizontal Bar with Title Inside) ---
   Widget _buildTimeByResultChart() {
     final Map<String, int> data = widget.result.attempt.secondsBreakdownHighLevel;
     int c = data['CORRECT'] ?? 0;
@@ -377,56 +336,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
     int i = data['INCORRECT'] ?? 0;
     int s = (data['SKIPPED'] ?? 0) + (data['REVIEW_ANSWERED'] ?? 0) + (data['REVIEW'] ?? 0);
 
-    final total = c + p + i + s;
-
-    if (total == 0) {
-      return Container(
-        decoration: _standardCardDecoration,
-        padding: const EdgeInsets.all(24),
-        child: const Center(child: Text("No data")),
-      );
-    }
+    if ((c+p+i+s) == 0) return _buildEmptyChartPlaceholder();
 
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          // [NEW] Title Inside Card
-          const Text(
-            "Time spent by Result",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
-          ),
+          const Text("Time spent by Result", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
           const SizedBox(height: 24),
-
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 1200),
-              curve: Curves.easeOutQuart,
-              builder: (context, value, _) {
-                return SizedBox(
-                  width: double.infinity,
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: value,
-                    child: SizedBox(
-                      height: 16,
-                      child: Row(
-                        children: [
-                          if (c > 0) Expanded(flex: c, child: Container(color: Colors.green)),
-                          if (p > 0) Expanded(flex: p, child: Container(color: Colors.orange)),
-                          if (i > 0) Expanded(flex: i, child: Container(color: Colors.red)),
-                          if (s > 0) Expanded(flex: s, child: Container(color: Colors.grey.shade300)),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+          _buildHorizontalBar(c, p, i, s),
           const SizedBox(height: 24),
           Wrap(
             spacing: 16, runSpacing: 8, alignment: WrapAlignment.center,
@@ -442,7 +361,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- CHART 3: Behavior Count (Horizontal Stacked Bar with Title Inside) ---
   Widget _buildBehaviorCountChart() {
     final Map<String, int> counts = widget.result.attempt.smartTimeAnalysisCounts;
     int totalCount = 0;
@@ -451,58 +369,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
       if (actualKey.isNotEmpty) totalCount += (counts[actualKey] ?? 0);
     }
 
-    if (totalCount == 0) {
-      return Container(
-          decoration: _standardCardDecoration,
-          padding: const EdgeInsets.all(20),
-          child: const Center(child: Text("No behavioral data"))
-      );
-    }
+    if (totalCount == 0) return _buildEmptyChartPlaceholder("No behavioral data");
 
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          // [NEW] Title Inside Card
-          const Text(
-            "# Questions by Behavior",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
-          ),
+          const Text("# Questions by Behavior", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
           const SizedBox(height: 24),
-
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 1200),
-              curve: Curves.easeOutQuart,
-              builder: (context, value, _) {
-                return SizedBox(
-                  width: double.infinity,
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: value,
-                    child: SizedBox(
-                      height: 16, // Height of the bar
-                      child: Row(
-                        children: _behavioralOrder.map((key) {
-                          String? actualKey = counts.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
-                          int val = (actualKey.isNotEmpty) ? counts[actualKey] ?? 0 : 0;
-                          if (val == 0) return const SizedBox.shrink();
-
-                          return Expanded(
-                            flex: val,
-                            child: Container(color: _getSmartColor(key)),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+          _buildStackedBar(counts, isTime: false),
           const SizedBox(height: 24),
           Wrap(
             spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
@@ -518,7 +394,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- CHART 4: Behavior Time (Horizontal Stacked Bar with Title Inside) ---
   Widget _buildBehaviorTimeChart() {
     final Map<String, int> times = widget.result.attempt.secondsBreakdownSmartTimeAnalysis;
     int totalTime = 0;
@@ -527,67 +402,23 @@ class _ResultsScreenState extends State<ResultsScreen> {
       if (actualKey.isNotEmpty) totalTime += (times[actualKey] ?? 0);
     }
 
-    if (totalTime == 0) {
-      return Container(
-          decoration: _standardCardDecoration,
-          padding: const EdgeInsets.all(20),
-          child: const Center(child: Text("No time data available"))
-      );
-    }
+    if (totalTime == 0) return _buildEmptyChartPlaceholder("No time data available");
 
     return Container(
       decoration: _standardCardDecoration,
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          // [NEW] Title Inside Card
-          const Text(
-            "Time spent by Behavior",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
-          ),
+          const Text("Time spent by Behavior", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
           const SizedBox(height: 24),
-
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 1200),
-              curve: Curves.easeOutQuart,
-              builder: (context, value, _) {
-                return SizedBox(
-                  width: double.infinity,
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: value,
-                    child: SizedBox(
-                      height: 16,
-                      child: Row(
-                        children: _behavioralOrder.map((key) {
-                          String? actualKey = times.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
-                          int val = (actualKey.isNotEmpty) ? times[actualKey] ?? 0 : 0;
-                          if (val == 0) return const SizedBox.shrink();
-
-                          return Expanded(
-                            flex: val,
-                            child: Container(color: _getSmartColor(key)),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+          _buildStackedBar(times, isTime: true),
           const SizedBox(height: 24),
           Wrap(
             spacing: 12, runSpacing: 8, alignment: WrapAlignment.center,
             children: _behavioralOrder.map((key) {
               String? actualKey = times.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
               int val = (actualKey.isNotEmpty) ? times[actualKey] ?? 0 : 0;
-              if (val > 0) {
-                return _buildLegendItem(_getSmartColor(key), '$key (${_formatSecondsDetailed(val)})');
-              }
+              if (val > 0) return _buildLegendItem(_getSmartColor(key), '$key (${_formatSecondsDetailed(val)})');
               return const SizedBox.shrink();
             }).toList(),
           ),
@@ -596,6 +427,80 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  Widget _buildHorizontalBar(int c, int p, int i, int s) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 1200),
+        curve: Curves.easeOutQuart,
+        builder: (context, value, _) {
+          return SizedBox(
+            width: double.infinity,
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: value,
+              child: SizedBox(
+                height: 16,
+                child: Row(
+                  children: [
+                    if (c > 0) Expanded(flex: c, child: Container(color: Colors.green)),
+                    if (p > 0) Expanded(flex: p, child: Container(color: Colors.orange)),
+                    if (i > 0) Expanded(flex: i, child: Container(color: Colors.red)),
+                    if (s > 0) Expanded(flex: s, child: Container(color: Colors.grey.shade300)),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildStackedBar(Map<String, int> data, {required bool isTime}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 1200),
+        curve: Curves.easeOutQuart,
+        builder: (context, value, _) {
+          return SizedBox(
+            width: double.infinity,
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: value,
+              child: SizedBox(
+                height: 16,
+                child: Row(
+                  children: _behavioralOrder.map((key) {
+                    String? actualKey = data.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
+                    int val = (actualKey.isNotEmpty) ? data[actualKey] ?? 0 : 0;
+                    if (val == 0) return const SizedBox.shrink();
+                    return Expanded(
+                      flex: val,
+                      child: Container(color: _getSmartColor(key)),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildEmptyChartPlaceholder([String text = "No data"]) {
+    return Container(
+      decoration: _standardCardDecoration,
+      padding: const EdgeInsets.all(24),
+      child: Center(child: Text(text)),
+    );
+  }
+
+  // --- SMART ANALYSIS LIST ---
   Widget _buildSmartAnalysisList() {
     return Column(
       children: _behavioralOrder.map((key) {
@@ -663,7 +568,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // Filters for Paper Review
+  // --- FILTERS ---
   Widget _buildFilterChips() {
     final options = ['All', 'Correct', 'Incorrect', 'Skipped'];
     return SingleChildScrollView(
@@ -703,24 +608,31 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // Full Paper Review Section
+  // --- FULL PAPER REVIEW (UPDATED) ---
   Widget _buildFullPaperReview() {
+    // 1. Filter the questions locally
     List<int> filteredIndices = [];
     for (int i = 0; i < widget.result.questions.length; i++) {
       final question = widget.result.questions[i];
       String keyToUse = question.id;
+
       if (!widget.result.attempt.responses.containsKey(keyToUse)) {
         keyToUse = question.customId;
       }
+
       final response = widget.result.attempt.responses[keyToUse];
       final status = response?.status ?? 'SKIPPED';
 
       bool matches = false;
       if (_selectedFilter == 'All') {
         matches = true;
-      } else if (_selectedFilter == 'Correct' && status == 'CORRECT') matches = true;
-      else if (_selectedFilter == 'Incorrect' && (status == 'INCORRECT' || status == 'PARTIALLY_CORRECT')) matches = true;
-      else if (_selectedFilter == 'Skipped' && (status == 'SKIPPED' || status == 'NOT_VISITED')) matches = true;
+      } else if (_selectedFilter == 'Correct' && status == 'CORRECT') {
+        matches = true;
+      } else if (_selectedFilter == 'Incorrect' && (status == 'INCORRECT' || status == 'PARTIALLY_CORRECT')) {
+        matches = true;
+      } else if (_selectedFilter == 'Skipped' && (status == 'SKIPPED' || status == 'NOT_VISITED')) {
+        matches = true;
+      }
 
       if (matches) filteredIndices.add(i);
     }
@@ -732,12 +644,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
       );
     }
 
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: filteredIndices.length,
-      itemBuilder: (context, index) {
-        final realIndex = filteredIndices[index];
+    // [CRITICAL FIX]
+    // Replaced ListView.builder with Column.
+    // This stops the widget recycling engine from detaching/reattaching the
+    // Android WebViews, which was causing the "already added to parent" crash.
+    return Column(
+      children: filteredIndices.map((realIndex) {
         final question = widget.result.questions[realIndex];
         String keyToUse = question.id;
         if (!widget.result.attempt.responses.containsKey(keyToUse)) {
@@ -746,169 +658,41 @@ class _ResultsScreenState extends State<ResultsScreen> {
         final response = widget.result.attempt.responses[keyToUse];
 
         final status = response?.status ?? 'SKIPPED';
-        final isCorrect = status == 'CORRECT';
-        final isPartial = status == 'PARTIALLY_CORRECT';
         final timeSpent = response?.timeSpent ?? 0;
         final smartTag = response?.smartTimeAnalysis ?? '';
-        final userOption = response?.selectedOption ?? 'Not Answered';
-        final correctOption = response?.correctOption ?? question.correctAnswer;
-        final marks = response?.marksObtained ?? 0;
+        final userOption = response?.selectedOption?.toString() ?? 'Not Answered';
+        final correctOption = question.actualCorrectAnswers.isNotEmpty
+            ? question.actualCorrectAnswers.join(", ")
+            : (response?.correctOption?.toString() ?? "N/A");
 
-        final questionImage = response?.imageUrl ?? question.imageUrl;
-        final solutionImage = response?.solutionUrl ?? question.solutionUrl;
+        final marks = (response?.marksObtained ?? 0).toInt();
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 24),
-          decoration: _standardCardDecoration,
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.deepPurple.shade50, borderRadius: BorderRadius.circular(8)),
-                    child: Text("Q.${realIndex + 1}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(question.type.name.toUpperCase().replaceAll("_", " "), style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: marks > 0 ? Colors.green.shade50 : (marks < 0 ? Colors.red.shade50 : Colors.grey.shade100),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: marks > 0 ? Colors.green.shade200 : (marks < 0 ? Colors.red.shade200 : Colors.grey.shade300)),
-                    ),
-                    child: Text("${marks > 0 ? '+' : ''}${marks.toStringAsFixed(marks.truncateToDouble() == marks ? 0 : 1)}",
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: marks > 0 ? Colors.green : (marks < 0 ? Colors.red : Colors.grey))),
-                  ),
-                ],
-              ),
-              const Divider(height: 24),
+        final questionImage = (response?.imageUrl != null && response!.imageUrl!.isNotEmpty)
+            ? response.imageUrl
+            : question.imageUrl;
 
-              if (questionImage.isNotEmpty)
-                Center(
-                  child: Container(
-                    constraints: const BoxConstraints(maxHeight: 250),
-                    child: ExpandableImage(imageUrl: questionImage),
-                  ),
-                )
-              else
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: Center(child: Text("Image not available", style: TextStyle(color: Colors.grey))),
-                ),
-              const SizedBox(height: 16),
+        final solutionImage = (response?.solutionUrl != null && response!.solutionUrl!.isNotEmpty)
+            ? response.solutionUrl
+            : question.solutionUrl;
 
-              Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade100)
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.timer, size: 16, color: Colors.blue),
-                    const SizedBox(width: 8),
-                    const Text("Time Spent: ", style: TextStyle(fontSize: 14, color: Colors.black54)),
-                    Text(_formatDuration(timeSpent), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
-                  ],
-                ),
-              ),
+        final aiSolution = question.aiGenSolutionText;
 
-              if (smartTag.isNotEmpty)
-                Builder(builder: (context) {
-                  final shortTag = smartTag.split('(').first.trim();
-                  final color = _getSmartColor(shortTag);
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: color)
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.label, size: 16, color: color),
-                        const SizedBox(width: 8),
-                        Flexible(child: Text(shortTag, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color))),
-                      ],
-                    ),
-                  );
-                }),
-
-              _buildAnswerStatus('Your Answer: $userOption', isCorrect, isPartial, status),
-              const SizedBox(height: 8),
-              _buildAnswerStatus('Correct Answer: $correctOption', true, false, 'CORRECT'),
-
-              if (solutionImage != null && solutionImage.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                const Divider(),
-                Theme(
-                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                  child: ExpansionTile(
-                    title: const Text("Show solution", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
-                    tilePadding: EdgeInsets.zero,
-                    childrenPadding: EdgeInsets.zero,
-                    initiallyExpanded: false,
-                    trailing: const SizedBox.shrink(),
-                    children: [
-                      const SizedBox(height: 8),
-                      const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text("Solution:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))
-                      ),
-                      const SizedBox(height: 8),
-                      Center(
-                        child: Container(
-                          constraints: const BoxConstraints(maxHeight: 250),
-                          child: ExpandableImage(imageUrl: solutionImage),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ]
-            ],
-          ),
+        return QuestionReviewCard(
+          index: realIndex,
+          questionType: question.type.name,
+          imageUrl: questionImage,
+          solutionUrl: solutionImage,
+          aiSolutionText: aiSolution,
+          status: status,
+          timeSpent: timeSpent,
+          smartTag: smartTag,
+          userOption: userOption,
+          correctOption: correctOption,
+          marks: marks,
+          isFixed: false,
+          onFixToggle: null,
         );
-      },
-    );
-  }
-
-  Widget _buildAnswerStatus(String text, bool isCorrect, bool isPartial, String statusStr) {
-    Color color = Colors.grey;
-    IconData icon = Icons.help_outline;
-
-    if (statusStr == 'SKIPPED' || statusStr == 'NOT_VISITED') {
-      color = Colors.orange;
-      icon = Icons.warning_amber_rounded;
-    } else {
-      if (isPartial) {
-        color = Colors.orange;
-        icon = Icons.warning_amber_rounded;
-      } else {
-        color = isCorrect ? Colors.green : Colors.red;
-        icon = isCorrect ? Icons.check_circle : Icons.cancel;
-      }
-    }
-
-    return Row(
-      children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-        ),
-      ],
+      }).toList(),
     );
   }
 
@@ -927,13 +711,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
     if (totalSeconds < 60) return "${totalSeconds}s";
     int m = totalSeconds ~/ 60;
     int s = totalSeconds % 60;
-    return '${m}m ${s}s';
-  }
-
-  String _formatDuration(int seconds) {
-    if (seconds < 60) return '${seconds}s';
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
     return '${m}m ${s}s';
   }
 
@@ -977,15 +754,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
         ),
       ),
     );
-  }
-
-  PieChartSectionData _buildSection(double value, String title, Color color, {Color textColor = Colors.white}) {
-    return PieChartSectionData(value: value, title: title, color: color, radius: 50, titleStyle: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14));
-  }
-
-  PieChartSectionData _buildTimeSection(int value, int total, Color color, {Color textColor = Colors.white}) {
-    final percent = total > 0 ? (value / total * 100).toStringAsFixed(0) : '0';
-    return PieChartSectionData(value: value.toDouble(), title: '$percent%', color: color, radius: 50, titleStyle: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12));
   }
 
   Widget _buildLegendItem(Color color, String text) {
@@ -1038,7 +806,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
             const SizedBox(height: 24),
             _buildStatsRow(),
             const SizedBox(height: 32),
-            // [UPDATED] Titles now inside cards
             _buildQuestionsByResultChart(),
             const SizedBox(height: 32),
             _buildTimeByResultChart(),

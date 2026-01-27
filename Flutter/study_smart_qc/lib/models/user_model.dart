@@ -1,4 +1,6 @@
 // lib/models/user_model.dart
+// Description: User Data Model.
+// Updated: Added 'fromMap' factory to support BatchService and general Map conversion.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -73,11 +75,10 @@ class UserModel {
     this.teachingSubjects,
   });
 
-  factory UserModel.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
+  // [NEW] Added fromMap to fix BatchService error
+  factory UserModel.fromMap(Map<String, dynamic> data, {String? uid}) {
     return UserModel(
-      uid: doc.id,
+      uid: uid ?? data['uid'] ?? '', // Use passed UID or fallback to map
       email: data['email'] ?? '',
       displayName: data['displayName'] ?? '',
       stats: UserStats.fromMap(data['stats'] ?? {}),
@@ -102,6 +103,14 @@ class UserModel {
       teachingSubjects: data['teachingSubjects'] != null
           ? List<String>.from(data['teachingSubjects'])
           : null,
+    );
+  }
+
+  // Refactored to use fromMap for consistency
+  factory UserModel.fromFirestore(DocumentSnapshot doc) {
+    return UserModel.fromMap(
+      doc.data() as Map<String, dynamic>,
+      uid: doc.id, // Explicitly pass the document ID as UID
     );
   }
 

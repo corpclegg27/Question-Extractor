@@ -66,6 +66,10 @@ def main():
     # 2. Process Data
     all_rows = []
     all_field_names = set()
+    
+    # [NEW] List to store the summary metadata for Firestore upload
+    questions_summary_list = []
+    
     read_count = 0
 
     print("⏳ Fetching documents...", end="", flush=True)
@@ -80,6 +84,19 @@ def main():
         # Add the document ID explicitly (useful for QC)
         doc_data['__doc_id'] = doc.id
         
+        # --- [NEW] Collect Metadata for static_data ---
+        # We try to get 'question_id', falling back to the doc ID if missing
+        q_id = doc_data.get('question_id') or doc_data.get('questions_id') or doc.id
+        
+        summary_item = {
+            'question_id': str(q_id),
+            'Exam': str(doc_data.get('Exam', '')),
+            'Chapter': str(doc_data.get('Chapter', '')),
+            'Topic': str(doc_data.get('Topic', ''))
+        }
+        questions_summary_list.append(summary_item)
+        # ---------------------------------------------
+
         # Process fields for CSV format
         processed_row = {}
         for key, value in doc_data.items():
@@ -109,7 +126,22 @@ def main():
         print(f"🎉 Success! Exported {len(all_rows)} rows to {OUTPUT_FILENAME}")
         
     except IOError as e:
-        print(f"❌ Error writing file: {e}")
+        print(f"❌ Error writing CSV file: {e}")
+
+    # 5. [NEW] Write Summary to Firestore
+    if questions_summary_list:
+        print(f"☁️  Uploading summary ({len(questions_summary_list)} items) to static_data/questionsInDB...")
+        try:
+            # Note: Firestore documents have a 1MB limit. 
+            # If you have > 5,000 questions, this might fail and require chunking.
+            summary_ref = db.collection('static_data').document('questionsInDB')
+            summary_ref.set({
+                'questions_metadata': questions_summary_list,
+                'last_updated': firestore.SERVER_TIMESTAMP
+            })
+            print("✅ Summary uploaded successfully.")
+        except Exception as e:
+            print(f"❌ Error uploading summary to Firestore: {e}")
 
 if __name__ == "__main__":
     main()

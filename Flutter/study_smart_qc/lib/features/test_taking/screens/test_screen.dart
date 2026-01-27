@@ -1,5 +1,5 @@
 // lib/features/test_taking/screens/test_screen.dart
-// Description: Main test interface. Updated _handleSubmit for Rich Analytics, fixed TestResult instantiation, and retained all UI logic.
+// Description: Main test interface. Updated _handleSubmit to automatically handle and skip corrupt questions (missing correct answers) to prevent crashes.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -289,6 +289,8 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         pyq: question.isPyq ? 'Yes' : 'No',
         difficultyTag: question.difficulty,
         // questionType and marksObtained will be filled during Submit
+        imageUrl: question.imageUrl,
+        solutionUrl: question.solutionUrl,
       );
     }
     return responses;
@@ -405,9 +407,12 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
   }
 
   // ===========================================================================
-  // SUBMIT LOGIC (UPDATED WITH RICH ANALYTICS & FIXED TYPES)
+  // _handleSubmit (ROBUST VERSION)
+  // Description: Includes safety checks for empty correct answers to prevent crashes.
   // ===========================================================================
   void _handleSubmit() async {
+    print("DEBUG: >>> _handleSubmit Triggered");
+
     _timer.cancel();
     for (var sw in _timeTrackers.values) {
       sw.stop();
@@ -422,6 +427,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     try {
       // 1. Build Responses (sanitized)
       Map<String, ResponseObject> sanitizedResponses = _buildResponseMap();
+      print("DEBUG: Responses built. Count: ${sanitizedResponses.length}");
 
       int correctCount = 0;
       int incorrectCount = 0;
@@ -429,18 +435,38 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       num totalScore = 0;
 
       // [NEW] Rich Analytics Breakdown Structure
-      // FIX: Use <String, dynamic> to prevent Type Error when adding Maps later
       Map<String, dynamic> marksBreakdown = {
         "Overall": <String, dynamic>{"maxMarks": 0.0, "marksObtained": 0.0}
       };
 
+      print("DEBUG: Step 2 - Starting Scoring Loop. Total Questions: ${_sortedQuestions.length}");
+
       // 2. Run Scoring Engine on Sorted Questions
       for (var i = 0; i < _sortedQuestions.length; i++) {
         final q = _sortedQuestions[i];
-        final response = sanitizedResponses[q.id]!;
+
+        final response = sanitizedResponses[q.id];
+        if (response == null) continue;
 
         // Get Config
         final config = _activeMarkingSchemes[q.type] ?? MarkingConfiguration.jeeMain();
+
+        // ---------------------------------------------------------
+        // CRITICAL FIX: Check if question has correct answers
+        // ---------------------------------------------------------
+        if (q.actualCorrectAnswers.isEmpty) {
+          print("CRITICAL WARNING: QID ${q.id} has NO CORRECT ANSWERS defined in DB.");
+          print("ACTION: Skipping scoring for this question to prevent crash.");
+
+          // Treat as 0 Marks / Skipped / Bonus
+          sanitizedResponses[q.id] = response.copyWith(
+            status: QuestionStatus.skipped,
+            questionType: _mapTypeToString(q.type),
+            marksObtained: 0,
+          );
+          continue; // SKIP to next question
+        }
+        // ---------------------------------------------------------
 
         // Calculate
         final result = UniversalScoringEngine.calculateScore(
@@ -461,7 +487,7 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         // --- AGGREGATION LOGIC ---
         String subject = q.subject.isEmpty ? "General" : q.subject;
         String typeStr = _mapTypeToString(q.type);
-        double qMaxMarks = config.correctScore; // e.g. 4.0
+        double qMaxMarks = config.correctScore;
 
         // A. Ensure Subject Keys Exist with correct Dynamic Type
         if (!marksBreakdown.containsKey(subject)) {
@@ -469,7 +495,6 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         }
 
         // B. Ensure Type Keys Exist inside Subject
-        // marksBreakdown[subject] is explicitly <String, dynamic>, so we can add a Map key to it
         if (!marksBreakdown[subject].containsKey(typeStr)) {
           marksBreakdown[subject][typeStr] = <String, dynamic>{"maxMarks": 0.0, "marksObtained": 0.0};
         }
@@ -500,6 +525,8 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         }
       }
 
+      print("DEBUG: Step 3 - Loop Finished. Total Score: $totalScore");
+
       // Prepare Schemes for Storage
       Map<String, dynamic> schemesMapForStorage = {};
       _activeMarkingSchemes.forEach((key, value) {
@@ -510,6 +537,8 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
       final int finalTime = widget.testMode == TestMode.test
           ? (Duration(minutes: widget.timeLimitInMinutes) - _overallTimeCounter).inSeconds
           : _overallTimeCounter.inSeconds;
+
+      print("DEBUG: Step 4 - Calling Service submitAttempt...");
 
       // 3. Submit
       final enrichedAttempt = await TestOrchestrationService().submitAttempt(
@@ -528,6 +557,8 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
         markingSchemes: schemesMapForStorage,
         marksBreakdown: marksBreakdown,
       );
+
+      print("DEBUG: Step 5 - Service Call Complete.");
 
       if (mounted) {
         Navigator.pop(context); // Close Loader
@@ -550,11 +581,17 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error uploading. Results saved locally.")));
         }
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print("CRITICAL FAILURE IN _handleSubmit");
+      print("ERROR: $e");
+      print("STACK TRACE: $stackTrace");
+
       if (mounted) {
         Navigator.pop(context);
-        print("Submission Error: $e");
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Submission Failed: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("Submission Error: $e"),
+            duration: const Duration(seconds: 10)
+        ));
       }
     }
   }

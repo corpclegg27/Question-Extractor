@@ -1,5 +1,5 @@
 // lib/models/attempt_model.dart
-// Description: Updated AttemptModel. ResponseObject now includes image_url and solution_url for direct access in results.
+// Description: Updated AttemptModel. ResponseObject now includes image_url, solution_url, and aiGenSolutionText for direct access in results.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -153,6 +153,7 @@ class ResponseObject {
   // [NEW] Visual Data for Result Cards
   final String? imageUrl;
   final String? solutionUrl;
+  final String? aiGenSolutionText; // [NEW] Added for AI Solutions
 
   ResponseObject({
     required this.status,
@@ -176,8 +177,9 @@ class ResponseObject {
     this.difficultyTag = '',
     this.questionType = '',
     this.marksObtained = 0,
-    this.imageUrl, // [NEW]
-    this.solutionUrl, // [NEW]
+    this.imageUrl,
+    this.solutionUrl,
+    this.aiGenSolutionText, // [NEW]
   });
 
   factory ResponseObject.fromJson(Map<String, dynamic> json) => ResponseObject.fromMap(json);
@@ -205,8 +207,9 @@ class ResponseObject {
     String? difficultyTag,
     String? questionType,
     num? marksObtained,
-    String? imageUrl, // [NEW]
-    String? solutionUrl, // [NEW]
+    String? imageUrl,
+    String? solutionUrl,
+    String? aiGenSolutionText, // [NEW]
   }) {
     return ResponseObject(
       status: status ?? this.status,
@@ -230,8 +233,9 @@ class ResponseObject {
       difficultyTag: difficultyTag ?? this.difficultyTag,
       questionType: questionType ?? this.questionType,
       marksObtained: marksObtained ?? this.marksObtained,
-      imageUrl: imageUrl ?? this.imageUrl, // [NEW]
-      solutionUrl: solutionUrl ?? this.solutionUrl, // [NEW]
+      imageUrl: imageUrl ?? this.imageUrl,
+      solutionUrl: solutionUrl ?? this.solutionUrl,
+      aiGenSolutionText: aiGenSolutionText ?? this.aiGenSolutionText, // [NEW]
     );
   }
 
@@ -258,8 +262,10 @@ class ResponseObject {
       difficultyTag: map['difficultyTag'] ?? '',
       questionType: map['questionType'] ?? '',
       marksObtained: map['marksObtained'] ?? 0,
-      imageUrl: map['image_url'], // [NEW] Read snake_case
-      solutionUrl: map['solution_url'], // [NEW] Read snake_case
+      imageUrl: map['image_url'],
+      solutionUrl: map['solution_url'],
+      // [FIX] Read directly as camelCase matching Firestore
+      aiGenSolutionText: map['aiGenSolutionText'],
     );
   }
 
@@ -286,8 +292,10 @@ class ResponseObject {
       'difficultyTag': difficultyTag,
       'questionType': questionType,
       'marksObtained': marksObtained,
-      'image_url': imageUrl, // [NEW] Write snake_case
-      'solution_url': solutionUrl, // [NEW] Write snake_case
+      'image_url': imageUrl,
+      'solution_url': solutionUrl,
+      // [FIX] Write directly as camelCase matching Firestore
+      'aiGenSolutionText': aiGenSolutionText,
     };
   }
 }

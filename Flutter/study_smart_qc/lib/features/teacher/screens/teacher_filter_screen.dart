@@ -1,6 +1,6 @@
 // lib/features/teacher/screens/teacher_filter_screen.dart
 // Description: Teacher Filter Screen.
-// UPDATED: QC Filter Logic (All bypasses check), Raw Syllabus passing, Sorting helpers.
+// UPDATED: Fixed missing _buildSelectedTab method. Includes "Hide Solved" logic and Student Context verification.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -71,6 +71,18 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   final Set<String> _selectedTags = {};
 
   bool _isPyqOnly = false;
+
+  // [NEW] Logic for Hiding Solved Questions
+  bool _hideSolvedCorrectly = false;
+  Set<String> _solvedQuestionIds = {};
+  bool _isLoadingStudentHistory = false;
+
+  // [NEW] Stats for verification
+  bool _historyLoaded = false;
+  int _statCorrect = 0;
+  int _statIncorrect = 0;
+  int _statSkipped = 0;
+
   bool _isSearching = false;
   List<Question> _searchResults = [];
   int _totalMatchCount = 0;
@@ -82,12 +94,68 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _fetchFilterData();
+    _fetchStudentHistory(); // Trigger history fetch if studentId exists
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  // [NEW] Fetch Student's Solved Questions & Stats
+  Future<void> _fetchStudentHistory() async {
+    if (widget.studentId == null) return;
+
+    setState(() => _isLoadingStudentHistory = true);
+
+    try {
+      // 1. Find UID from studentId
+      final userQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('studentId', isEqualTo: widget.studentId)
+          .limit(1)
+          .get();
+
+      if (userQuery.docs.isEmpty) {
+        debugPrint("Student ID ${widget.studentId} not found.");
+        return;
+      }
+
+      final uid = userQuery.docs.first.id;
+
+      // 2. Fetch Deep Analysis
+      final analysisDoc = await FirebaseFirestore.instance
+          .collection('student_deep_analysis')
+          .doc(uid)
+          .get();
+
+      if (analysisDoc.exists) {
+        final data = analysisDoc.data();
+        if (data != null && data.containsKey('qRefAssigned')) {
+          final qRefs = data['qRefAssigned'] as Map<String, dynamic>;
+
+          final correctList = List<String>.from(qRefs['CORRECT'] ?? []);
+          final incorrectList = List<String>.from(qRefs['INCORRECT'] ?? []);
+          final skippedList = List<String>.from(qRefs['SKIPPED'] ?? []);
+          final partialList = List<String>.from(qRefs['PARTIALLY_CORRECT'] ?? []);
+
+          if (mounted) {
+            setState(() {
+              _solvedQuestionIds = correctList.toSet();
+              _statCorrect = correctList.length;
+              _statIncorrect = incorrectList.length + partialList.length;
+              _statSkipped = skippedList.length;
+              _historyLoaded = true;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching student history: $e");
+    } finally {
+      if (mounted) setState(() => _isLoadingStudentHistory = false);
+    }
   }
 
   Future<void> _fetchFilterData() async {
@@ -134,7 +202,15 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           });
         }
       }
-      if (mounted) setState(() { _isLoadingFilters = false; });
+
+      if (mounted) {
+        setState(() {
+          _isLoadingFilters = false;
+          // [NEW] Set Defaults
+          if (_examsList.contains('NEET')) _selectedExam = 'NEET';
+          if (_subjectsList.contains('Physics')) _selectedSubject = 'Physics';
+        });
+      }
     } catch (e) {
       debugPrint("Error loading filters: $e");
       if (mounted) setState(() { _isLoadingFilters = false; });
@@ -168,7 +244,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   void _resetFiltersBelow(String level) {
     setState(() {
       if (level == 'Exam') {
-        _selectedSubject = null;
         _selectedChapters.clear();
         _selectedTopics.clear();
       } else if (level == 'Subject') {
@@ -219,7 +294,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
       }
 
       // QC Filter Logic
-      // If "All", we bypass any isQCPass filter to include old data
       if (_qcStatusFilter == 'QC Passed') {
         query = query.where('isQCPass', isEqualTo: true);
       } else if (_qcStatusFilter == 'QC Failed/Pending') {
@@ -254,14 +328,15 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
       QuerySnapshot snapshot;
 
+      // Logic to fetch random or first 500
       if (totalCount <= 500) {
         snapshot = await query.limit(500).get();
       } else {
         String randomAnchor = _generateRandomId();
-        snapshot = await query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(20).get();
+        snapshot = await query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(30).get();
 
         if (snapshot.docs.length < 20) {
-          QuerySnapshot fallbackSnapshot = await query.limit(20).get();
+          QuerySnapshot fallbackSnapshot = await query.limit(30).get();
           if (snapshot.docs.isEmpty) {
             snapshot = fallbackSnapshot;
           } else if (snapshot.docs.length < 5) {
@@ -273,6 +348,13 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
       List<Question> fetched = snapshot.docs
           .map((doc) => Question.fromFirestore(doc))
           .toList();
+
+      // [NEW] Apply Exclusion Filter (History)
+      if (_hideSolvedCorrectly && _solvedQuestionIds.isNotEmpty) {
+        int beforeCount = fetched.length;
+        fetched = fetched.where((q) => !_solvedQuestionIds.contains(q.id)).toList();
+        debugPrint("Hidden ${beforeCount - fetched.length} questions already solved correctly.");
+      }
 
       if (isFilteringChaptersClientSide) {
         fetched = fetched.where((q) => _selectedChapters.contains(q.chapter)).toList();
@@ -604,7 +686,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         controller: _tabController,
         children: [
           _buildSearchTab(),
-          _buildSelectedTab(),
+          _buildSelectedTab(), // Correctly referenced here
         ],
       ),
     );
@@ -695,6 +777,43 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     final decoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));
     return Column(
       children: [
+        // [NEW] Student History Context Card
+        if (widget.studentId != null) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: _isLoadingStudentHistory
+                ? const Row(children: [Text("Fetching student history..."), Spacer(), SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))])
+                : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.analytics_outlined, size: 18, color: Colors.blue),
+                    const SizedBox(width: 8),
+                    Text("Student Analysis (${_historyLoaded ? 'Loaded' : 'Not Found'})", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildMiniStat("Correct", _statCorrect, Colors.green),
+                    _buildMiniStat("Wrong", _statIncorrect, Colors.red),
+                    _buildMiniStat("Skipped", _statSkipped, Colors.grey),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // 1. Exam
         DropdownButtonFormField<String>(
           initialValue: _selectedExam,
           hint: const Text("Select Exam"),
@@ -703,6 +822,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           decoration: decoration.copyWith(labelText: "Exam"),
         ),
         const SizedBox(height: 10),
+
+        // 2. Subject
         DropdownButtonFormField<String>(
           initialValue: _selectedSubject,
           hint: const Text("Select Subject"),
@@ -711,28 +832,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           decoration: decoration.copyWith(labelText: "Subject"),
         ),
         const SizedBox(height: 10),
-        DropdownButtonFormField<String>(
-          initialValue: _selectedQuestionType,
-          hint: const Text("Select Type (Optional)"),
-          isExpanded: true,
-          items: [
-            const DropdownMenuItem(value: null, child: Text("All Types")),
-            ..._questionTypesList.map((t) => DropdownMenuItem(value: t, child: Text(t))),
-          ],
-          onChanged: (val) => setState(() { _selectedQuestionType = val; }),
-          decoration: decoration.copyWith(labelText: "Question Type"),
-        ),
-        const SizedBox(height: 10),
 
-        // QC Status Dropdown
-        DropdownButtonFormField<String>(
-          initialValue: _qcStatusFilter,
-          items: _qcFilterOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-          onChanged: (val) => setState(() => _qcStatusFilter = val ?? 'All'),
-          decoration: decoration.copyWith(labelText: "QC Status"),
-        ),
-        const SizedBox(height: 10),
-
+        // 3. Chapters
         InkWell(
           onTap: _selectedSubject == null || _currentChaptersList.isEmpty
               ? null
@@ -748,6 +849,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           ),
         ),
         const SizedBox(height: 10),
+
+        // 4. Topics
         InkWell(
           onTap: _selectedChapters.isEmpty || _currentTopicsList.isEmpty
               ? null
@@ -763,6 +866,22 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           ),
         ),
         const SizedBox(height: 10),
+
+        // 5. Question Type
+        DropdownButtonFormField<String>(
+          initialValue: _selectedQuestionType,
+          hint: const Text("Select Type (Optional)"),
+          isExpanded: true,
+          items: [
+            const DropdownMenuItem(value: null, child: Text("All Types")),
+            ..._questionTypesList.map((t) => DropdownMenuItem(value: t, child: Text(t))),
+          ],
+          onChanged: (val) => setState(() { _selectedQuestionType = val; }),
+          decoration: decoration.copyWith(labelText: "Question Type"),
+        ),
+        const SizedBox(height: 10),
+
+        // 6. Tags
         InkWell(
           onTap: () => _showMultiSelectDialog(
             title: "Select Tags",
@@ -776,6 +895,33 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           ),
         ),
         const SizedBox(height: 10),
+
+        // 7. QC Status
+        DropdownButtonFormField<String>(
+          initialValue: _qcStatusFilter,
+          items: _qcFilterOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+          onChanged: (val) => setState(() => _qcStatusFilter = val ?? 'All'),
+          decoration: decoration.copyWith(labelText: "QC Status"),
+        ),
+        const SizedBox(height: 20),
+
+        // [NEW] 8. Hide Solved Switch (Only if studentId exists)
+        if (widget.studentId != null) ...[
+          SwitchListTile(
+            title: const Text("Hide questions solved correctly", style: TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text(_solvedQuestionIds.isNotEmpty
+                ? "${_solvedQuestionIds.length} IDs will be hidden"
+                : "No correct history found"),
+            value: _hideSolvedCorrectly,
+            activeColor: Colors.deepPurple,
+            onChanged: _solvedQuestionIds.isEmpty ? null : (val) => setState(() => _hideSolvedCorrectly = val),
+            secondary: const Icon(Icons.check_circle_outline),
+            contentPadding: EdgeInsets.zero,
+          ),
+          const Divider(),
+        ],
+
+        // 9. PYQ Only
         CheckboxListTile(
           title: const Text("Previous Year Questions (PYQ) Only"),
           value: _isPyqOnly,
@@ -787,6 +933,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     );
   }
 
+  // [RESTORED] Missing Method
   Widget _buildSelectedTab() {
     if (_selectedQuestions.isEmpty) return const Center(child: Text("No questions selected."));
 
@@ -843,6 +990,15 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
             child: Text("Assign ${_selectedQuestions.length} Questions", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildMiniStat(String label, int value, Color color) {
+    return Column(
+      children: [
+        Text(value.toString(), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
       ],
     );
   }

@@ -1,7 +1,8 @@
 # studentAnalytics.py
-# Description: Analytics Engine V6.2 (Daily Insights + Time Tracking).
+# Description: Analytics Engine V6.3 (Daily Insights + Time Tracking + Question References).
 # - Renamed 'dailyQuestionsBreakdownbyStatus' -> 'dailyQuestionsBreakdown'.
-# - Added 'timeSpent' to daily breakdown (Date -> {Correct, Incorrect, Skipped, Total, TimeSpent, Accuracy%, Attempt%}).
+# - Added 'timeSpent' to daily breakdown.
+# - [NEW] Added 'qRefAssigned': Maps of lists storing all attempted Question IDs by status.
 # - PRESERVES all existing Chapter/Subject/Topic/Detailed Item logic.
 
 import firebase_admin
@@ -47,7 +48,7 @@ def generate_analytics():
     global TOTAL_READS, TOTAL_WRITES
     start_time = time.time()
     
-    print("\n🚀 STARTING ANALYTICS ENGINE (V6.2 - DAILY TIME TRACKING)")
+    print("\n🚀 STARTING ANALYTICS ENGINE (V6.3 - QREF BUCKETING)")
     print("=====================================================")
     if FORCE_FULL_RECALCULATION:
         print("⚠️  MODE: FORCE FULL RECALCULATION (Reading ALL history)")
@@ -184,12 +185,16 @@ def generate_analytics():
             if 'breakdownByTopic' not in aggregator:
                 aggregator['breakdownByTopic'] = copy.deepcopy(syllabus_skeleton["breakdownByTopic"])
             
-            # [RENAMED] Check for new field name
             if 'dailyQuestionsBreakdown' not in aggregator:
                 aggregator['dailyQuestionsBreakdown'] = {}
             
             if 'dailyQuestionsBreakdownbyChapter' not in aggregator:
                 aggregator['dailyQuestionsBreakdownbyChapter'] = {}
+                
+            if 'qRefAssigned' not in aggregator:
+                aggregator['qRefAssigned'] = {
+                    "CORRECT": [], "INCORRECT": [], "SKIPPED": [], "PARTIALLY_CORRECT": []
+                }
         else:
             # Full Recalc Mode or New User: Start Fresh
             aggregator = {
@@ -199,11 +204,23 @@ def generate_analytics():
                 "breakdownBySubject": copy.deepcopy(syllabus_skeleton["breakdownBySubject"]),
                 "breakdownByChapter": copy.deepcopy(syllabus_skeleton["breakdownByChapter"]),
                 "breakdownByTopic": copy.deepcopy(syllabus_skeleton["breakdownByTopic"]),
-                "dailyQuestionsBreakdown": {},          # [RENAMED & UPDATED]
-                "dailyQuestionsBreakdownbyChapter": {}
+                "dailyQuestionsBreakdown": {},          
+                "dailyQuestionsBreakdownbyChapter": {},
+                # [NEW] Add bucket container
+                "qRefAssigned": {
+                    "CORRECT": [], "INCORRECT": [], "SKIPPED": [], "PARTIALLY_CORRECT": []
+                }
             }
 
         aggregator["lastUpdated"] = firestore.SERVER_TIMESTAMP
+
+        # [NEW] Convert qRefAssigned lists to Sets for O(1) lookups and uniqueness
+        q_ref_sets = {
+            "CORRECT": set(aggregator.get("qRefAssigned", {}).get("CORRECT", [])),
+            "INCORRECT": set(aggregator.get("qRefAssigned", {}).get("INCORRECT", [])),
+            "SKIPPED": set(aggregator.get("qRefAssigned", {}).get("SKIPPED", [])),
+            "PARTIALLY_CORRECT": set(aggregator.get("qRefAssigned", {}).get("PARTIALLY_CORRECT", [])),
+        }
 
         # --- Process Attempts (Global Stats + Daily) ---
         for attempt in new_attempts:
@@ -254,18 +271,18 @@ def generate_analytics():
                     aggregator["breakdownByTopic"][chapter][topic] = _get_empty_stats_object()
                 _increment_stats(aggregator["breakdownByTopic"][chapter][topic], status, time_spent, smart_tag)
 
-                # 5. [RENAMED] Daily Breakdown with Time Spent
+                # 5. Daily Breakdown with Time Spent
                 if date_key != "Unknown":
                     if date_key not in aggregator["dailyQuestionsBreakdown"]:
                         aggregator["dailyQuestionsBreakdown"][date_key] = {
                             "total": 0, "correct": 0, "incorrect": 0, "skipped": 0,
-                            "timeSpent": 0, # [NEW] Added time spent field
+                            "timeSpent": 0, 
                             "accuracyPercentage": 0.0, "attemptPercentage": 0.0
                         }
                     
                     daily_stats = aggregator["dailyQuestionsBreakdown"][date_key]
                     daily_stats["total"] += 1
-                    daily_stats["timeSpent"] += time_spent # [NEW] Accumulate time
+                    daily_stats["timeSpent"] += time_spent
                     
                     if status == 'CORRECT':
                         daily_stats["correct"] += 1
@@ -290,7 +307,14 @@ def generate_analytics():
                     if _should_update_timestamp(current_last, completed_at):
                         aggregator["breakdownByChapter"][chapter]['lastCorrectlySolvedAt'] = completed_at
 
-                # 8. Detailed Log
+                # 8. [NEW] Update qRefAssigned Sets (Additive)
+                # Normalize status to ensure it matches our bucket keys
+                bucket_key = status
+                if bucket_key not in q_ref_sets:
+                    bucket_key = "SKIPPED" # Fallback
+                q_ref_sets[bucket_key].add(q_id)
+
+                # 9. Detailed Log
                 if not FORCE_FULL_RECALCULATION:
                     detailed_item = {
                         "userId": user_id,
@@ -366,10 +390,18 @@ def generate_analytics():
         _recalculate_percentages(aggregator["summary_lastWeek"])
         _recalculate_percentages(aggregator["summary_lastMonth"])
 
-        # 3. [RENAMED] Daily Breakdown Percentages
+        # 3. Daily Breakdown Percentages
         if "dailyQuestionsBreakdown" in aggregator:
             for date_key, daily_stats in aggregator["dailyQuestionsBreakdown"].items():
                 _recalculate_percentages(daily_stats)
+
+        # 4. [NEW] Convert Sets back to Lists for Firestore Storage
+        aggregator["qRefAssigned"] = {
+            "CORRECT": list(q_ref_sets["CORRECT"]),
+            "INCORRECT": list(q_ref_sets["INCORRECT"]),
+            "SKIPPED": list(q_ref_sets["SKIPPED"]),
+            "PARTIALLY_CORRECT": list(q_ref_sets["PARTIALLY_CORRECT"])
+        }
 
         # --- F. SAVE UPDATES ---
         

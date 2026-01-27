@@ -1,3 +1,5 @@
+//lib/Screens/teacher/curation_management_screen.dart
+
 import 'package:flutter/material.dart';
 
 class CurationManagementScreen extends StatefulWidget {

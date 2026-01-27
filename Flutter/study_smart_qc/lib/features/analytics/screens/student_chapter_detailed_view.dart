@@ -167,7 +167,7 @@ class SmartActionGrid extends StatelessWidget {
             icon: isPerfectSpeed ? Icons.timer_off_outlined : Icons.speed,
             tags: const ["Overtime Correct"],
             tabLabels: const ["Overtime Correct"],
-            subtitle: isPerfectSpeed ? "Fast & accurate" : "Too slow",
+            subtitle: isPerfectSpeed ? "Fast & accurate" : "Solve quickly",
             userId: userId,
             chapterName: chapterName,
             topicName: topicName,
@@ -240,7 +240,6 @@ class _ActionCard extends StatelessWidget {
             topicName: topicName,
             title: topicName != null ? "$title ($topicName)" : title,
             targetTags: tags,
-            tabLabels: tabLabels,
           ),
         ),
       );

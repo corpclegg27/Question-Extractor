@@ -1,9 +1,6 @@
 // lib/features/analytics/screens/smart_question_review_screen.dart
-// Description: Displays list of mistakes.
-// UPDATED:
-// 1. Removed external "Mark as Fixed" button.
-// 2. Passes fix-logic directly into QuestionReviewCard.
-// 3. Maintains 'Sticky' visibility to prevent UI jumping.
+// Description: Displays list of mistakes with "Not Fixed" vs "Fixed" tabs.
+// UPDATED: Removed 'tabLabels' parameter and added dynamic counts to tab headers.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -16,7 +13,6 @@ class SmartQuestionReviewScreen extends StatefulWidget {
   final String? topicName;
   final String title;
   final List<String> targetTags;
-  final List<String> tabLabels;
 
   const SmartQuestionReviewScreen({
     super.key,
@@ -25,35 +21,31 @@ class SmartQuestionReviewScreen extends StatefulWidget {
     this.topicName,
     required this.title,
     required this.targetTags,
-    required this.tabLabels,
   });
 
   @override
   State<SmartQuestionReviewScreen> createState() => _SmartQuestionReviewScreenState();
 }
 
-class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> with TickerProviderStateMixin {
+class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> with SingleTickerProviderStateMixin {
   bool _isLoading = true;
   List<Map<String, dynamic>> _allLoadedData = [];
   late TabController _tabController;
 
-  bool _hideFixedMistakes = true;
-  final Set<String> _recentlyToggledIds = {};
+  // Track counts for the tabs
+  int _notFixedCount = 0;
+  int _fixedCount = 0;
 
   @override
   void initState() {
     super.initState();
-    if (widget.tabLabels.length > 1) {
-      _tabController = TabController(length: widget.tabLabels.length, vsync: this);
-    }
+    _tabController = TabController(length: 2, vsync: this);
     _fetchData();
   }
 
   @override
   void dispose() {
-    if (widget.tabLabels.length > 1) {
-      _tabController.dispose();
-    }
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -68,6 +60,7 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
         query = query.where('topic', isEqualTo: widget.topicName);
       }
 
+      // Fetch latest attempts
       final ledgerQuery = await query
           .orderBy('attemptedAt', descending: true)
           .limit(100)
@@ -75,6 +68,7 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
 
       List<QueryDocumentSnapshot> matchingDocs = [];
 
+      // Filter locally by tags
       for (var doc in ledgerQuery.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final String tag = data['smartTag'] ?? '';
@@ -94,9 +88,10 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
         return;
       }
 
+      // Fetch Question Details
       List<String> qIds = matchingDocs.map((d) => d['questionId'] as String).toSet().toList();
-
       Map<String, Question> questionMap = {};
+
       for (var i = 0; i < qIds.length; i += 10) {
         final end = (i + 10 < qIds.length) ? i + 10 : qIds.length;
         final chunk = qIds.sublist(i, end);
@@ -110,10 +105,14 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
       }
 
       List<Map<String, dynamic>> finalData = [];
+      int nf = 0;
+      int f = 0;
+
       for (var ledgerDoc in matchingDocs) {
         final lData = ledgerDoc.data() as Map<String, dynamic>;
         final qId = lData['questionId'];
         final question = questionMap[qId];
+        final bool isFixed = lData['isMistakeFixed'] ?? false;
 
         if (question != null) {
           finalData.add({
@@ -121,12 +120,21 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
             'attempt': lData,
             'docId': ledgerDoc.id,
           });
+
+          // Calculate initial counts
+          if (isFixed) {
+            f++;
+          } else {
+            nf++;
+          }
         }
       }
 
       if (mounted) {
         setState(() {
           _allLoadedData = finalData;
+          _notFixedCount = nf;
+          _fixedCount = f;
           _isLoading = false;
         });
       }
@@ -138,15 +146,28 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
   }
 
   Future<void> _toggleFixedStatus(String docId, bool currentStatus) async {
+    // 1. Optimistic Update UI
     setState(() {
       final index = _allLoadedData.indexWhere((element) => element['docId'] == docId);
       if (index != -1) {
-        _allLoadedData[index]['attempt']['isMistakeFixed'] = !currentStatus;
-        // Keep visible during this session
-        _recentlyToggledIds.add(docId);
+        // Toggle the status
+        bool newStatus = !currentStatus;
+        _allLoadedData[index]['attempt']['isMistakeFixed'] = newStatus;
+
+        // Update counts immediately
+        if (newStatus) {
+          // Changed from Not Fixed -> Fixed
+          _notFixedCount--;
+          _fixedCount++;
+        } else {
+          // Changed from Fixed -> Not Fixed
+          _notFixedCount++;
+          _fixedCount--;
+        }
       }
     });
 
+    // 2. Background Update Firestore
     try {
       await FirebaseFirestore.instance
           .collection('attempt_items_detailed')
@@ -159,8 +180,6 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
 
   @override
   Widget build(BuildContext context) {
-    final bool useTabs = widget.tabLabels.length > 1;
-
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFA),
       appBar: AppBar(
@@ -168,23 +187,7 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         elevation: 0,
-        actions: [
-          Row(
-            children: [
-              Text(
-                _hideFixedMistakes ? "Hide Fixed" : "Show Fixed",
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.bold),
-              ),
-              Switch(
-                value: _hideFixedMistakes,
-                activeThumbColor: Colors.deepPurple,
-                onChanged: (val) => setState(() => _hideFixedMistakes = val),
-              ),
-              const SizedBox(width: 8),
-            ],
-          )
-        ],
-        bottom: useTabs ? PreferredSize(
+        bottom: PreferredSize(
           preferredSize: const Size.fromHeight(50),
           child: Container(
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -206,40 +209,36 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
               labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               indicatorSize: TabBarIndicatorSize.tab,
               dividerColor: Colors.transparent,
-              tabs: widget.tabLabels.map((label) => Tab(text: label)).toList(),
+              tabs: [
+                Tab(text: "Not Fixed ($_notFixedCount)"),
+                Tab(text: "Fixed ($_fixedCount)"),
+              ],
             ),
           ),
-        ) : null,
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : useTabs
-          ? TabBarView(
+          : TabBarView(
         controller: _tabController,
-        children: widget.tabLabels.map((label) {
-          return _buildQuestionList(_allLoadedData, label);
-        }).toList(),
-      )
-          : _buildQuestionList(_allLoadedData, widget.tabLabels.first),
+        children: [
+          _buildQuestionList(showFixedOnly: false), // Tab 1: Pending
+          _buildQuestionList(showFixedOnly: true),  // Tab 2: Fixed
+        ],
+      ),
     );
   }
 
-  Widget _buildQuestionList(List<Map<String, dynamic>> allData, String activeLabel) {
-    var filtered = allData.where((item) {
-      final tag = item['attempt']['smartTag'] ?? '';
-      return tag.contains(activeLabel);
+  Widget _buildQuestionList({required bool showFixedOnly}) {
+    // Filter the master list based on the Tab criteria
+    final filtered = _allLoadedData.where((item) {
+      final isFixed = item['attempt']['isMistakeFixed'] ?? false;
+      return showFixedOnly ? isFixed : !isFixed;
     }).toList();
 
-    if (_hideFixedMistakes) {
-      filtered = filtered.where((item) {
-        final docId = item['docId'];
-        final isFixed = item['attempt']['isMistakeFixed'] ?? false;
-        // Show if NOT fixed OR if recently toggled
-        return !isFixed || _recentlyToggledIds.contains(docId);
-      }).toList();
+    if (filtered.isEmpty) {
+      return _buildEmptyState(showFixedOnly);
     }
-
-    if (filtered.isEmpty) return _buildEmptyState(activeLabel);
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
@@ -252,6 +251,8 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
         final bool isFixed = a['isMistakeFixed'] ?? false;
 
         return QuestionReviewCard(
+          // Use docId as Key to ensure Flutter rebuilds correctly when items move between tabs
+          key: ValueKey(docId),
           index: index,
           questionType: q.type.name,
           imageUrl: q.imageUrl,
@@ -262,8 +263,6 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
           userOption: a['selectedOption'] ?? 'Not Answered',
           correctOption: a['correctOption'] ?? q.correctAnswer.toString(),
           marks: (a['status'] == 'CORRECT') ? 4 : (a['status'] == 'INCORRECT' ? -1 : 0),
-
-          // [NEW] Pass State & Callback
           isFixed: isFixed,
           onFixToggle: () => _toggleFixedStatus(docId, isFixed),
         );
@@ -271,19 +270,30 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
     );
   }
 
-  Widget _buildEmptyState(String label) {
+  Widget _buildEmptyState(bool isFixedTab) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.check_circle_outline, size: 64, color: Colors.green.shade200),
+          Icon(
+              isFixedTab ? Icons.assignment_outlined : Icons.check_circle_outline,
+              size: 64,
+              color: isFixedTab ? Colors.grey.shade300 : Colors.green.shade200
+          ),
           const SizedBox(height: 16),
           Text(
-            _hideFixedMistakes ? "All '$label' issues fixed!" : "No '$label' items found!",
+            isFixedTab
+                ? "No fixed items yet."
+                : "All issues fixed!",
             style: TextStyle(color: Colors.grey.shade600, fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          const Text("Great job!", style: TextStyle(color: Colors.grey)),
+          Text(
+            isFixedTab
+                ? "Mark items as fixed to see them here."
+                : "Great job clearing your backlog!",
+            style: const TextStyle(color: Colors.grey),
+          ),
         ],
       ),
     );

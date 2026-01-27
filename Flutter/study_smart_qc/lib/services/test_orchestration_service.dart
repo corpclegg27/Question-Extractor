@@ -1,5 +1,5 @@
 // lib/services/test_orchestration_service.dart
-// Description: Manages test submission. Updated to include image_url and solution_url in ResponseObject for permanent storage.
+// Description: Manages test submission. Updated to include aiGenSolutionText, image_url, and solution_url in ResponseObject for permanent storage.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -183,9 +183,10 @@ class TestOrchestrationService {
         difficultyTag: question.difficulty,
         questionType: userResponse?.questionType ?? '',
         marksObtained: userResponse?.marksObtained ?? 0,
-        // [NEW] Persist visual data for Result Screen
+        // [NEW] Persist visual data & AI Solution for Result Screen
         imageUrl: question.imageUrl,
         solutionUrl: question.solutionUrl,
+        aiGenSolutionText: question.aiGenSolutionText, // <--- SAVED HERE
       );
       enrichedResponses[question.id] = enrichedResponse;
     }

@@ -1,5 +1,5 @@
 // lib/models/question_model.dart
-// Description: Data model for a Question. updated to support 'correctAnswersOneOrMore' list for multiple correct types.
+// Description: Data model for a Question. Updated to support 'AIgenSolutionText' and 'correctAnswersOneOrMore'.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
@@ -21,6 +21,9 @@ class Question {
   final QuestionType type;
   final String imageUrl;
   final String? solutionUrl;
+
+  // [NEW] Field for AI Generated Solution Text (Markdown + LaTeX)
+  final String? aiGenSolutionText;
 
   // LEGACY FIELD: Kept for backward compatibility (Single Correct)
   final dynamic correctAnswer;
@@ -52,6 +55,7 @@ class Question {
     required this.type,
     required this.imageUrl,
     this.solutionUrl,
+    this.aiGenSolutionText, // [NEW] Initialize
     required this.correctAnswer,
     this.correctAnswersList = const [], // Default to empty
     required this.difficulty,
@@ -104,6 +108,10 @@ class Question {
       imageUrl: data['image_url'] ?? data['imageUrl'] ?? data['Image'] ?? '',
 
       solutionUrl: data['solution_url'] ?? data['solutionUrl'],
+
+      // [NEW] Map the AI Gen Solution Text
+      aiGenSolutionText: data['AIgenSolutionText'],
+
       correctAnswer: data['Correct Answer'],
 
       // --- MAPPING NEW FIELD ---

@@ -1,3 +1,5 @@
+//lib/features/teacher/screens/teacher_curation_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/services/teacher_service.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_filter_screen.dart';

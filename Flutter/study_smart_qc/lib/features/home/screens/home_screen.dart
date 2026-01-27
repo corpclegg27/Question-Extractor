@@ -1,6 +1,6 @@
 // lib/features/home/screens/home_screen.dart
 // Description: Main Dashboard.
-// UPDATED: Used IndexedStack to save reads, but passes 'isVisible' to trigger animations.
+// UPDATED: Added "Create and Manage Batches" entry in Teacher Drawer.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -21,6 +21,8 @@ import 'package:study_smart_qc/features/teacher/screens/teacher_history_screen.d
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
 import 'package:study_smart_qc/features/common/widgets/display_results_for_student_id.dart';
 import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
+// [NEW] Import Batches Landing Screen
+import 'package:study_smart_qc/features/batches/screens/teacher_batches_landing_screen.dart';
 
 // SERVICES
 import 'package:study_smart_qc/services/auth_service.dart';
@@ -36,9 +38,13 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _currentTabIndex = 0;
+  int _currentTabIndex = 0; // 0: Analysis, 1: Tests, 2: Assignments
   UserModel? _userModel;
   bool _isLoading = true;
+
+  // --- COUNTS STATE ---
+  int _pendingTestsCount = 0;
+  int _pendingAssignmentsCount = 0;
 
   // --- RESUME SESSION STATE ---
   final LocalSessionService _localSessionService = LocalSessionService();
@@ -48,13 +54,24 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchUserData();
-    _checkPendingSession();
+    _initialLoad();
+  }
+
+  Future<void> _initialLoad() async {
+    await _fetchUserData();
+    await _checkPendingSession();
+    // Fetch counts after user data is ready
+    if (_userModel != null) {
+      _fetchPendingCounts();
+    }
   }
 
   Future<void> _refreshState() async {
     await _fetchUserData();
     await _checkPendingSession();
+    if (_userModel != null) {
+      await _fetchPendingCounts();
+    }
   }
 
   Future<void> _fetchUserData() async {
@@ -67,6 +84,45 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _fetchPendingCounts() async {
+    if (_userModel == null) return;
+
+    try {
+      // Query all curations for this student to calculate pending counts
+      final snapshot = await FirebaseFirestore.instance
+          .collection('questions_curation')
+          .where('studentId', isEqualTo: _userModel!.studentId)
+          .get();
+
+      int pTests = 0;
+      int pAssign = 0;
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final code = data['assignmentCode'] as String? ?? '';
+        final isTest = data['onlySingleAttempt'] as bool? ?? false;
+
+        // Count if NOT submitted
+        if (!_userModel!.assignmentCodesSubmitted.contains(code)) {
+          if (isTest) {
+            pTests++;
+          } else {
+            pAssign++;
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _pendingTestsCount = pTests;
+          _pendingAssignmentsCount = pAssign;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching counts: $e");
+    }
+  }
+
   String? get _pendingAssignmentCode {
     if (!_hasPendingSession || _pendingSessionData == null) return null;
     return _pendingSessionData!['meta']['assignmentCode'];
@@ -75,7 +131,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // ---------------------------------------------------------------------------
   //  RESUME LOGIC
   // ---------------------------------------------------------------------------
-  // (Keeping existing resume logic intact)
   Future<void> _checkPendingSession() async {
     final hasSession = await _localSessionService.hasPendingSession();
     if (hasSession) {
@@ -262,7 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     if (mounted) {
-      _fetchUserData();
+      _refreshState();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Session submitted successfully.")));
     }
   }
@@ -308,29 +363,34 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       drawer: _buildDrawer(context),
 
-      // [CRITICAL] Use IndexedStack to preserve state (SAVING READS)
+      // [CRITICAL] IndexedStack preserves state.
+      // UPDATED ORDER: 0=Analysis, 1=Tests, 2=Assignments
       body: IndexedStack(
         index: _currentTabIndex,
         children: [
-          _AssignmentTabContainer(
-            user: _userModel!,
-            isTest: false,
-            resumableAssignmentCode: _pendingAssignmentCode,
-            onResumeTap: _handleResumePending,
-            onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
-            onRefreshNeeded: _refreshState,
+          // 0. ANALYSIS
+          DisplayResultsForStudentId(
+            isVisible: _currentTabIndex == 0,
           ),
+
+          // 1. TESTS
           _AssignmentTabContainer(
             user: _userModel!,
             isTest: true,
             resumableAssignmentCode: _pendingAssignmentCode,
             onResumeTap: _handleResumePending,
-            onViewAnalysisTap: () => setState(() => _currentTabIndex = 2),
+            onViewAnalysisTap: () => setState(() => _currentTabIndex = 0),
             onRefreshNeeded: _refreshState,
           ),
-          // [CRITICAL] Pass 'isVisible' flag to trigger animation without re-read
-          DisplayResultsForStudentId(
-            isVisible: _currentTabIndex == 2,
+
+          // 2. ASSIGNMENTS
+          _AssignmentTabContainer(
+            user: _userModel!,
+            isTest: false,
+            resumableAssignmentCode: _pendingAssignmentCode,
+            onResumeTap: _handleResumePending,
+            onViewAnalysisTap: () => setState(() => _currentTabIndex = 0),
+            onRefreshNeeded: _refreshState,
           ),
         ],
       ),
@@ -340,21 +400,50 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (index) => setState(() => _currentTabIndex = index),
         backgroundColor: Colors.white,
         indicatorColor: const Color(0xFFEADBFF),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.assignment_outlined),
-            selectedIcon: Icon(Icons.assignment, color: Color(0xFF6200EA)),
-            label: 'Assignments',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.timer_outlined),
-            selectedIcon: Icon(Icons.timer, color: Color(0xFF6200EA)),
-            label: 'Tests',
-          ),
-          NavigationDestination(
+        destinations: [
+          // 1. Analysis (No Badge)
+          const NavigationDestination(
             icon: Icon(Icons.analytics_outlined),
             selectedIcon: Icon(Icons.analytics, color: Color(0xFF6200EA)),
             label: 'Analysis',
+          ),
+
+          // 2. Tests (Red Dot Badge)
+          NavigationDestination(
+            icon: _pendingTestsCount > 0
+                ? const Badge(
+              smallSize: 8,
+              backgroundColor: Colors.red,
+              child: Icon(Icons.timer_outlined),
+            )
+                : const Icon(Icons.timer_outlined),
+            selectedIcon: _pendingTestsCount > 0
+                ? const Badge(
+              smallSize: 8,
+              backgroundColor: Colors.red,
+              child: Icon(Icons.timer, color: Color(0xFF6200EA)),
+            )
+                : const Icon(Icons.timer, color: Color(0xFF6200EA)),
+            label: 'Tests',
+          ),
+
+          // 3. Assignments (Red Dot Badge)
+          NavigationDestination(
+            icon: _pendingAssignmentsCount > 0
+                ? const Badge(
+              smallSize: 8,
+              backgroundColor: Colors.red,
+              child: Icon(Icons.assignment_outlined),
+            )
+                : const Icon(Icons.assignment_outlined),
+            selectedIcon: _pendingAssignmentsCount > 0
+                ? const Badge(
+              smallSize: 8,
+              backgroundColor: Colors.red,
+              child: Icon(Icons.assignment, color: Color(0xFF6200EA)),
+            )
+                : const Icon(Icons.assignment, color: Color(0xFF6200EA)),
+            label: 'Assignments',
           ),
         ],
       ),
@@ -363,9 +452,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _getAppBarTitle() {
     switch (_currentTabIndex) {
-      case 0: return "Assignments";
+      case 0: return "Analysis";
       case 1: return "Tests";
-      case 2: return "Analysis";
+      case 2: return "Assignments";
       default: return "ModX by Anup Sir";
     }
   }
@@ -393,6 +482,15 @@ class _HomeScreenState extends State<HomeScreen> {
             const Padding(padding: EdgeInsets.only(left: 16, top: 16, bottom: 8), child: Text("Teacher Tools", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
             ListTile(leading: const Icon(Icons.history_edu), title: const Text('My Curations'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherHistoryScreen())); }),
             ListTile(leading: const Icon(Icons.edit_note), title: const Text('Curate Questions'), onTap: () { Navigator.pop(context); if (ModalRoute.of(context)?.settings.name != '/') Navigator.popUntil(context, (route) => route.isFirst); }),
+            // [NEW] Batches Navigation
+            ListTile(
+              leading: const Icon(Icons.groups_outlined),
+              title: const Text('Create and Manage Batches'),
+              onTap: () {
+                Navigator.pop(context); // Close Drawer
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherBatchesLandingScreen()));
+              },
+            ),
             ListTile(leading: const Icon(Icons.analytics), title: const Text("Check Student Performance"), onTap: () { Navigator.pop(context); showModalBottomSheet(context: context, isScrollControlled: true, builder: (_) => const StudentLookupSheet()); }),
             const Divider(),
           ],
@@ -568,6 +666,7 @@ class _PaginatedListWrapperState extends State<_PaginatedListWrapper> {
           });
         }
 
+        // If filtering removed all docs but we got a full page, try fetching more immediately
         if (filteredDocs.isEmpty && snapshot.docs.length == _limit && _hasMore) {
           _isLoading = false;
           _fetchNextBatch();
@@ -576,7 +675,7 @@ class _PaginatedListWrapperState extends State<_PaginatedListWrapper> {
         if (mounted) setState(() => _hasMore = false);
       }
     } catch (e) {
-      print("Pagination Error: $e");
+      debugPrint("Pagination Error: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

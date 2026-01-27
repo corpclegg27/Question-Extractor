@@ -1,14 +1,14 @@
 // lib/features/common/widgets/teacher_question_preview_card.dart
-// Description: Widget to preview question. Includes Edit button to navigate to QC/Edit page.
+// Description: Widget to preview question. Always displays correct answer and solution. Includes Edit button.
 
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/features/teacher/screens/teacher_edit_question_screen.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 
-class QuestionPreviewCard extends StatefulWidget {
+class QuestionPreviewCard extends StatelessWidget {
   final Question question;
-  final Map<String, dynamic>? rawSyllabus; // [NEW] To pass to Edit Screen
+  final Map<String, dynamic>? rawSyllabus;
 
   const QuestionPreviewCard({
     super.key,
@@ -17,15 +17,8 @@ class QuestionPreviewCard extends StatefulWidget {
   });
 
   @override
-  State<QuestionPreviewCard> createState() => _QuestionPreviewCardState();
-}
-
-class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
-  bool _showAnswer = false;
-
-  @override
   Widget build(BuildContext context) {
-    final q = widget.question;
+    final q = question;
 
     // --- Breadcrumb Logic ---
     List<String> hierarchy = [];
@@ -84,19 +77,18 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
 
                     const Spacer(),
 
-                    // [NEW] Edit Button
+                    // Edit Button
                     IconButton(
                       icon: const Icon(Icons.edit, size: 20, color: Colors.blueGrey),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                       onPressed: () {
-                        // Navigate to Edit Screen
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => TeacherEditQuestionScreen(
                               question: q,
-                              rawSyllabus: widget.rawSyllabus,
+                              rawSyllabus: rawSyllabus,
                             ),
                           ),
                         );
@@ -147,76 +139,64 @@ class _QuestionPreviewCardState extends State<QuestionPreviewCard> {
             ),
           ),
 
-          // FOOTER
           const Divider(height: 1),
-          if (!_showAnswer)
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                icon: const Icon(Icons.visibility),
-                label: const Text("Show Answer & Solution"),
-                onPressed: () => setState(() => _showAnswer = true),
-              ),
-            ),
 
-          if (_showAnswer)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // FOOTER: Always Visible Solution
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Solution:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                const SizedBox(height: 8),
+
+                // Correct Answer Box
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: Colors.green.shade200),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text("Solution:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 16),
-                        onPressed: () => setState(() => _showAnswer = false),
-                      )
+                      const Text("Correct Option: ", style: TextStyle(fontWeight: FontWeight.bold)),
+                      Flexible(
+                        child: Text(
+                            (q.actualCorrectAnswers.isNotEmpty)
+                                ? q.actualCorrectAnswers.join(", ")
+                                : "None",
+                            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: Colors.green.shade200),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text("Correct Option: ", style: TextStyle(fontWeight: FontWeight.bold)),
-                        // Handle List or String answer
-                        Flexible(
-                          child: Text(
-                              (q.actualCorrectAnswers is List)
-                                  ? (q.actualCorrectAnswers as List).join(", ")
-                                  : q.actualCorrectAnswers.toString(),
-                              style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  if (q.solutionUrl != null && q.solutionUrl!.isNotEmpty)
-                    Center(
+                ),
+
+                const SizedBox(height: 10),
+
+                // Solution Image or Placeholder
+                if (q.solutionUrl != null && q.solutionUrl!.isNotEmpty)
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 200),
                       child: Image.network(
                         q.solutionUrl!,
-                        errorBuilder: (ctx, err, stack) => const Text("Solution image not available"),
+                        errorBuilder: (ctx, err, stack) => const Text("Solution image failed to load"),
                       ),
-                    )
-                  else
-                    const Text("No detailed solution image available.", style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
-                ],
-              ),
+                    ),
+                  )
+                else
+                  const Text("No detailed solution image available.", style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+              ],
             ),
+          ),
         ],
       ),
     );

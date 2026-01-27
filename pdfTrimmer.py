@@ -26,7 +26,7 @@ def trim_pdf(input_filename, start_page, end_page, chapter_label):
     input_path = os.path.join(SOURCE_DIR, input_filename)
     
     # Naming convention: Trimmed_[Label]_pages.pdf [cite: 288, 412]
-    output_filename = f"Trimmed_{chapter_label}_p{start_page}_to_p{end_page}.pdf"
+    output_filename = f"Trimmed_{chapter_label}_p{start_page}_to_p{end_page}_{input_filename}.pdf"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
 
     if not os.path.exists(input_path):
@@ -59,9 +59,9 @@ def trim_pdf(input_filename, start_page, end_page, chapter_label):
 
 if __name__ == "__main__":
     # --- UPDATE THESE PARAMETERS FOR EACH CHAPTER ---
-    FILE_NAME = "PYQ NEET Digvijay.pdf" 
-    CHAPTER_NAME = "Magnetism"
-    START = 612   # Starting page number (as seen in PDF viewer)
-    END = 613    # Ending page number (as seen in PDF viewer)
+    FILE_NAME = "PYQs NEET Disha 33 Years NEET Solved Papers - Physics.pdf" 
+    CHAPTER_NAME = "Rotational motion"
+    START = 76   # Starting page number (as seen in PDF viewer)
+    END = 96    # Ending page number (as seen in PDF viewer)
 
     trim_pdf(FILE_NAME, START, END, CHAPTER_NAME)

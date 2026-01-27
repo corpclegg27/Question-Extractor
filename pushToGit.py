@@ -5,7 +5,7 @@ import os
 # ==========================================
 # 👇 UPDATE YOUR COMMIT MESSAGE HERE 👇
 # ==========================================
-COMMIT_MESSAGE = "Added day wise questions charts and chapter studies to student dashboard"
+COMMIT_MESSAGE = "27 Jan"
 # ==========================================
 
 def run_command(command, step_name):

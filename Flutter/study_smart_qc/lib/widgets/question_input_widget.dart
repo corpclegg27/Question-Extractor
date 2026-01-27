@@ -1,6 +1,6 @@
 // lib/widgets/question_input_widget.dart
 // Description: Handles input for Single (Radio-like) and Multiple (Toggle-like) questions.
-// Updated: Implemented "Toggle Rectangle" UI for multiple correct questions for consistent UX.
+// Updated: Defaults to 'Single Correct' UI if question type is unknown or missing.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -60,8 +60,6 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
   @override
   Widget build(BuildContext context) {
     switch (widget.question.type) {
-      case QuestionType.singleCorrect:
-        return _buildSingleCorrect();
       case QuestionType.numerical:
         return _buildNumerical();
       case QuestionType.oneOrMoreOptionsCorrect:
@@ -74,9 +72,14 @@ class _QuestionInputWidgetState extends State<QuestionInputWidget> {
             child: Text("Matrix Match is not supported in this view yet."),
           ),
         );
+
+    // [UPDATED] Fallback logic:
+    // If type is SingleCorrect, Unknown, or anything else (missing field),
+    // default to rendering the Single Correct UI.
+      case QuestionType.singleCorrect:
       case QuestionType.unknown:
       default:
-        return const Center(child: Text("Unknown Question Type"));
+        return _buildSingleCorrect();
     }
   }
 
