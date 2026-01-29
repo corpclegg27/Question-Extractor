@@ -1,10 +1,18 @@
 // lib/features/analytics/widgets/student_question_review_card.dart
+// Description: Displays a single question review card with stats, status, and solution.
+// - [UPDATED] Converted to StatefulWidget to handle on-demand AI generation.
+// - Uses AiSolutionService to fetch solutions if missing.
+// - Renders Image Solutions (Priority 1) or AI Text Solutions (Priority 2).
+// - Includes NativeLatexRenderer for safe math rendering.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:study_smart_qc/widgets/expandable_image.dart';
+import 'package:study_smart_qc/core/services/ai_solution_service.dart';
 
-class QuestionReviewCard extends StatelessWidget {
+class QuestionReviewCard extends StatefulWidget {
+  final String questionId; // [NEW] Required for API call
   final int index;
   final String questionType;
   final String? imageUrl;
@@ -22,6 +30,7 @@ class QuestionReviewCard extends StatelessWidget {
 
   const QuestionReviewCard({
     super.key,
+    required this.questionId,
     required this.index,
     required this.questionType,
     this.imageUrl,
@@ -38,17 +47,60 @@ class QuestionReviewCard extends StatelessWidget {
   });
 
   @override
+  State<QuestionReviewCard> createState() => _QuestionReviewCardState();
+}
+
+class _QuestionReviewCardState extends State<QuestionReviewCard> {
+  final AiSolutionService _aiService = AiSolutionService();
+
+  // State variables for dynamic generation
+  bool _isGenerating = false;
+  String? _generatedSolution;
+  bool _isExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize with the data passed from parent (if any)
+    _generatedSolution = widget.aiSolutionText;
+  }
+
+  /// Triggers the cloud function to get the solution
+  Future<void> _handleGenerateSolution() async {
+    setState(() => _isGenerating = true);
+
+    try {
+      // Call our new Service
+      final solution = await _aiService.generateSolution(widget.questionId);
+
+      if (mounted) {
+        setState(() {
+          _generatedSolution = solution;
+          _isGenerating = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isGenerating = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll("Exception:", "").trim()),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // [FEATURE FLAG] Hardcoded to false for now. Set to true to enable AI solutions.
-    const bool isLiveAISolutions = false;
+    // 1. Determine what we have
+    final bool hasImageSolution = widget.solutionUrl != null && widget.solutionUrl!.isNotEmpty;
+    final bool hasTextSolution = _generatedSolution != null && _generatedSolution!.trim().length > 5;
 
-    final bool hasImageSolution = solutionUrl != null && solutionUrl!.isNotEmpty;
-
-    // Only show AI solution if the feature is enabled AND text is valid
-    final bool hasAiSolution = isLiveAISolutions &&
-        (aiSolutionText != null && aiSolutionText!.trim().length > 5);
-
-    final bool showSolutionSection = hasImageSolution || hasAiSolution;
+    // 2. Should we show the "Solution" section at all?
+    // We show it if we have a solution OR if we can generate one.
+    final bool showSolutionSection = true;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
@@ -68,7 +120,7 @@ class QuestionReviewCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Header Row
+          // --- HEADER ROW ---
           Row(
             children: [
               Container(
@@ -78,21 +130,21 @@ class QuestionReviewCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  "Q.${index + 1}",
+                  "Q.${widget.index + 1}",
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  questionType.toUpperCase().replaceAll("_", " "),
+                  widget.questionType.toUpperCase().replaceAll("_", " "),
                   style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (onFixToggle != null) ...[
+              if (widget.onFixToggle != null) ...[
                 GestureDetector(
-                  onTap: onFixToggle,
+                  onTap: widget.onFixToggle,
                   child: Container(
                     color: Colors.transparent,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -100,10 +152,10 @@ class QuestionReviewCard extends StatelessWidget {
                       children: [
                         Text(
                           "Mark as Fixed",
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isFixed ? Colors.green : Colors.grey.shade400),
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: widget.isFixed ? Colors.green : Colors.grey.shade400),
                         ),
                         const SizedBox(width: 4),
-                        Icon(isFixed ? Icons.check_circle : Icons.circle_outlined, size: 20, color: isFixed ? Colors.green : Colors.grey.shade300),
+                        Icon(widget.isFixed ? Icons.check_circle : Icons.circle_outlined, size: 20, color: widget.isFixed ? Colors.green : Colors.grey.shade300),
                       ],
                     ),
                   ),
@@ -113,23 +165,23 @@ class QuestionReviewCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: marks > 0 ? Colors.green.shade50 : (marks < 0 ? Colors.red.shade50 : Colors.grey.shade100),
+                  color: widget.marks > 0 ? Colors.green.shade50 : (widget.marks < 0 ? Colors.red.shade50 : Colors.grey.shade100),
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: marks > 0 ? Colors.green.shade200 : (marks < 0 ? Colors.red.shade200 : Colors.grey.shade300)),
+                  border: Border.all(color: widget.marks > 0 ? Colors.green.shade200 : (widget.marks < 0 ? Colors.red.shade200 : Colors.grey.shade300)),
                 ),
-                child: Text("${marks > 0 ? '+' : ''}$marks",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: marks > 0 ? Colors.green : (marks < 0 ? Colors.red : Colors.grey))),
+                child: Text("${widget.marks > 0 ? '+' : ''}${widget.marks}",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: widget.marks > 0 ? Colors.green : (widget.marks < 0 ? Colors.red : Colors.grey))),
               ),
             ],
           ),
           const Divider(height: 24),
 
-          // 2. Question Image
-          if (imageUrl != null && imageUrl!.isNotEmpty)
+          // --- QUESTION IMAGE ---
+          if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty)
             Center(
               child: Container(
                 constraints: const BoxConstraints(maxHeight: 250),
-                child: ExpandableImage(imageUrl: imageUrl!),
+                child: ExpandableImage(imageUrl: widget.imageUrl!),
               ),
             )
           else
@@ -139,7 +191,7 @@ class QuestionReviewCard extends StatelessWidget {
             ),
           const SizedBox(height: 16),
 
-          // 3. Stats Row
+          // --- STATS ROW ---
           Wrap(
             spacing: 12,
             runSpacing: 12,
@@ -156,13 +208,13 @@ class QuestionReviewCard extends StatelessWidget {
                   children: [
                     const Icon(Icons.timer, size: 16, color: Colors.blue),
                     const SizedBox(width: 8),
-                    Text(_formatDuration(timeSpent), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
+                    Text(_formatDuration(widget.timeSpent), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
                   ],
                 ),
               ),
-              if (smartTag.isNotEmpty)
+              if (widget.smartTag.isNotEmpty)
                 Builder(builder: (context) {
-                  final shortTag = smartTag.split('(').first.trim();
+                  final shortTag = widget.smartTag.split('(').first.trim();
                   final color = _getSmartColor(shortTag);
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -185,12 +237,12 @@ class QuestionReviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          // 5. Answer Status
-          _buildAnswerStatus('Your Answer: $userOption', status),
+          // --- ANSWER STATUS ---
+          _buildAnswerStatus('Your Answer: ${widget.userOption}', widget.status),
           const SizedBox(height: 8),
-          _buildAnswerStatus('Correct Answer: $correctOption', 'CORRECT'),
+          _buildAnswerStatus('Correct Answer: ${widget.correctOption}', 'CORRECT'),
 
-          // 6. Solution Section
+          // --- SOLUTION SECTION ---
           if (showSolutionSection) ...[
             const SizedBox(height: 16),
             const Divider(),
@@ -200,7 +252,9 @@ class QuestionReviewCard extends StatelessWidget {
                 title: Row(
                   children: [
                     const Text("Show solution", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
-                    if (hasAiSolution && !hasImageSolution) ...[
+
+                    // Show "AI Explained" Badge if we have a text solution
+                    if (hasTextSolution && !hasImageSolution) ...[
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -223,19 +277,22 @@ class QuestionReviewCard extends StatelessWidget {
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: EdgeInsets.zero,
                 initiallyExpanded: false,
+                onExpansionChanged: (val) => setState(() => _isExpanded = val),
                 trailing: const Icon(Icons.expand_more, color: Colors.deepPurple),
                 children: [
                   const SizedBox(height: 8),
-                  // A. Image Solution (Priority)
+
+                  // A. Image Solution (Priority 1)
                   if (hasImageSolution)
                     Center(
                       child: Container(
                         constraints: const BoxConstraints(maxHeight: 400),
-                        child: ExpandableImage(imageUrl: solutionUrl!),
+                        child: ExpandableImage(imageUrl: widget.solutionUrl!),
                       ),
                     )
-                  // B. AI Solution (Native Rendering) - Only shown if feature flag is true
-                  else if (hasAiSolution)
+
+                  // B. AI Solution (Priority 2)
+                  else if (hasTextSolution)
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
@@ -244,8 +301,12 @@ class QuestionReviewCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.grey.shade300),
                       ),
-                      child: NativeLatexRenderer(text: aiSolutionText!),
-                    ),
+                      child: NativeLatexRenderer(text: _generatedSolution!),
+                    )
+
+                  // C. No Solution? Show Generate Button
+                  else
+                    _buildGenerateButton(),
                 ],
               ),
             ),
@@ -255,7 +316,53 @@ class QuestionReviewCard extends StatelessWidget {
     );
   }
 
-  // --- HELPER METHODS ---
+  // --- WIDGET BUILDERS & HELPERS ---
+
+  Widget _buildGenerateButton() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.psychology, size: 40, color: Colors.deepPurpleAccent),
+          const SizedBox(height: 12),
+          const Text(
+            "No solution available yet.",
+            style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            "Our AI Tutor can explain this step-by-step.",
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          if (_isGenerating)
+            const SizedBox(
+              height: 40,
+              width: 40,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            )
+          else
+            ElevatedButton.icon(
+              onPressed: _handleGenerateSolution,
+              icon: const Icon(Icons.auto_awesome, size: 18, color: Colors.white),
+              label: const Text("Generate AI Solution"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildAnswerStatus(String text, String statusStr) {
     bool isCorrect = statusStr == 'CORRECT';
