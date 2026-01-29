@@ -4,6 +4,7 @@
 # - Added 'timeSpent' to daily breakdown.
 # - [NEW] Added 'qRefAssigned': Maps of lists storing all attempted Question IDs by status.
 # - PRESERVES all existing Chapter/Subject/Topic/Detailed Item logic.
+# - [FIX] Added strict sanitization for empty strings in Subject/Chapter/Topic keys.
 
 import firebase_admin
 from firebase_admin import credentials
@@ -242,9 +243,20 @@ def generate_analytics():
 
             for q_id, response in responses.items():
                 status = response.get('status', 'SKIPPED')
-                subject = response.get('subject', 'Unknown').capitalize() 
-                chapter = response.get('chapter', 'Unknown')
-                topic = response.get('topic', 'Unknown')
+                
+                # --- SANITIZATION BLOCK (Fix for empty keys error) ---
+                # Ensure we never have None or empty strings as keys
+                subject = response.get('subject')
+                if not subject: subject = 'Unknown'
+                subject = subject.capitalize()
+
+                chapter = response.get('chapter')
+                if not chapter: chapter = 'Unknown'
+
+                topic = response.get('topic')
+                if not topic: topic = 'Unknown'
+                # -----------------------------------------------------
+
                 time_spent = response.get('timeSpent', 0)
                 smart_tag = _extract_smart_tag(response.get('smartTimeAnalysis', ""))
 

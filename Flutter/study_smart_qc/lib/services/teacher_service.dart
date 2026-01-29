@@ -1,13 +1,18 @@
 // lib/services/teacher_service.dart
-// Description: Handles teacher operations including statistics, search, and assigning questions.
-// Updated: Calculates and saves 'questionIdsGrouped' and 'marksBreakdownMap'.
+// Description: Handles teacher operations.
+// UPDATED: Added 'assignQuestionsToBatch' to handle Batch assignment creation.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/attempt_model.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/models/marking_configuration.dart';
+import 'package:study_smart_qc/services/teacher_service.dart'; // Self-import if needed for enums, usually not required if defined here.
+
+// Enum for Cloning Targets
+enum TargetAudienceType { individual, batch, general }
 
 class PaginatedQuestions {
   final List<Question> questions;
@@ -17,6 +22,9 @@ class PaginatedQuestions {
 
 class TeacherService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  String? get _currentTeacherId => _auth.currentUser?.uid;
 
   // --- 1. STATS DASHBOARD ---
   Future<Map<String, int>> getStudentStats(int studentId) async {
@@ -92,42 +100,84 @@ class TeacherService {
         .snapshots();
   }
 
-  // --- 4. MANAGEMENT ---
+  // --- 4. CLONING ---
   Future<void> cloneAssignment({
-    required String originalDocId,
-    required int targetStudentId,
-    required String teacherUid,
+    required DocumentSnapshot sourceDoc,
+    required TargetAudienceType targetType,
+    required String targetId,
+    required String targetName,
+    DateTime? newDeadline,
   }) async {
-    final docSnapshot = await _firestore.collection('questions_curation').doc(originalDocId).get();
-    if (!docSnapshot.exists) throw Exception("Original assignment not found.");
-    final data = docSnapshot.data()!;
+    if (_currentTeacherId == null) throw Exception("User not logged in");
 
-    final newStudentUid = await _findUidByStudentId(targetStudentId);
-    if (newStudentUid == null) throw Exception("Target student ID not found.");
+    try {
+      final data = sourceDoc.data() as Map<String, dynamic>;
+      final String newCode = _generateAssignmentCode();
 
-    final newRef = _firestore.collection('questions_curation').doc();
-    final newCode = _generateAssignmentCode();
+      Map<String, dynamic> newCuration = {
+        'title': data['title'] ?? 'Cloned Assignment',
+        'assignmentCode': newCode,
+        'assignmentId': data['assignmentId'],
+        'createdAt': FieldValue.serverTimestamp(),
+        'teacherUid': _currentTeacherId,
+        'status': 'Assigned',
 
-    final newData = Map<String, dynamic>.from(data);
-    newData['assignmentId'] = newRef.id;
-    newData['assignmentCode'] = newCode;
-    newData['studentUid'] = newStudentUid;
-    newData['teacherUid'] = teacherUid;
-    newData['createdAt'] = FieldValue.serverTimestamp();
-    newData['status'] = 'assigned';
+        'questionIds': data['questionIds'] ?? [],
+        'markingSchemes': data['markingSchemes'] ?? {},
+        'marksBreakdownMap': data['marksBreakdownMap'] ?? {},
+        'meta_hierarchy': data['meta_hierarchy'] ?? {},
+        'onlySingleAttempt': data['onlySingleAttempt'] ?? false,
+        'timeLimitMinutes': data['timeLimitMinutes'],
+        'subjects': data['subjects'] ?? [],
+        'questionIdsGrouped': data['questionIdsGrouped'] ?? {},
+      };
 
-    final batch = _firestore.batch();
-    batch.set(newRef, newData);
+      if (newDeadline != null) {
+        newCuration['deadline'] = Timestamp.fromDate(newDeadline);
+      }
 
-    final trackerRef = _firestore.collection('student_question_tracker').doc(newStudentUid);
-    final List<dynamic> qIds = data['questionIds'] ?? [];
+      switch (targetType) {
+        case TargetAudienceType.individual:
+          newCuration['targetAudience'] = 'Particular Student';
+          newCuration['studentUid'] = targetId;
+          newCuration['studentName'] = targetName;
+          break;
 
-    batch.update(trackerRef, {
-      'assigned_history': FieldValue.arrayUnion(qIds),
-      'buckets.unattempted': FieldValue.arrayUnion(qIds),
-    });
+        case TargetAudienceType.batch:
+          newCuration['targetAudience'] = 'Batch';
+          newCuration['batchId'] = targetId;
+          newCuration['batchName'] = targetName;
+          newCuration['studentUid'] = null;
+          newCuration['studentId'] = null;
+          break;
 
-    await batch.commit();
+        case TargetAudienceType.general:
+          newCuration['targetAudience'] = 'General';
+          newCuration['assignedToName'] = "General Audience";
+          newCuration['studentUid'] = null;
+          newCuration['batchId'] = null;
+          break;
+      }
+
+      final newRef = _firestore.collection('questions_curation').doc();
+      final batch = _firestore.batch();
+      batch.set(newRef, newCuration);
+
+      if (targetType == TargetAudienceType.individual) {
+        final trackerRef = _firestore.collection('student_question_tracker').doc(targetId);
+        final List<dynamic> qIds = data['questionIds'] ?? [];
+        batch.update(trackerRef, {
+          'assigned_history': FieldValue.arrayUnion(qIds),
+          'buckets.unattempted': FieldValue.arrayUnion(qIds),
+        });
+      }
+
+      await batch.commit();
+
+    } catch (e) {
+      print("Error cloning assignment: $e");
+      rethrow;
+    }
   }
 
   Future<void> updateQuestionOrder(String docId, List<String> newOrder) async {
@@ -137,6 +187,8 @@ class TeacherService {
   }
 
   // --- 5. ASSIGNMENT LOGIC ---
+
+  // A. ASSIGN TO STUDENT (Updates Tracker)
   Future<void> assignQuestionsToStudent({
     required int studentId,
     required List<Question> questions,
@@ -155,86 +207,25 @@ class TeacherService {
     final trackerRef = _firestore.collection('student_question_tracker').doc(studentUid);
     final batch = _firestore.batch();
 
-    final assignmentCode = _generateAssignmentCode();
+    final data = _prepareAssignmentData(
+        refId: newAssignmentRef.id,
+        questions: questions,
+        teacherUid: teacherUid,
+        targetAudience: targetAudience,
+        title: assignmentTitle,
+        onlySingleAttempt: onlySingleAttempt,
+        timeLimitMinutes: timeLimitMinutes,
+        deadline: deadline,
+        markingSchemes: markingSchemes
+    );
+
+    // Specific Fields for Student
+    data['studentId'] = studentId;
+    data['studentUid'] = studentUid;
+
+    batch.set(newAssignmentRef, data);
+
     final questionIds = questions.map((q) => q.customId).toList();
-
-    // 1. Subjects
-    final subjects = questions
-        .map((q) => q.subject.isNotEmpty ? q.subject : (q.chapterId.split('_').first))
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toSet()
-        .toList();
-
-    // 2. Hierarchy
-    final hierarchy = _buildHierarchy(questions);
-
-    // 3. NEW: Grouped IDs & Marks Breakdown
-    Map<String, dynamic> questionIdsGrouped = {};
-    Map<String, dynamic> marksBreakdownMap = { "Overall": 0.0 };
-
-    for (var q in questions) {
-      String subject = q.subject.isEmpty ? "General" : q.subject;
-      String typeStr = _mapTypeToString(q.type);
-
-      // -- Group IDs --
-      questionIdsGrouped.putIfAbsent(subject, () => <String, dynamic>{});
-      questionIdsGrouped[subject].putIfAbsent(typeStr, () => <String>[]);
-      (questionIdsGrouped[subject][typeStr] as List).add(q.customId);
-
-      // -- Calculate Marks --
-      // Default to +4 if scheme missing (fail-safe)
-      double score = 4.0;
-      if (markingSchemes != null && markingSchemes.containsKey(q.type)) {
-        score = markingSchemes[q.type]!.correctScore;
-      }
-
-      marksBreakdownMap.putIfAbsent(subject, () => <String, dynamic>{});
-      double currentSubjTypeTotal = (marksBreakdownMap[subject][typeStr] ?? 0.0);
-      marksBreakdownMap[subject][typeStr] = currentSubjTypeTotal + score;
-
-      marksBreakdownMap["Overall"] = (marksBreakdownMap["Overall"] ?? 0.0) + score;
-    }
-
-    // 4. Marking Schemes Serialization
-    Map<String, dynamic> schemesMap = {};
-    if (markingSchemes != null) {
-      markingSchemes.forEach((type, config) {
-        schemesMap[_mapTypeToString(type)] = config.toMap();
-      });
-    }
-
-    final int finalTimeLimit = timeLimitMinutes ?? (questions.length * 2);
-    final String finalTitle = assignmentTitle.isEmpty ? "New Assignment" : assignmentTitle;
-
-    Map<String, dynamic> curationData = {
-      'assignmentId': newAssignmentRef.id,
-      'assignmentCode': assignmentCode,
-      'targetAudience': targetAudience,
-      'studentId': studentId,
-      'studentUid': studentUid,
-      'teacherUid': teacherUid,
-      'title': finalTitle,
-      'questionIds': questionIds, // Legacy List (Do not remove)
-      'createdAt': FieldValue.serverTimestamp(),
-      'status': 'assigned',
-      'onlySingleAttempt': onlySingleAttempt,
-      'timeLimitMinutes': finalTimeLimit,
-      'subjects': subjects,
-      'meta_hierarchy': hierarchy,
-      'markingSchemes': schemesMap,
-
-      // NEW FIELDS
-      'questionIdsGrouped': questionIdsGrouped,
-      'marksBreakdownMap': marksBreakdownMap,
-    };
-
-    if (deadline != null) {
-      curationData['deadline'] = Timestamp.fromDate(deadline);
-    }
-
-    batch.set(newAssignmentRef, curationData);
-
     batch.update(trackerRef, {
       'assigned_history': FieldValue.arrayUnion(questionIds),
       'buckets.unattempted': FieldValue.arrayUnion(questionIds),
@@ -243,7 +234,128 @@ class TeacherService {
     await batch.commit();
   }
 
+  // B. [NEW] ASSIGN TO BATCH (No Tracker Update)
+  Future<void> assignQuestionsToBatch({
+    required String batchId,
+    required String batchName,
+    required List<Question> questions,
+    required String teacherUid,
+    String assignmentTitle = "",
+    bool onlySingleAttempt = false,
+    int? timeLimitMinutes,
+    DateTime? deadline,
+    Map<QuestionType, MarkingConfiguration>? markingSchemes,
+  }) async {
+    final newAssignmentRef = _firestore.collection('questions_curation').doc();
+
+    final data = _prepareAssignmentData(
+        refId: newAssignmentRef.id,
+        questions: questions,
+        teacherUid: teacherUid,
+        targetAudience: 'Batch',
+        title: assignmentTitle,
+        onlySingleAttempt: onlySingleAttempt,
+        timeLimitMinutes: timeLimitMinutes,
+        deadline: deadline,
+        markingSchemes: markingSchemes
+    );
+
+    // Specific Fields for Batch
+    data['batchId'] = batchId;
+    data['batchName'] = batchName;
+    // Explicitly nullify student fields to prevent index issues
+    data['studentId'] = null;
+    data['studentUid'] = null;
+
+    await newAssignmentRef.set(data);
+  }
+
   // --- HELPERS ---
+
+  // Shared Data Builder
+  Map<String, dynamic> _prepareAssignmentData({
+    required String refId,
+    required List<Question> questions,
+    required String teacherUid,
+    required String targetAudience,
+    required String title,
+    required bool onlySingleAttempt,
+    int? timeLimitMinutes,
+    DateTime? deadline,
+    Map<QuestionType, MarkingConfiguration>? markingSchemes,
+  }) {
+    final assignmentCode = _generateAssignmentCode();
+    final questionIds = questions.map((q) => q.customId).toList();
+
+    // Subjects
+    final subjects = questions
+        .map((q) => q.subject.isNotEmpty ? q.subject : (q.chapterId.split('_').first))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toSet()
+        .toList();
+
+    // Hierarchy
+    final hierarchy = _buildHierarchy(questions);
+
+    // Grouped IDs & Marks
+    Map<String, dynamic> questionIdsGrouped = {};
+    Map<String, dynamic> marksBreakdownMap = { "Overall": 0.0 };
+
+    for (var q in questions) {
+      String subject = q.subject.isEmpty ? "General" : q.subject;
+      String typeStr = _mapTypeToString(q.type);
+
+      questionIdsGrouped.putIfAbsent(subject, () => <String, dynamic>{});
+      questionIdsGrouped[subject].putIfAbsent(typeStr, () => <String>[]);
+      (questionIdsGrouped[subject][typeStr] as List).add(q.customId);
+
+      double score = 4.0;
+      if (markingSchemes != null && markingSchemes.containsKey(q.type)) {
+        score = markingSchemes[q.type]!.correctScore;
+      }
+
+      marksBreakdownMap.putIfAbsent(subject, () => <String, dynamic>{});
+      double currentSubjTypeTotal = (marksBreakdownMap[subject][typeStr] ?? 0.0);
+      marksBreakdownMap[subject][typeStr] = currentSubjTypeTotal + score;
+      marksBreakdownMap["Overall"] = (marksBreakdownMap["Overall"] ?? 0.0) + score;
+    }
+
+    // Marking Schemes Serialization
+    Map<String, dynamic> schemesMap = {};
+    if (markingSchemes != null) {
+      markingSchemes.forEach((type, config) {
+        schemesMap[_mapTypeToString(type)] = config.toMap();
+      });
+    }
+
+    final int finalTimeLimit = timeLimitMinutes ?? (questions.length * 2);
+    final String finalTitle = title.isEmpty ? "New Assignment" : title;
+
+    Map<String, dynamic> data = {
+      'assignmentId': refId,
+      'assignmentCode': assignmentCode,
+      'targetAudience': targetAudience,
+      'teacherUid': teacherUid,
+      'title': finalTitle,
+      'questionIds': questionIds,
+      'createdAt': FieldValue.serverTimestamp(),
+      'status': 'assigned',
+      'onlySingleAttempt': onlySingleAttempt,
+      'timeLimitMinutes': finalTimeLimit,
+      'subjects': subjects,
+      'meta_hierarchy': hierarchy,
+      'markingSchemes': schemesMap,
+      'questionIdsGrouped': questionIdsGrouped,
+      'marksBreakdownMap': marksBreakdownMap,
+    };
+
+    if (deadline != null) {
+      data['deadline'] = Timestamp.fromDate(deadline);
+    }
+
+    return data;
+  }
 
   String _mapTypeToString(QuestionType type) {
     switch (type) {
@@ -256,7 +368,6 @@ class TeacherService {
     }
   }
 
-  // ... (Keep existing stats, search, clone, helpers etc. unchanged)
   Future<AttemptModel?> getAttemptForCuration(String curationId) async {
     try {
       final query = await _firestore.collection('attempts').where('sourceId', isEqualTo: curationId).orderBy('completedAt', descending: true).limit(1).get();

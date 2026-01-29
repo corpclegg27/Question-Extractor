@@ -10,7 +10,7 @@ import math
 import csv
 
 # --- 1. CONFIGURATION ---
-CREDENTIALS_FILE = 'studysmart-5da53-firebase-adminsdk-fbsvc-ca5974c5e9.json'
+CREDENTIALS_FILE = 'serviceAccountKey.json'
 STORAGE_BUCKET = 'studysmart-5da53.firebasestorage.app'
 CSV_FILE = 'DB Master Firebase.csv'
 LOG_FILE = 'migrationLogs.csv'  # Persistent Log File

@@ -1,9 +1,10 @@
 // lib/features/home/screens/home_screen.dart
 // Description: Main Dashboard.
-// UPDATED: Added "Create and Manage Batches" entry in Teacher Drawer.
+// UPDATED: Fixed 'didUpdateWidget' to detect new submissions and instantly move cards from Pending to Completed.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart'; // For listEquals
 import 'package:flutter/material.dart';
 
 // MODELS
@@ -21,7 +22,6 @@ import 'package:study_smart_qc/features/teacher/screens/teacher_history_screen.d
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
 import 'package:study_smart_qc/features/common/widgets/display_results_for_student_id.dart';
 import 'package:study_smart_qc/widgets/student_lookup_sheet.dart';
-// [NEW] Import Batches Landing Screen
 import 'package:study_smart_qc/features/batches/screens/teacher_batches_landing_screen.dart';
 
 // SERVICES
@@ -46,6 +46,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int _pendingTestsCount = 0;
   int _pendingAssignmentsCount = 0;
 
+  // --- BATCH STATE ---
+  List<String> _myBatchIds = [];
+
   // --- RESUME SESSION STATE ---
   final LocalSessionService _localSessionService = LocalSessionService();
   bool _hasPendingSession = false;
@@ -60,8 +63,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initialLoad() async {
     await _fetchUserData();
     await _checkPendingSession();
-    // Fetch counts after user data is ready
+    // Fetch counts and batches after user data is ready
     if (_userModel != null) {
+      await _fetchStudentBatches();
       _fetchPendingCounts();
     }
   }
@@ -70,6 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _fetchUserData();
     await _checkPendingSession();
     if (_userModel != null) {
+      await _fetchStudentBatches();
       await _fetchPendingCounts();
     }
   }
@@ -84,25 +89,70 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Fetch Batches where this student is a member
+  Future<void> _fetchStudentBatches() async {
+    if (_userModel == null) return;
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('batches')
+          .where('studentRefs', arrayContains: _userModel!.uid)
+          .get();
+
+      if (mounted) {
+        setState(() {
+          _myBatchIds = snapshot.docs.map((d) => d.id).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching student batches: $e");
+    }
+  }
+
+  // Count pending from Individual AND Batches
   Future<void> _fetchPendingCounts() async {
     if (_userModel == null) return;
 
     try {
-      // Query all curations for this student to calculate pending counts
-      final snapshot = await FirebaseFirestore.instance
+      // 1. Query Individual
+      final individualQuery = FirebaseFirestore.instance
           .collection('questions_curation')
           .where('studentId', isEqualTo: _userModel!.studentId)
           .get();
 
+      // 2. Query Batches
+      Future<QuerySnapshot>? batchQuery;
+      if (_myBatchIds.isNotEmpty) {
+        batchQuery = FirebaseFirestore.instance
+            .collection('questions_curation')
+            .where('targetAudience', isEqualTo: 'Batch')
+            .where('batchId', whereIn: _myBatchIds.take(10).toList())
+            .get();
+      }
+
+      final results = await Future.wait([
+        individualQuery,
+        if (batchQuery != null) batchQuery
+      ]);
+
+      // 3. Merge Docs
+      List<DocumentSnapshot> allDocs = [];
+      allDocs.addAll(results[0].docs);
+      if (results.length > 1 && results[1] != null) {
+        allDocs.addAll(results[1].docs);
+      }
+
       int pTests = 0;
       int pAssign = 0;
+      Set<String> processedCodes = {};
 
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
+      for (var doc in allDocs) {
+        final data = doc.data() as Map<String, dynamic>;
         final code = data['assignmentCode'] as String? ?? '';
         final isTest = data['onlySingleAttempt'] as bool? ?? false;
 
-        // Count if NOT submitted
+        if (processedCodes.contains(code)) continue;
+        processedCodes.add(code);
+
         if (!_userModel!.assignmentCodesSubmitted.contains(code)) {
           if (isTest) {
             pTests++;
@@ -162,15 +212,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final meta = _pendingSessionData!['meta'];
-      final timestamps = _pendingSessionData!['timestamps'];
       final state = _pendingSessionData!['state'];
+      final timestamps = _pendingSessionData!['timestamps'];
 
       final String mode = meta['mode'] ?? 'Test';
       final String assignmentCode = meta['assignmentCode'];
       final int savedTimer = timestamps['quitTimeTimerValue'];
       final String quitTimestamp = timestamps['quitTimeTimestamp'];
 
-      // RECONCILE TIMER
       final newTime = _localSessionService.calculateResumeTime(
         mode: mode,
         savedTimerValue: savedTimer,
@@ -187,7 +236,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      // FETCH DATA
       List<Question> questions = [];
       List<String> qIds = [];
       bool isSingleAttempt = false;
@@ -322,10 +370,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  //  UI BUILD
-  // ---------------------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -363,8 +407,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       drawer: _buildDrawer(context),
 
-      // [CRITICAL] IndexedStack preserves state.
-      // UPDATED ORDER: 0=Analysis, 1=Tests, 2=Assignments
       body: IndexedStack(
         index: _currentTabIndex,
         children: [
@@ -381,6 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onResumeTap: _handleResumePending,
             onViewAnalysisTap: () => setState(() => _currentTabIndex = 0),
             onRefreshNeeded: _refreshState,
+            batchIds: _myBatchIds,
           ),
 
           // 2. ASSIGNMENTS
@@ -391,6 +434,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onResumeTap: _handleResumePending,
             onViewAnalysisTap: () => setState(() => _currentTabIndex = 0),
             onRefreshNeeded: _refreshState,
+            batchIds: _myBatchIds,
           ),
         ],
       ),
@@ -401,47 +445,26 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Colors.white,
         indicatorColor: const Color(0xFFEADBFF),
         destinations: [
-          // 1. Analysis (No Badge)
           const NavigationDestination(
             icon: Icon(Icons.analytics_outlined),
             selectedIcon: Icon(Icons.analytics, color: Color(0xFF6200EA)),
             label: 'Analysis',
           ),
-
-          // 2. Tests (Red Dot Badge)
           NavigationDestination(
             icon: _pendingTestsCount > 0
-                ? const Badge(
-              smallSize: 8,
-              backgroundColor: Colors.red,
-              child: Icon(Icons.timer_outlined),
-            )
+                ? const Badge(smallSize: 8, backgroundColor: Colors.red, child: Icon(Icons.timer_outlined))
                 : const Icon(Icons.timer_outlined),
             selectedIcon: _pendingTestsCount > 0
-                ? const Badge(
-              smallSize: 8,
-              backgroundColor: Colors.red,
-              child: Icon(Icons.timer, color: Color(0xFF6200EA)),
-            )
+                ? const Badge(smallSize: 8, backgroundColor: Colors.red, child: Icon(Icons.timer, color: Color(0xFF6200EA)))
                 : const Icon(Icons.timer, color: Color(0xFF6200EA)),
             label: 'Tests',
           ),
-
-          // 3. Assignments (Red Dot Badge)
           NavigationDestination(
             icon: _pendingAssignmentsCount > 0
-                ? const Badge(
-              smallSize: 8,
-              backgroundColor: Colors.red,
-              child: Icon(Icons.assignment_outlined),
-            )
+                ? const Badge(smallSize: 8, backgroundColor: Colors.red, child: Icon(Icons.assignment_outlined))
                 : const Icon(Icons.assignment_outlined),
             selectedIcon: _pendingAssignmentsCount > 0
-                ? const Badge(
-              smallSize: 8,
-              backgroundColor: Colors.red,
-              child: Icon(Icons.assignment, color: Color(0xFF6200EA)),
-            )
+                ? const Badge(smallSize: 8, backgroundColor: Colors.red, child: Icon(Icons.assignment, color: Color(0xFF6200EA)))
                 : const Icon(Icons.assignment, color: Color(0xFF6200EA)),
             label: 'Assignments',
           ),
@@ -482,7 +505,6 @@ class _HomeScreenState extends State<HomeScreen> {
             const Padding(padding: EdgeInsets.only(left: 16, top: 16, bottom: 8), child: Text("Teacher Tools", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
             ListTile(leading: const Icon(Icons.history_edu), title: const Text('My Curations'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherHistoryScreen())); }),
             ListTile(leading: const Icon(Icons.edit_note), title: const Text('Curate Questions'), onTap: () { Navigator.pop(context); if (ModalRoute.of(context)?.settings.name != '/') Navigator.popUntil(context, (route) => route.isFirst); }),
-            // [NEW] Batches Navigation
             ListTile(
               leading: const Icon(Icons.groups_outlined),
               title: const Text('Create and Manage Batches'),
@@ -503,10 +525,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-//  WIDGET 1: TAB CONTAINER
-// ---------------------------------------------------------------------------
-
 class _AssignmentTabContainer extends StatefulWidget {
   final UserModel user;
   final bool isTest;
@@ -514,6 +532,7 @@ class _AssignmentTabContainer extends StatefulWidget {
   final Future<void> Function() onResumeTap;
   final VoidCallback onViewAnalysisTap;
   final VoidCallback onRefreshNeeded;
+  final List<String> batchIds;
 
   const _AssignmentTabContainer({
     required this.user,
@@ -522,6 +541,7 @@ class _AssignmentTabContainer extends StatefulWidget {
     required this.onResumeTap,
     required this.onViewAnalysisTap,
     required this.onRefreshNeeded,
+    required this.batchIds,
   });
 
   @override
@@ -569,6 +589,7 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer> with S
                 onResumeTap: widget.onResumeTap,
                 onViewAnalysisTap: widget.onViewAnalysisTap,
                 onRefreshNeeded: widget.onRefreshNeeded,
+                batchIds: widget.batchIds,
               ),
               _PaginatedListWrapper(
                 user: widget.user,
@@ -578,6 +599,7 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer> with S
                 onResumeTap: widget.onResumeTap,
                 onViewAnalysisTap: widget.onViewAnalysisTap,
                 onRefreshNeeded: widget.onRefreshNeeded,
+                batchIds: widget.batchIds,
               ),
             ],
           ),
@@ -587,10 +609,6 @@ class _AssignmentTabContainerState extends State<_AssignmentTabContainer> with S
   }
 }
 
-// ---------------------------------------------------------------------------
-//  WIDGET 2: PAGINATED LIST WRAPPER
-// ---------------------------------------------------------------------------
-
 class _PaginatedListWrapper extends StatefulWidget {
   final UserModel user;
   final bool isTest;
@@ -599,6 +617,7 @@ class _PaginatedListWrapper extends StatefulWidget {
   final Future<void> Function() onResumeTap;
   final VoidCallback onViewAnalysisTap;
   final VoidCallback onRefreshNeeded;
+  final List<String> batchIds;
 
   const _PaginatedListWrapper({
     required this.user,
@@ -608,6 +627,7 @@ class _PaginatedListWrapper extends StatefulWidget {
     required this.onResumeTap,
     required this.onViewAnalysisTap,
     required this.onRefreshNeeded,
+    required this.batchIds,
   });
 
   @override
@@ -618,7 +638,7 @@ class _PaginatedListWrapperState extends State<_PaginatedListWrapper> {
   final List<QueryDocumentSnapshot> _documents = [];
   bool _isLoading = false;
   bool _hasMore = true;
-  DocumentSnapshot? _lastDocument;
+  DocumentSnapshot? _lastIndividualDoc;
   static const int _limit = 20;
 
   @override
@@ -627,52 +647,120 @@ class _PaginatedListWrapperState extends State<_PaginatedListWrapper> {
     _fetchNextBatch();
   }
 
+  // [CRITICAL FIX] Detect Submission Changes (Refreshes List Instantly)
+  @override
+  void didUpdateWidget(_PaginatedListWrapper oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    bool userSubmissionsChanged = widget.user.assignmentCodesSubmitted.length !=
+        oldWidget.user.assignmentCodesSubmitted.length;
+
+    bool structuralChange = widget.isTest != oldWidget.isTest ||
+        widget.isCompleted != oldWidget.isCompleted ||
+        !listEquals(widget.batchIds, oldWidget.batchIds);
+
+    if (structuralChange || userSubmissionsChanged) {
+      setState(() {
+        _documents.clear();
+        _lastIndividualDoc = null;
+        _hasMore = true;
+        _isLoading = false;
+      });
+      _fetchNextBatch();
+    }
+  }
+
   Future<void> _fetchNextBatch() async {
     if (_isLoading || !_hasMore) return;
     setState(() => _isLoading = true);
 
     try {
-      Query query = FirebaseFirestore.instance
+      // 1. Build Individual Query
+      Query individualQuery = FirebaseFirestore.instance
           .collection('questions_curation')
           .where('studentId', isEqualTo: widget.user.studentId)
           .where('onlySingleAttempt', isEqualTo: widget.isTest);
 
       if (widget.isCompleted) {
-        query = query.orderBy('createdAt', descending: true);
+        individualQuery = individualQuery.orderBy('createdAt', descending: true);
       } else {
-        query = query.orderBy('deadline', descending: false);
+        individualQuery = individualQuery.orderBy('deadline', descending: false);
       }
 
-      query = query.limit(_limit);
-      if (_lastDocument != null) {
-        query = query.startAfterDocument(_lastDocument!);
+      // 2. Build Batch Query
+      Query? batchQuery;
+      if (widget.batchIds.isNotEmpty) {
+        batchQuery = FirebaseFirestore.instance
+            .collection('questions_curation')
+            .where('targetAudience', isEqualTo: 'Batch')
+            .where('batchId', whereIn: widget.batchIds.take(10).toList())
+            .where('onlySingleAttempt', isEqualTo: widget.isTest);
       }
 
-      final snapshot = await query.get();
+      // 3. Pagination
+      individualQuery = individualQuery.limit(_limit);
+      if (_lastIndividualDoc != null) {
+        individualQuery = individualQuery.startAfterDocument(_lastIndividualDoc!);
+      }
 
-      if (snapshot.docs.isNotEmpty) {
-        _lastDocument = snapshot.docs.last;
-        final filteredDocs = snapshot.docs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          final code = data['assignmentCode'] ?? '';
-          final isSubmitted = widget.user.assignmentCodesSubmitted.contains(code);
-          return widget.isCompleted ? isSubmitted : !isSubmitted;
-        }).toList();
+      // 4. Fetch
+      final results = await Future.wait([
+        individualQuery.get(),
+        if (batchQuery != null) batchQuery.limit(_limit).get(),
+      ]);
 
-        if (mounted) {
-          setState(() {
-            _documents.addAll(filteredDocs);
-            if (snapshot.docs.length < _limit) _hasMore = false;
-          });
+      final individualSnap = results[0];
+      final batchSnap = results.length > 1 ? results[1] : null;
+
+      if (individualSnap.docs.isNotEmpty) {
+        _lastIndividualDoc = individualSnap.docs.last;
+      }
+
+      // 5. Merge
+      List<QueryDocumentSnapshot> mergedDocs = [];
+      mergedDocs.addAll(individualSnap.docs);
+      if (batchSnap != null) {
+        mergedDocs.addAll(batchSnap.docs);
+      }
+
+      // 6. Deduplicate & Filter
+      final ids = <String>{};
+      final uniqueDocs = mergedDocs.where((doc) {
+        if (!ids.add(doc.id)) return false;
+
+        final data = doc.data() as Map<String, dynamic>;
+        final code = data['assignmentCode'] ?? '';
+        final isSubmitted = widget.user.assignmentCodesSubmitted.contains(code);
+        return widget.isCompleted ? isSubmitted : !isSubmitted;
+      }).toList();
+
+      // 7. Sort
+      uniqueDocs.sort((a, b) {
+        final dataA = a.data() as Map<String, dynamic>;
+        final dataB = b.data() as Map<String, dynamic>;
+
+        if (widget.isCompleted) {
+          final tA = (dataA['createdAt'] as Timestamp?)?.toDate() ?? DateTime(2000);
+          final tB = (dataB['createdAt'] as Timestamp?)?.toDate() ?? DateTime(2000);
+          return tB.compareTo(tA);
+        } else {
+          final tA = (dataA['deadline'] as Timestamp?)?.toDate() ?? DateTime(2100);
+          final tB = (dataB['deadline'] as Timestamp?)?.toDate() ?? DateTime(2100);
+          return tA.compareTo(tB);
         }
+      });
 
-        // If filtering removed all docs but we got a full page, try fetching more immediately
-        if (filteredDocs.isEmpty && snapshot.docs.length == _limit && _hasMore) {
-          _isLoading = false;
-          _fetchNextBatch();
-        }
-      } else {
-        if (mounted) setState(() => _hasMore = false);
+      if (mounted) {
+        setState(() {
+          // Add only if not present (extra safety)
+          final existingIds = _documents.map((d) => d.id).toSet();
+          for (var doc in uniqueDocs) {
+            if (!existingIds.contains(doc.id)) {
+              _documents.add(doc);
+            }
+          }
+          if (individualSnap.docs.length < _limit) _hasMore = false;
+        });
       }
     } catch (e) {
       debugPrint("Pagination Error: $e");

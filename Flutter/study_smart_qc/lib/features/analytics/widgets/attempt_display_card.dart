@@ -1,6 +1,6 @@
 // lib/features/analytics/widgets/attempt_display_card.dart
 // Description: Card widget to display a single attempt summary.
-// UPDATED: Added TweenAnimations to progress bars for a polished UI.
+// UPDATED: Supports optional 'studentName' & 'studentId' for Teacher View.
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -10,10 +10,16 @@ class AttemptDisplayCard extends StatelessWidget {
   final AttemptModel attempt;
   final VoidCallback onTap;
 
+  // [NEW] Optional fields for Teacher Context
+  final String? studentName;
+  final String? studentId;
+
   const AttemptDisplayCard({
     super.key,
     required this.attempt,
     required this.onTap,
+    this.studentName,
+    this.studentId,
   });
 
   String _formatDurationClean(int seconds) {
@@ -26,19 +32,14 @@ class AttemptDisplayCard extends StatelessWidget {
 
   /// Returns a record containing the [BarColor] and a darker [TextColor]
   ({Color bar, Color text}) _getDynamicColors(double score, double max) {
-    // 1. Handle Negative (Red)
     if (score < 0) {
       return (bar: const Color(0xFFD32F2F), text: const Color(0xFFB71C1C));
     }
-
-    // 2. Handle Zero divide
     if (max == 0) {
       return (bar: Colors.grey, text: Colors.grey.shade700);
     }
 
     final double percentage = (score / max).clamp(0.0, 1.0);
-
-    // 3. Define Spectrum (Orange -> Amber -> Green -> Dark Green)
     Color color;
 
     if (percentage < 0.4) {
@@ -52,7 +53,6 @@ class AttemptDisplayCard extends StatelessWidget {
       color = Color.lerp(Colors.green, const Color(0xFF1B5E20), t)!;
     }
 
-    // To ensure text is readable, we darken the bar color slightly for text
     final HSLColor hsl = HSLColor.fromColor(color);
     final Color textColor = hsl.withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0)).toColor();
 
@@ -63,7 +63,7 @@ class AttemptDisplayCard extends StatelessWidget {
   Widget build(BuildContext context) {
     // --- Data Prep ---
     final date = attempt.completedAt.toDate();
-    final dateStr = DateFormat('d MMM, h:mm a').format(date);
+    final dateStr = DateFormat('MMM d, h:mm a').format(date);
 
     final int timeTakenSec = attempt.timeTakenSeconds;
     final int timeLimitMin = attempt.timeLimitMinutes ?? 0;
@@ -72,7 +72,6 @@ class AttemptDisplayCard extends StatelessWidget {
     String timeDisplay = _formatDurationClean(timeTakenSec);
     if (timeLimitMin > 0) timeDisplay += " / ${timeLimitMin}m";
 
-    // Percentages
     double timePercentage = (timeLimitSec > 0)
         ? (timeTakenSec / timeLimitSec).clamp(0.0, 1.0)
         : 0.0;
@@ -89,8 +88,6 @@ class AttemptDisplayCard extends StatelessWidget {
     final themeColors = _getDynamicColors(score, maxScore);
     final Color statusColor = themeColors.bar;
     final Color statusTextColor = themeColors.text;
-
-    final Color timeColor = const Color(0xFFFF9800); // Consistent Orange for Time
     final Color trackColor = Colors.grey.shade100;
 
     return GestureDetector(
@@ -116,10 +113,7 @@ class AttemptDisplayCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // --- 1. DYNAMIC COLORED STRIP ---
-                Container(
-                  width: 6,
-                  color: statusColor, // Uses the gradient color
-                ),
+                Container(width: 6, color: statusColor),
 
                 // --- 2. MAIN CONTENT ---
                 Expanded(
@@ -128,7 +122,42 @@ class AttemptDisplayCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Header
+
+                        // [NEW] TEACHER VIEW HEADER (Only visible if name provided)
+                        if (studentName != null) ...[
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 14,
+                                backgroundColor: Colors.deepPurple.shade50,
+                                child: Text(
+                                  studentName!.isNotEmpty ? studentName![0].toUpperCase() : 'S',
+                                  style: TextStyle(color: Colors.deepPurple.shade700, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      studentName!,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      "ID: $studentId",
+                                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 24),
+                        ],
+
+                        // Standard Header (Code + Date)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -140,22 +169,10 @@ class AttemptDisplayCard extends StatelessWidget {
                               ),
                               child: Text(
                                 "CODE: ${attempt.assignmentCode}",
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF7B1FA2),
-                                  letterSpacing: 0.5,
-                                ),
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF7B1FA2), letterSpacing: 0.5),
                               ),
                             ),
-                            Text(
-                              dateStr,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade500,
-                              ),
-                            ),
+                            Text(dateStr, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -163,12 +180,7 @@ class AttemptDisplayCard extends StatelessWidget {
                         // Title
                         Text(
                           attempt.title,
-                          style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF2D2D2D),
-                            height: 1.2,
-                          ),
+                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF2D2D2D), height: 1.2),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -180,7 +192,7 @@ class AttemptDisplayCard extends StatelessWidget {
                             icon: Icons.access_time_rounded,
                             label: "Time Taken",
                             value: timeDisplay,
-                            color: timeColor,
+                            color: const Color(0xFFFF9800),
                             percent: timePercentage,
                             trackColor: trackColor,
                           ),
@@ -196,13 +208,13 @@ class AttemptDisplayCard extends StatelessWidget {
                           const SizedBox(height: 16),
                         ],
 
-                        // Stats: Score (With Dynamic Colors)
+                        // Stats: Score
                         _buildStatRow(
                           icon: isPositive ? Icons.analytics_outlined : Icons.warning_amber_rounded,
                           label: isPositive ? "Score" : "Negative Score",
                           value: "${attempt.score.toStringAsFixed(0)} / ${attempt.maxMarks.toStringAsFixed(0)}",
-                          color: statusColor,     // Bar color
-                          valueColor: statusTextColor, // Text color (darker)
+                          color: statusColor,
+                          valueColor: statusTextColor,
                           percent: scorePercentage,
                           trackColor: trackColor,
                         ),
@@ -236,24 +248,10 @@ class AttemptDisplayCard extends StatelessWidget {
               children: [
                 Icon(icon, size: 16, color: Colors.grey.shade600),
                 const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade700,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w600)),
               ],
             ),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: valueColor ?? color,
-              ),
-            ),
+            Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: valueColor ?? color)),
           ],
         ),
         const SizedBox(height: 6),

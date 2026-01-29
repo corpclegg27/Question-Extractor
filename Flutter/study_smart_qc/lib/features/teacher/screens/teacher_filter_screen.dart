@@ -1,6 +1,6 @@
 // lib/features/teacher/screens/teacher_filter_screen.dart
 // Description: Teacher Filter Screen.
-// UPDATED: Fixed missing _buildSelectedTab method. Includes "Hide Solved" logic and Student Context verification.
+// UPDATED: Full code. Fixed RenderFlex overflow, added Side Scroller, Collapsible Filters, and Batch Logic.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -24,11 +24,15 @@ class SyllabusChapter {
 class TeacherFilterScreen extends StatefulWidget {
   final String audienceType;
   final int? studentId;
+  final String? batchId;
+  final String? batchName;
 
   const TeacherFilterScreen({
     super.key,
     required this.audienceType,
     this.studentId,
+    this.batchId,
+    this.batchName,
   });
 
   @override
@@ -39,6 +43,10 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     with SingleTickerProviderStateMixin {
   final TeacherService _teacherService = TeacherService();
   late TabController _tabController;
+
+  // Controllers for Side Scroller
+  final ScrollController _searchScrollController = ScrollController();
+  final ScrollController _selectedScrollController = ScrollController();
 
   bool _isLoadingFilters = true;
   List<String> _examsList = [];
@@ -72,16 +80,14 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
   bool _isPyqOnly = false;
 
-  // [NEW] Logic for Hiding Solved Questions
-  bool _hideSolvedCorrectly = false;
-  Set<String> _solvedQuestionIds = {};
+  // Granular History Logic
   bool _isLoadingStudentHistory = false;
-
-  // [NEW] Stats for verification
   bool _historyLoaded = false;
-  int _statCorrect = 0;
-  int _statIncorrect = 0;
-  int _statSkipped = 0;
+
+  // Sets to store question IDs based on status
+  Set<String> _historyCorrect = {};
+  Set<String> _historyWrong = {}; // Includes Incorrect & Partial
+  Set<String> _historySkipped = {};
 
   bool _isSearching = false;
   List<Question> _searchResults = [];
@@ -94,16 +100,20 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _fetchFilterData();
-    _fetchStudentHistory(); // Trigger history fetch if studentId exists
+    if (widget.studentId != null) {
+      _fetchStudentHistory();
+    }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchScrollController.dispose();
+    _selectedScrollController.dispose();
     super.dispose();
   }
 
-  // [NEW] Fetch Student's Solved Questions & Stats
+  // Fetch Student History & Categorize
   Future<void> _fetchStudentHistory() async {
     if (widget.studentId == null) return;
 
@@ -137,15 +147,15 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
           final correctList = List<String>.from(qRefs['CORRECT'] ?? []);
           final incorrectList = List<String>.from(qRefs['INCORRECT'] ?? []);
-          final skippedList = List<String>.from(qRefs['SKIPPED'] ?? []);
           final partialList = List<String>.from(qRefs['PARTIALLY_CORRECT'] ?? []);
+          final skippedList = List<String>.from(qRefs['SKIPPED'] ?? []);
 
           if (mounted) {
             setState(() {
-              _solvedQuestionIds = correctList.toSet();
-              _statCorrect = correctList.length;
-              _statIncorrect = incorrectList.length + partialList.length;
-              _statSkipped = skippedList.length;
+              _historyCorrect = correctList.toSet();
+              // Club Incorrect and Partial
+              _historyWrong = {...incorrectList, ...partialList};
+              _historySkipped = skippedList.toSet();
               _historyLoaded = true;
             });
           }
@@ -206,7 +216,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
       if (mounted) {
         setState(() {
           _isLoadingFilters = false;
-          // [NEW] Set Defaults
           if (_examsList.contains('NEET')) _selectedExam = 'NEET';
           if (_subjectsList.contains('Physics')) _selectedSubject = 'Physics';
         });
@@ -261,6 +270,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     return String.fromCharCodes(Iterable.generate(20, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
   }
 
+  // Search with Limit 100 & Random Anchor
   Future<void> _performSearch() async {
     bool hasBasicContext = _selectedExam != null && _selectedSubject != null;
     bool hasTags = _selectedTags.isNotEmpty;
@@ -328,33 +338,18 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
       QuerySnapshot snapshot;
 
-      // Logic to fetch random or first 500
-      if (totalCount <= 500) {
-        snapshot = await query.limit(500).get();
-      } else {
-        String randomAnchor = _generateRandomId();
-        snapshot = await query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(30).get();
+      // Random Anchor Logic
+      String randomAnchor = _generateRandomId();
 
-        if (snapshot.docs.length < 20) {
-          QuerySnapshot fallbackSnapshot = await query.limit(30).get();
-          if (snapshot.docs.isEmpty) {
-            snapshot = fallbackSnapshot;
-          } else if (snapshot.docs.length < 5) {
-            snapshot = fallbackSnapshot;
-          }
-        }
+      snapshot = await query.orderBy(FieldPath.documentId).startAt([randomAnchor]).limit(100).get();
+
+      if (snapshot.docs.length < 20) {
+        snapshot = await query.limit(100).get();
       }
 
       List<Question> fetched = snapshot.docs
           .map((doc) => Question.fromFirestore(doc))
           .toList();
-
-      // [NEW] Apply Exclusion Filter (History)
-      if (_hideSolvedCorrectly && _solvedQuestionIds.isNotEmpty) {
-        int beforeCount = fetched.length;
-        fetched = fetched.where((q) => !_solvedQuestionIds.contains(q.id)).toList();
-        debugPrint("Hidden ${beforeCount - fetched.length} questions already solved correctly.");
-      }
 
       if (isFilteringChaptersClientSide) {
         fetched = fetched.where((q) => _selectedChapters.contains(q.chapter)).toList();
@@ -547,21 +542,39 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
     try {
       int? customTime = int.tryParse(timeCtrl.text.trim());
-      await _teacherService.assignQuestionsToStudent(
-        studentId: widget.studentId!,
-        questions: _selectedQuestions.values.toList(),
-        teacherUid: teacher.uid,
-        targetAudience: widget.audienceType,
-        assignmentTitle: titleCtrl.text.trim(),
-        onlySingleAttempt: isSingleAttempt,
-        timeLimitMinutes: customTime,
-        deadline: selectedDeadline,
-        markingSchemes: markingConfigs,
-      );
+
+      if (widget.audienceType == 'Batch' && widget.batchId != null) {
+        await _teacherService.assignQuestionsToBatch(
+          batchId: widget.batchId!,
+          batchName: widget.batchName ?? "Unknown Batch",
+          questions: _selectedQuestions.values.toList(),
+          teacherUid: teacher.uid,
+          assignmentTitle: titleCtrl.text.trim(),
+          onlySingleAttempt: isSingleAttempt,
+          timeLimitMinutes: customTime,
+          deadline: selectedDeadline,
+          markingSchemes: markingConfigs,
+        );
+      } else if (widget.studentId != null) {
+        await _teacherService.assignQuestionsToStudent(
+          studentId: widget.studentId!,
+          questions: _selectedQuestions.values.toList(),
+          teacherUid: teacher.uid,
+          targetAudience: widget.audienceType,
+          assignmentTitle: titleCtrl.text.trim(),
+          onlySingleAttempt: isSingleAttempt,
+          timeLimitMinutes: customTime,
+          deadline: selectedDeadline,
+          markingSchemes: markingConfigs,
+        );
+      } else {
+        throw Exception("Invalid Audience Target");
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Assigned Successfully!")));
         Navigator.pop(context);
+        // Fixed: Removed the second pop to avoid black screen
       }
     } catch (e) {
       if (mounted) {
@@ -693,50 +706,124 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
   }
 
   Widget _buildSearchTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildFilters(),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.search),
-              label: const Text("Search & Shuffle"),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
-              onPressed: _performSearch,
+    return Column(
+      children: [
+        // [UPDATED] Constrained Filters: Max Height 50% of screen
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.5,
+          ),
+          child: SingleChildScrollView(
+            child: ExpansionTile(
+              title: const Text(
+                  "Filters & Criteria",
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)
+              ),
+              initiallyExpanded: true,
+              childrenPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              children: [
+                _buildFilters(),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.search),
+                    label: const Text("Search & Shuffle"),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14)
+                    ),
+                    onPressed: _performSearch,
+                  ),
+                ),
+              ],
             ),
           ),
-          const Divider(height: 40),
-          if (_isSearching)
-            const Center(child: CircularProgressIndicator())
-          else if (_searchResults.isEmpty && _totalMatchCount == 0)
-            const Center(child: Text("Adjust filters and click Search.", style: TextStyle(color: Colors.grey)))
-          else
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Showing ${_searchResults.length} of $_totalMatchCount Results (Randomized)", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16)),
-                const SizedBox(height: 10),
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _searchResults.length,
-                  itemBuilder: (context, index) {
-                    final q = _searchResults[index];
-                    final isSelected = _selectedQuestions.containsKey(q.id);
+        ),
 
-                    return Card(
-                      elevation: 2,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: () => _toggleSelection(q),
-                        child: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Row(
+        const Divider(height: 1),
+
+        // [SCROLLABLE LIST]
+        Expanded(
+          child: _isSearching
+              ? const Center(child: CircularProgressIndicator())
+              : (_searchResults.isEmpty && _totalMatchCount == 0)
+              ? const Center(child: Text("Adjust filters and click Search.", style: TextStyle(color: Colors.grey)))
+              : _buildResultsList(),
+        ),
+      ],
+    );
+  }
+
+  // Results List with Fast Scrollbar & Status
+  Widget _buildResultsList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Showing ${_searchResults.length} Results", style: const TextStyle(fontWeight: FontWeight.bold)),
+              if (_totalMatchCount > 100)
+                TextButton.icon(
+                    onPressed: _performSearch,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text("Load Different Set")
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Scrollbar(
+            controller: _searchScrollController,
+            thumbVisibility: true,
+            thickness: 6.0,
+            radius: const Radius.circular(8),
+            interactive: true,
+            child: ListView.builder(
+              controller: _searchScrollController,
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 80),
+              itemCount: _searchResults.length,
+              itemBuilder: (context, index) {
+                final q = _searchResults[index];
+                final isSelected = _selectedQuestions.containsKey(q.id);
+
+                // Determine Status for this question
+                String? statusLabel;
+                Color? statusColor;
+                IconData? statusIcon;
+
+                if (widget.studentId != null) {
+                  if (_historyCorrect.contains(q.id)) {
+                    statusLabel = "Correct";
+                    statusColor = Colors.green;
+                    statusIcon = Icons.check_circle;
+                  } else if (_historyWrong.contains(q.id)) {
+                    statusLabel = "Incorrect / Partial";
+                    statusColor = Colors.red;
+                    statusIcon = Icons.cancel;
+                  } else if (_historySkipped.contains(q.id)) {
+                    statusLabel = "Skipped";
+                    statusColor = Colors.orange;
+                    statusIcon = Icons.help_outline;
+                  }
+                }
+
+                return Card(
+                  elevation: 2,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => _toggleSelection(q),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               IgnorePointer(
@@ -745,31 +832,45 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
                               Expanded(
                                 child: QuestionPreviewCard(
                                   question: q,
-                                  rawSyllabus: _rawSyllabusData, // Pass data
+                                  rawSyllabus: _rawSyllabusData,
                                 ),
                               ),
                             ],
                           ),
-                        ),
+
+                          // Inline Status Indicator
+                          if (statusLabel != null)
+                            Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(top: 8, left: 40),
+                              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                              decoration: BoxDecoration(
+                                  color: statusColor!.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: statusColor.withOpacity(0.3))
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(statusIcon, size: 14, color: statusColor),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    "Attempted: $statusLabel",
+                                    style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
                       ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 20),
-                if (_totalMatchCount > 500)
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.refresh),
-                      label: const Text("Get More Questions"),
-                      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), side: const BorderSide(color: Colors.deepPurple)),
-                      onPressed: _performSearch,
                     ),
                   ),
-              ],
+                );
+              },
             ),
-        ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -777,37 +878,22 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     final decoration = InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15));
     return Column(
       children: [
-        // [NEW] Student History Context Card
+        // Student Context (Mini Stats only)
         if (widget.studentId != null) ...[
           Container(
             padding: const EdgeInsets.all(12),
-            margin: const EdgeInsets.only(bottom: 16),
+            margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
               color: Colors.blue.shade50,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.blue.shade200),
             ),
-            child: _isLoadingStudentHistory
-                ? const Row(children: [Text("Fetching student history..."), Spacer(), SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))])
-                : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                Row(
-                  children: [
-                    const Icon(Icons.analytics_outlined, size: 18, color: Colors.blue),
-                    const SizedBox(width: 8),
-                    Text("Student Analysis (${_historyLoaded ? 'Loaded' : 'Not Found'})", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildMiniStat("Correct", _statCorrect, Colors.green),
-                    _buildMiniStat("Wrong", _statIncorrect, Colors.red),
-                    _buildMiniStat("Skipped", _statSkipped, Colors.grey),
-                  ],
-                ),
+                _buildMiniStat("Correct", _historyCorrect.length, Colors.green),
+                _buildMiniStat("Wrong", _historyWrong.length, Colors.red),
+                _buildMiniStat("Skipped", _historySkipped.length, Colors.grey),
               ],
             ),
           ),
@@ -905,23 +991,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
         ),
         const SizedBox(height: 20),
 
-        // [NEW] 8. Hide Solved Switch (Only if studentId exists)
-        if (widget.studentId != null) ...[
-          SwitchListTile(
-            title: const Text("Hide questions solved correctly", style: TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: Text(_solvedQuestionIds.isNotEmpty
-                ? "${_solvedQuestionIds.length} IDs will be hidden"
-                : "No correct history found"),
-            value: _hideSolvedCorrectly,
-            activeColor: Colors.deepPurple,
-            onChanged: _solvedQuestionIds.isEmpty ? null : (val) => setState(() => _hideSolvedCorrectly = val),
-            secondary: const Icon(Icons.check_circle_outline),
-            contentPadding: EdgeInsets.zero,
-          ),
-          const Divider(),
-        ],
-
-        // 9. PYQ Only
+        // 8. PYQ Only
         CheckboxListTile(
           title: const Text("Previous Year Questions (PYQ) Only"),
           value: _isPyqOnly,
@@ -933,7 +1003,6 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     );
   }
 
-  // [RESTORED] Missing Method
   Widget _buildSelectedTab() {
     if (_selectedQuestions.isEmpty) return const Center(child: Text("No questions selected."));
 
@@ -951,34 +1020,41 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
 
     return Stack(
       children: [
-        ListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-          itemCount: selectedList.length,
-          itemBuilder: (context, index) {
-            final q = selectedList[index];
-            return Card(
-              elevation: 2,
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: QuestionPreviewCard(
-                        question: q,
-                        rawSyllabus: _rawSyllabusData,
+        Scrollbar(
+          controller: _selectedScrollController,
+          thumbVisibility: true,
+          thickness: 6.0,
+          radius: const Radius.circular(8),
+          child: ListView.builder(
+            controller: _selectedScrollController,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+            itemCount: selectedList.length,
+            itemBuilder: (context, index) {
+              final q = selectedList[index];
+              return Card(
+                elevation: 2,
+                margin: const EdgeInsets.only(bottom: 12),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: QuestionPreviewCard(
+                          question: q,
+                          rawSyllabus: _rawSyllabusData,
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () => _toggleSelection(q),
-                    ),
-                  ],
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () => _toggleSelection(q),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
         Positioned(
           bottom: 20,

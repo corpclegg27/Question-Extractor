@@ -1,5 +1,6 @@
 // lib/services/test_orchestration_service.dart
-// Description: Manages test submission. Updated to include aiGenSolutionText, image_url, and solution_url in ResponseObject for permanent storage.
+// Description: Manages test submission.
+// UPDATED: Fixed 'getQuestionsByIds' to support both Document IDs (for Results) and Custom IDs (for Assignments).
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -66,8 +67,8 @@ class TestOrchestrationService {
     double carelessFactor = 0.25;
     double goodSkipFactorRaw = 20.0;
 
-    // Initialize with UI title, but try to fetch real title from DB
     String finalTitle = title;
+    bool isCurationDocument = false;
 
     try {
       // 1. Fetch Config
@@ -81,14 +82,15 @@ class TestOrchestrationService {
         goodSkipFactorRaw = (data['factorForGoodSkip'] ?? 20.0).toDouble();
       }
 
-      // 2. Fetch Authoritative Title (Fix for "Resumed Session")
+      // 2. Fetch Authoritative Title & Determine Type
       if (sourceId.isNotEmpty) {
-        // Check assignments first
         final curationDoc = await _firestore.collection('questions_curation').doc(sourceId).get();
-        if (curationDoc.exists && curationDoc.data()?['title'] != null) {
-          finalTitle = curationDoc.data()!['title'];
+        if (curationDoc.exists) {
+          isCurationDocument = true;
+          if (curationDoc.data()?['title'] != null) {
+            finalTitle = curationDoc.data()!['title'];
+          }
         } else {
-          // Check tests (legacy/custom)
           final testDoc = await _firestore.collection('tests').doc(sourceId).get();
           if (testDoc.exists && testDoc.data()?['testName'] != null) {
             finalTitle = testDoc.data()!['testName'];
@@ -132,7 +134,6 @@ class TestOrchestrationService {
 
       final int timeSpent = userResponse?.timeSpent ?? 0;
 
-      // --- COUNTERS ---
       if (status == QuestionStatus.correct || status == QuestionStatus.partiallyCorrect) {
         correctCount++;
       } else if (status == QuestionStatus.incorrect) {
@@ -143,7 +144,6 @@ class TestOrchestrationService {
 
       highLevelTime[status] = (highLevelTime[status] ?? 0) + timeSpent;
 
-      // --- SMART TAG GENERATION ---
       String smartTag = _generateSmartTag(
         status: status,
         timeTaken: timeSpent,
@@ -183,18 +183,15 @@ class TestOrchestrationService {
         difficultyTag: question.difficulty,
         questionType: userResponse?.questionType ?? '',
         marksObtained: userResponse?.marksObtained ?? 0,
-        // [NEW] Persist visual data & AI Solution for Result Screen
         imageUrl: question.imageUrl,
         solutionUrl: question.solutionUrl,
-        aiGenSolutionText: question.aiGenSolutionText, // <--- SAVED HERE
+        aiGenSolutionText: question.aiGenSolutionText,
       );
       enrichedResponses[question.id] = enrichedResponse;
     }
 
     // --- PHASE 3: Create Records ---
-
-    // Calculate Actual Max Marks from Breakdown
-    int finalMaxMarks = questions.length * 4; // Default Fallback
+    int finalMaxMarks = questions.length * 4;
     if (marksBreakdown.containsKey("Overall") && marksBreakdown["Overall"]["maxMarks"] != null) {
       finalMaxMarks = (marksBreakdown["Overall"]["maxMarks"] as num).toInt();
     }
@@ -248,7 +245,7 @@ class TestOrchestrationService {
       }
     }
 
-    // --- PHASE 4: Update Tracker ---
+    // --- PHASE 4: Update Tracker & Source Document ---
     final trackerRef = _firestore.collection('student_question_tracker').doc(_userId);
     final trackerDoc = await trackerRef.get();
 
@@ -290,16 +287,24 @@ class TestOrchestrationService {
 
     if (sourceId.isNotEmpty) {
       try {
-        final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
-        if (onlySingleAttempt) {
-          batch.update(assignmentRef, {'status': 'submitted'});
+        if (isCurationDocument) {
+          final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
+          Map<String, dynamic> updates = {
+            'attemptDocRefs': FieldValue.arrayUnion([attemptRef]),
+          };
+          if (onlySingleAttempt) {
+            updates['status'] = 'submitted';
+          }
+          batch.update(assignmentRef, updates);
         } else {
           final testRef = _firestore.collection('tests').doc(sourceId);
           final testDoc = await testRef.get();
-          if(testDoc.exists) batch.update(testRef, {'status': 'Attempted'});
+          if (testDoc.exists) {
+            batch.update(testRef, {'status': 'Attempted'});
+          }
         }
       } catch (e) {
-        print("Error updating status: $e");
+        print("Error updating status/refs: $e");
       }
     }
 
@@ -315,8 +320,76 @@ class TestOrchestrationService {
   }
 
   // ===========================================================================
-  // HELPER: SMART TIME TAG GENERATION
+  // 3. HYBRID QUESTION FETCHING (FIXED)
   // ===========================================================================
+
+  Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
+    if (questionIds.isEmpty) return [];
+
+    // Filter empty IDs
+    final uniqueIds = questionIds.where((id) => id.isNotEmpty).toSet().toList();
+    final List<Question> fetchedQuestions = [];
+
+    // Process in chunks of 10
+    for (var i = 0; i < uniqueIds.length; i += 10) {
+      final chunk = uniqueIds.sublist(i, min(i + 10, uniqueIds.length));
+
+      try {
+        // [FIX] Strategy 1: Fetch by Firestore Document ID (Attempt Keys)
+        var snapshot = await _firestore
+            .collection('questions')
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+
+        // [FIX] Strategy 2: If no results, fetch by Custom 'question_id' string (Assignment Legacy)
+        if (snapshot.docs.isEmpty) {
+          snapshot = await _firestore
+              .collection('questions')
+              .where('question_id', whereIn: chunk)
+              .get();
+        }
+
+        // [FIX] Strategy 3: If still no results, try Custom 'question_id' as Integer
+        if (snapshot.docs.isEmpty) {
+          final intChunk = chunk.map((e) => int.tryParse(e)).whereType<int>().toList();
+          if (intChunk.isNotEmpty) {
+            snapshot = await _firestore
+                .collection('questions')
+                .where('question_id', whereIn: intChunk)
+                .get();
+          }
+        }
+
+        fetchedQuestions.addAll(snapshot.docs.map((doc) => Question.fromFirestore(doc)));
+      } catch (e) {
+        print("Error fetching chunk: $e");
+      }
+    }
+
+    // Re-order results to match input order
+    List<Question> orderedResult = [];
+    for (String requestedId in questionIds) {
+      try {
+        final match = fetchedQuestions.firstWhere((q) {
+          if (q.id == requestedId) return true; // Matches Doc ID
+          if (q.customId == requestedId) return true; // Matches Custom ID
+          if (q.questionNo.toString() == requestedId) return true;
+          return false;
+        });
+        orderedResult.add(match);
+      } catch (e) {
+        // ID not found in fetched results
+      }
+    }
+
+    if (orderedResult.isEmpty && fetchedQuestions.isNotEmpty) return fetchedQuestions;
+    return orderedResult;
+  }
+
+  // ===========================================================================
+  // HELPERS
+  // ===========================================================================
+
   String _generateSmartTag({
     required String status,
     required int timeTaken,
@@ -352,7 +425,6 @@ class TestOrchestrationService {
     double skipFactor = (goodSkipFactorRaw > 1) ? goodSkipFactorRaw / 100 : goodSkipFactorRaw;
     double goodSkipThreshold = idealTime * skipFactor;
 
-    // Treat PARTIALLY_CORRECT like INCORRECT for time analysis
     if (status == QuestionStatus.correct) {
       return (timeTaken <= idealTime)
           ? "Perfect Attempt (Correct & answered within reasonable time)"
@@ -388,10 +460,6 @@ class TestOrchestrationService {
       default: return 'Default';
     }
   }
-
-  // ===========================================================================
-  // 3. CUSTOM TEST CREATION
-  // ===========================================================================
 
   String _generateShareCode() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -462,45 +530,6 @@ class TestOrchestrationService {
   Future<TestModel?> getTestByShareCode(String shareCode) async {
     final querySnapshot = await _firestore.collection('tests').where('shareCode', isEqualTo: shareCode).limit(1).get();
     return querySnapshot.docs.isNotEmpty ? TestModel.fromFirestore(querySnapshot.docs.first) : null;
-  }
-
-  Future<List<Question>> getQuestionsByIds(List<String> questionIds) async {
-    if (questionIds.isEmpty) return [];
-
-    final uniqueIds = questionIds.where((id) => id.isNotEmpty).toSet().toList();
-    final List<Question> fetchedQuestions = [];
-
-    for (var i = 0; i < uniqueIds.length; i += 10) {
-      final chunk = uniqueIds.sublist(i, min(i + 10, uniqueIds.length));
-      try {
-        var snapshot = await _firestore.collection('questions').where('question_id', whereIn: chunk).get();
-        if (snapshot.docs.isEmpty) {
-          final intChunk = chunk.map((e) => int.tryParse(e)).whereType<int>().toList();
-          if (intChunk.isNotEmpty) {
-            snapshot = await _firestore.collection('questions').where('question_id', whereIn: intChunk).get();
-          }
-        }
-        fetchedQuestions.addAll(snapshot.docs.map((doc) => Question.fromFirestore(doc)));
-      } catch (e) {
-        print("Error fetching chunk: $e");
-      }
-    }
-
-    List<Question> orderedResult = [];
-    for (String requestedId in questionIds) {
-      try {
-        final match = fetchedQuestions.firstWhere((q) {
-          if (q.customId == requestedId) return true;
-          if (q.id == requestedId) return true;
-          if (q.questionNo.toString() == requestedId) return true;
-          return false;
-        });
-        orderedResult.add(match);
-      } catch (e) { }
-    }
-
-    if (orderedResult.isEmpty && fetchedQuestions.isNotEmpty) return fetchedQuestions;
-    return orderedResult;
   }
 
   Future<void> updateQuestionMistake({

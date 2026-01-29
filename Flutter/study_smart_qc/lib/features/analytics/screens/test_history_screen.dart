@@ -1,136 +1,98 @@
-/*
-// lib/features/analytics/screens/test_history_screen.dart
+// lib/features/teacher/screens/teacher_history_screen.dart
+// Description: Lists all curations created by the teacher.
+// UPDATED: Replaced old '_showCloneBottomSheet' with the new 'CloneAssignmentSheet' widget.
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:study_smart_qc/models/attempt_model.dart';
-import 'package:study_smart_qc/models/question_model.dart';
-import 'package:study_smart_qc/models/test_result.dart';
-import 'package:study_smart_qc/services/test_orchestration_service.dart';
-import 'package:study_smart_qc/features/analytics/screens/results_screen.dart';
-import 'package:study_smart_qc/models/nta_test_models.dart';
-import 'package:study_smart_qc/models/test_enums.dart';
-// Import the new reusable widget
-import 'package:study_smart_qc/features/analytics/widgets/attempt_display_card.dart';
+import 'package:study_smart_qc/features/teacher/screens/curation_management_screen.dart';
+// [NEW] Import the new Clone Sheet widget
+import 'package:study_smart_qc/features/teacher/widgets/clone_assignment_sheet.dart';
+import 'package:study_smart_qc/features/teacher/widgets/teacher_curation_preview_card.dart';
+import 'package:study_smart_qc/services/teacher_service.dart';
 
-class TestHistoryScreen extends StatefulWidget {
-  const TestHistoryScreen({Key? key}) : super(key: key);
+class TeacherHistoryScreen extends StatefulWidget {
+  const TeacherHistoryScreen({super.key});
 
   @override
-  State<TestHistoryScreen> createState() => _TestHistoryScreenState();
+  State<TeacherHistoryScreen> createState() => _TeacherHistoryScreenState();
 }
 
-class _TestHistoryScreenState extends State<TestHistoryScreen> {
-  late Future<List<AttemptModel>> _attemptsFuture;
-  final TestOrchestrationService _service = TestOrchestrationService();
+class _TeacherHistoryScreenState extends State<TeacherHistoryScreen> {
 
-  @override
-  void initState() {
-    super.initState();
-    // Fetch attempts from Firestore via the orchestration service
-    _attemptsFuture = _service.getUserAttempts();
-  }
-
-  Future<void> _refresh() async {
-    setState(() {
-      _attemptsFuture = _service.getUserAttempts();
-    });
-  }
-
-  void _navigateToAnalysis(AttemptModel attempt) async {
-    // 1. Show Loading UI while fetching question details
-    showDialog(
+  // [UPDATED] This now opens the new CloneAssignmentSheet widget
+  // (The old _showCloneBottomSheet logic has been removed)
+  void _openCloneSheet(DocumentSnapshot doc) {
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
+      isScrollControlled: true, // Needed for the sheet to expand properly
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => CloneAssignmentSheet(sourceDoc: doc),
     );
-
-    try {
-      // 2. Extract Question IDs from the attempt responses
-      List<String> questionIds = attempt.responses.keys.toList();
-
-      // 3. Fetch Full Question Objects from Firestore to render the UI
-      List<Question> questions = await _service.getQuestionsByIds(questionIds);
-
-      // 4. Reconstruct AnswerStates from the history data for the ResultsScreen
-      Map<int, AnswerState> answerStates = {};
-
-      for (int i = 0; i < questions.length; i++) {
-        final q = questions[i];
-        final response = attempt.responses[q.id];
-
-        AnswerStatus status = AnswerStatus.notVisited;
-        if (response != null) {
-          if (response.status == 'CORRECT' || response.status == 'INCORRECT') {
-            status = AnswerStatus.answered;
-          } else if (response.status == 'SKIPPED') {
-            status = AnswerStatus.notAnswered;
-          }
-        }
-
-        answerStates[i] = AnswerState(
-          status: status,
-          userAnswer: response?.selectedOption, // Supports String, List, or Map
-        );
-      }
-
-      // 5. Create a TestResult object to pass to the ResultsScreen
-      final result = TestResult(
-        attemptId: attempt.id, // FIXED: Added attemptId here
-        questions: questions,
-        answerStates: answerStates,
-        timeTaken: Duration(seconds: attempt.timeTakenSeconds),
-        totalMarks: questions.length * 4,
-        responses: attempt.responses,
-      );
-
-      // 6. Navigate to Analysis
-      if (mounted) {
-        Navigator.pop(context); // Close loader
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => ResultsScreen(result: result)),
-        );
-      }
-    } catch (e) {
-      if (mounted) Navigator.pop(context); // Close loader on error
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error loading analysis: $e")),
-      );
-    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final teacherUid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (teacherUid == null) {
+      return const Scaffold(body: Center(child: Text("Authentication Error")));
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("History & Analysis"),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        actions: [
-          IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh))
-        ],
+        title: const Text("My Curations"),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
       ),
-      body: FutureBuilder<List<AttemptModel>>(
-        future: _attemptsFuture,
+      body: StreamBuilder<QuerySnapshot>(
+        stream: TeacherService().getTeacherCurations(teacherUid),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return _buildEmptyState();
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.folder_open, size: 60, color: Colors.grey),
+                  SizedBox(height: 10),
+                  Text("No curations found.", style: TextStyle(color: Colors.grey)),
+                ],
+              ),
+            );
           }
 
-          final attempts = snapshot.data!;
+          final docs = snapshot.data!.docs;
 
           return ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: attempts.length,
+            itemCount: docs.length,
             itemBuilder: (context, index) {
-              // Using the reusable AttemptDisplayCard for consistent UI
-              return AttemptDisplayCard(
-                attempt: attempts[index],
-                onTap: () => _navigateToAnalysis(attempts[index]),
+              final DocumentSnapshot doc = docs[index];
+              final data = doc.data() as Map<String, dynamic>;
+              final String title = data['title'] ?? 'Untitled';
+              final String docId = doc.id;
+
+              return TeacherCurationPreviewCard(
+                doc: doc,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CurationManagementScreen(
+                        curationId: docId,
+                        title: title,
+                      ),
+                    ),
+                  );
+                },
+                // [CRITICAL CHANGE] This connects the UI button to the new sheet
+                onClone: () => _openCloneSheet(doc),
               );
             },
           );
@@ -138,17 +100,4 @@ class _TestHistoryScreenState extends State<TestHistoryScreen> {
       ),
     );
   }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.assignment_outlined, size: 64, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          const Text("No tests taken yet!", style: TextStyle(color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-}*/
+}
