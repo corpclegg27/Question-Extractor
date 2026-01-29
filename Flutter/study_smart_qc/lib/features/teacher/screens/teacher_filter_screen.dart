@@ -1,6 +1,6 @@
 // lib/features/teacher/screens/teacher_filter_screen.dart
 // Description: Teacher Filter Screen.
-// UPDATED: Full code. Fixed RenderFlex overflow, added Side Scroller, Collapsible Filters, and Batch Logic.
+// UPDATED: Modified _toggleSelection to auto-fix 'Unknown' question types immediately upon selection.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -58,7 +58,8 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     'One or more options correct',
     'Numerical type',
     'Single Matrix Match',
-    'Multi Matrix Match'
+    'Multi Matrix Match',
+    'Unknown'
   ];
 
   // QC Filter Options
@@ -382,12 +383,36 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
     }
   }
 
+  // [UPDATED] _toggleSelection
+  // If a question is selected and has 'Unknown' type:
+  // 1. Immediately update Firestore to 'Single Correct' (Fire & Forget)
+  // 2. Update local selection map with a copy of Question having 'Single Correct' type.
   void _toggleSelection(Question q) {
     setState(() {
       if (_selectedQuestions.containsKey(q.id)) {
         _selectedQuestions.remove(q.id);
       } else {
-        _selectedQuestions[q.id] = q;
+        // [FIX] Check for Unknown Type on selection
+        if (q.type == QuestionType.unknown) {
+
+          // 1. Trigger Background Firestore Update
+          FirebaseFirestore.instance.collection('questions').doc(q.id).update({
+            'Question type': 'Single Correct',
+            'questionType': 'Single Correct'
+          }).then((_) {
+            debugPrint("✅ Auto-fixed Question ${q.id} to Single Correct in DB");
+          }).catchError((e) {
+            debugPrint("⚠️ Failed to auto-fix Question ${q.id}: $e");
+          });
+
+          // 2. Use Fixed Copy for Local State
+          final fixedQ = q.copyWith(type: QuestionType.singleCorrect);
+          _selectedQuestions[q.id] = fixedQ;
+
+        } else {
+          // Normal Case
+          _selectedQuestions[q.id] = q;
+        }
       }
     });
   }
@@ -766,7 +791,7 @@ class _TeacherFilterScreenState extends State<TeacherFilterScreen>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("Showing ${_searchResults.length} Results", style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text("Showing ${_searchResults.length} of ${_totalMatchCount} Results", style: const TextStyle(fontWeight: FontWeight.bold)),
               if (_totalMatchCount > 100)
                 TextButton.icon(
                     onPressed: _performSearch,

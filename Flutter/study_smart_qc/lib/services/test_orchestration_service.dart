@@ -1,6 +1,8 @@
 // lib/services/test_orchestration_service.dart
 // Description: Manages test submission.
 // UPDATED: Fixed 'getQuestionsByIds' to support both Document IDs (for Results) and Custom IDs (for Assignments).
+// UPDATED: Added fallback logic for 'Unknown' Question Types.
+// UPDATED: Changed 'attemptDocRefs' in questions_curation to store Map {userId, attemptDocRef}.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -125,12 +127,54 @@ class TestOrchestrationService {
     int incorrectCount = 0;
     int skippedCount = 0;
 
+    // Accumulator for recalculated score if we find unknown types
+    num calculatedTotalScore = 0;
+    bool marksWereModified = false;
+
     for (int i = 0; i < questions.length; i++) {
       final question = questions[i];
       final userResponse = responses[question.id];
 
+      // 1. Initial Status/Data extraction
       String status = userResponse?.status ?? QuestionStatus.skipped;
       if (status.contains('REVIEW')) status = QuestionStatus.skipped;
+
+      String? selectedOption = userResponse?.selectedOption;
+      String correctOption = userResponse?.correctOption ?? question.correctAnswer.toString();
+      num marksObtained = userResponse?.marksObtained ?? 0;
+
+      // 2. Handle Unknown Question Types
+      QuestionType effectiveType = question.type;
+      String typeStr = userResponse?.questionType ?? '';
+
+      // Check if type is effectively unknown
+      bool isUnknown = effectiveType == QuestionType.unknown ||
+          typeStr == 'Unknown' ||
+          typeStr.isEmpty;
+
+      if (isUnknown) {
+        // Force fallback to Single Correct
+        effectiveType = QuestionType.singleCorrect;
+        typeStr = 'Single Correct';
+        marksWereModified = true;
+
+        // Re-evaluate Logic
+        if (selectedOption != null && selectedOption.isNotEmpty) {
+          if (selectedOption == correctOption) {
+            status = QuestionStatus.correct;
+            marksObtained = 4; // Default +4 for Single Correct
+          } else {
+            status = QuestionStatus.incorrect;
+            marksObtained = -1; // Default -1 for Single Correct
+          }
+        } else {
+          status = QuestionStatus.skipped;
+          marksObtained = 0;
+        }
+      }
+
+      // Accumulate score
+      calculatedTotalScore += marksObtained;
 
       final int timeSpent = userResponse?.timeSpent ?? 0;
 
@@ -149,7 +193,7 @@ class TestOrchestrationService {
         timeTaken: timeSpent,
         examName: question.exam,
         subject: question.subject,
-        questionType: question.type,
+        questionType: effectiveType,
         idealTimeMap: idealTimeMap,
         carelessFactor: carelessFactor,
         goodSkipFactorRaw: goodSkipFactorRaw,
@@ -163,8 +207,8 @@ class TestOrchestrationService {
 
       final enrichedResponse = ResponseObject(
         status: status,
-        selectedOption: userResponse?.selectedOption,
-        correctOption: userResponse?.correctOption ?? question.correctAnswer.toString(),
+        selectedOption: selectedOption,
+        correctOption: correctOption,
         timeSpent: timeSpent,
         visitCount: userResponse?.visitCount ?? 0,
         q_no: userResponse?.q_no ?? (i + 1),
@@ -181,13 +225,21 @@ class TestOrchestrationService {
         mistakeNote: userResponse?.mistakeNote,
         pyq: question.isPyq ? 'Yes' : 'No',
         difficultyTag: question.difficulty,
-        questionType: userResponse?.questionType ?? '',
-        marksObtained: userResponse?.marksObtained ?? 0,
+        questionType: typeStr,
+        marksObtained: marksObtained,
         imageUrl: question.imageUrl,
         solutionUrl: question.solutionUrl,
         aiGenSolutionText: question.aiGenSolutionText,
       );
       enrichedResponses[question.id] = enrichedResponse;
+    }
+
+    // Override Score and Marks Breakdown if we modified anything
+    if (marksWereModified) {
+      score = calculatedTotalScore;
+      if (marksBreakdown.containsKey("Overall")) {
+        marksBreakdown["Overall"]["marksObtained"] = score;
+      }
     }
 
     // --- PHASE 3: Create Records ---
@@ -289,13 +341,22 @@ class TestOrchestrationService {
       try {
         if (isCurationDocument) {
           final assignmentRef = _firestore.collection('questions_curation').doc(sourceId);
+          // [FIX START]: Updated attemptDocRefs to be a Map {userId, attemptDocRef}
+          final currentUserRef = _firestore.collection('users').doc(_userId);
+
           Map<String, dynamic> updates = {
-            'attemptDocRefs': FieldValue.arrayUnion([attemptRef]),
+            'attemptDocRefs': FieldValue.arrayUnion([
+              {
+                'userId': currentUserRef, // Storing User Reference
+                'attemptDocRef': attemptRef // Storing Attempt Reference
+              }
+            ]),
           };
           if (onlySingleAttempt) {
             updates['status'] = 'submitted';
           }
           batch.update(assignmentRef, updates);
+          // [FIX END]
         } else {
           final testRef = _firestore.collection('tests').doc(sourceId);
           final testDoc = await testRef.get();
@@ -457,7 +518,7 @@ class TestOrchestrationService {
       case QuestionType.singleCorrect: return 'Single_Correct';
       case QuestionType.numerical: return 'NumericalType';
       case QuestionType.oneOrMoreOptionsCorrect: return 'OneOrMoreOptionsCorrect';
-      default: return 'Default';
+      default: return 'Single_Correct';
     }
   }
 

@@ -1,12 +1,13 @@
 // lib/features/analytics/screens/results_screen.dart
 // Description: Detailed analysis screen.
-// UPDATED: Now uses 'QuestionReviewCard' to display questions with support for AI-generated solutions.
+// UPDATED: Implemented Custom 'Segmented' Tab Bar to match UI design.
+// UPDATED: Hides breakdown list in Score Card if only 1 question type exists.
+// UPDATED: Removed redundant section headers inside tabs.
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/test_result.dart';
 import 'package:study_smart_qc/widgets/solution_detail_sheet.dart';
-// [NEW] Import the enhanced review card
 import 'package:study_smart_qc/features/analytics/widgets/student_question_review_card.dart';
 
 class ResultsScreen extends StatefulWidget {
@@ -18,7 +19,8 @@ class ResultsScreen extends StatefulWidget {
   State<ResultsScreen> createState() => _ResultsScreenState();
 }
 
-class _ResultsScreenState extends State<ResultsScreen> {
+class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   String _selectedFilter = 'All';
 
   final List<String> _behavioralOrder = [
@@ -39,7 +41,20 @@ class _ResultsScreenState extends State<ResultsScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    // Listen to changes to rebuild the custom tab bar UI
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
+    });
     _groupQuestionsForList();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   void _groupQuestionsForList() {
@@ -89,8 +104,148 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFFAFAFA),
+      appBar: AppBar(
+        title: const Text('Test Analysis'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          // [UPDATED] Custom Segmented Tab Bar
+          _buildCustomTabBar(),
+
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildSummaryTab(),
+                _buildBreakdownTab(),
+                _buildFullReviewTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- CUSTOM TAB BAR WIDGET ---
+  Widget _buildCustomTabBar() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          _buildTabItem("Summary", 0),
+          _buildTabItem("Q Breakdown", 1),
+          _buildTabItem("Paper Review", 2),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabItem(String title, int index) {
+    final bool isSelected = _tabController.index == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _tabController.animateTo(index);
+          });
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: isSelected
+                ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                : [],
+          ),
+          child: Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: isSelected ? Colors.deepPurple : Colors.grey.shade600,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- TAB 1: SUMMARY ---
+  Widget _buildSummaryTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildScoreCard(),
+          const SizedBox(height: 24),
+          _buildStatsRow(),
+          const SizedBox(height: 32),
+          _buildQuestionsByResultChart(),
+          const SizedBox(height: 32),
+          _buildTimeByResultChart(),
+          const SizedBox(height: 32),
+          _buildBehaviorCountChart(),
+          const SizedBox(height: 32),
+          _buildBehaviorTimeChart(),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  // --- TAB 2: QUESTION BREAKDOWN ---
+  Widget _buildBreakdownTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // [UPDATED] Removed redundant header
+          _buildSmartAnalysisList(),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  // --- TAB 3: FULL PAPER REVIEW ---
+  Widget _buildFullReviewTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // [UPDATED] Removed redundant header
+          _buildFilterChips(),
+          const SizedBox(height: 16),
+          _buildFullPaperReview(),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
   // --- HELPERS & WIDGETS ---
 
+  // NOTE: Kept for usage inside charts if needed, but removed from main flow tabs
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
@@ -118,6 +273,22 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final double percent = (max > 0) ? (score.abs() / max).clamp(0.0, 1.0) : 0.0;
     final theme = _getDynamicColors(score, max);
     final String scoreText = "${score.toStringAsFixed(0)} / ${max.toStringAsFixed(0)}";
+
+    // [UPDATED] Check question types count to conditionally show breakdown
+    bool showBreakdown = false;
+    final breakdownMap = attempt.marksBreakdown;
+
+    // Logic: Iterate subjects, count total unique question types across all subjects
+    int typeCount = 0;
+    breakdownMap.forEach((subject, data) {
+      if (subject != "Overall" && data is Map) {
+        data.forEach((key, val) {
+          if (key != "maxMarks" && key != "marksObtained") typeCount++;
+        });
+      }
+    });
+
+    if (typeCount > 1) showBreakdown = true;
 
     return Container(
       decoration: _standardCardDecoration,
@@ -149,7 +320,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
               },
             ),
           ),
-          _buildTypeBreakdownList(attempt.marksBreakdown),
+
+          // [UPDATED] Only show breakdown if we have more than 1 type
+          if (showBreakdown)
+            _buildTypeBreakdownList(attempt.marksBreakdown),
         ],
       ),
     );
@@ -608,7 +782,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  // --- FULL PAPER REVIEW (UPDATED) ---
+  // --- FULL PAPER REVIEW ---
   Widget _buildFullPaperReview() {
     // 1. Filter the questions locally
     List<int> filteredIndices = [];
@@ -644,10 +818,6 @@ class _ResultsScreenState extends State<ResultsScreen> {
       );
     }
 
-    // [CRITICAL FIX]
-    // Replaced ListView.builder with Column.
-    // This stops the widget recycling engine from detaching/reattaching the
-    // Android WebViews, which was causing the "already added to parent" crash.
     return Column(
       children: filteredIndices.map((realIndex) {
         final question = widget.result.questions[realIndex];
@@ -678,6 +848,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
         final aiSolution = question.aiGenSolutionText;
 
         return QuestionReviewCard(
+          questionId: question.id,
           index: realIndex,
           questionType: question.type.name,
           imageUrl: questionImage,
@@ -790,40 +961,5 @@ class _ResultsScreenState extends State<ResultsScreen> {
       case "Time Wasted": return Colors.grey.shade600;
       default: return Colors.blue;
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
-      appBar: AppBar(title: const Text('Test Analysis'), backgroundColor: Colors.deepPurple, foregroundColor: Colors.white, elevation: 0),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildScoreCard(),
-            const SizedBox(height: 24),
-            _buildStatsRow(),
-            const SizedBox(height: 32),
-            _buildQuestionsByResultChart(),
-            const SizedBox(height: 32),
-            _buildTimeByResultChart(),
-            const SizedBox(height: 32),
-            _buildBehaviorCountChart(),
-            const SizedBox(height: 32),
-            _buildBehaviorTimeChart(),
-            const SizedBox(height: 32),
-            _buildSectionHeader("Questions Breakdown"),
-            _buildSmartAnalysisList(),
-            const SizedBox(height: 32),
-            _buildSectionHeader("Full Paper Review"),
-            _buildFilterChips(),
-            const SizedBox(height: 16),
-            _buildFullPaperReview(),
-          ],
-        ),
-      ),
-    );
   }
 }

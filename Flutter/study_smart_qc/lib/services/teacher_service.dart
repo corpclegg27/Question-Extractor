@@ -1,6 +1,6 @@
 // lib/services/teacher_service.dart
 // Description: Handles teacher operations.
-// UPDATED: Added 'assignQuestionsToBatch' to handle Batch assignment creation.
+// UPDATED: Added auto-fix logic for 'Unknown' question types in assignment generation to ensure valid curation docs.
 
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,7 +9,7 @@ import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/attempt_model.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/models/marking_configuration.dart';
-import 'package:study_smart_qc/services/teacher_service.dart'; // Self-import if needed for enums, usually not required if defined here.
+import 'package:study_smart_qc/services/teacher_service.dart';
 
 // Enum for Cloning Targets
 enum TargetAudienceType { individual, batch, general }
@@ -234,7 +234,7 @@ class TeacherService {
     await batch.commit();
   }
 
-  // B. [NEW] ASSIGN TO BATCH (No Tracker Update)
+  // B. ASSIGN TO BATCH (No Tracker Update)
   Future<void> assignQuestionsToBatch({
     required String batchId,
     required String batchName,
@@ -263,7 +263,6 @@ class TeacherService {
     // Specific Fields for Batch
     data['batchId'] = batchId;
     data['batchName'] = batchName;
-    // Explicitly nullify student fields to prevent index issues
     data['studentId'] = null;
     data['studentUid'] = null;
 
@@ -304,15 +303,23 @@ class TeacherService {
 
     for (var q in questions) {
       String subject = q.subject.isEmpty ? "General" : q.subject;
-      String typeStr = _mapTypeToString(q.type);
+
+      // [FIX] Robust type check
+      // If unknown, map to 'Single Correct' for grouping logic
+      QuestionType effectiveType = q.type == QuestionType.unknown
+          ? QuestionType.singleCorrect
+          : q.type;
+
+      String typeStr = _mapTypeToString(effectiveType);
 
       questionIdsGrouped.putIfAbsent(subject, () => <String, dynamic>{});
       questionIdsGrouped[subject].putIfAbsent(typeStr, () => <String>[]);
       (questionIdsGrouped[subject][typeStr] as List).add(q.customId);
 
       double score = 4.0;
-      if (markingSchemes != null && markingSchemes.containsKey(q.type)) {
-        score = markingSchemes[q.type]!.correctScore;
+      // Use effectiveType for finding the marking scheme too
+      if (markingSchemes != null && markingSchemes.containsKey(effectiveType)) {
+        score = markingSchemes[effectiveType]!.correctScore;
       }
 
       marksBreakdownMap.putIfAbsent(subject, () => <String, dynamic>{});
@@ -364,7 +371,9 @@ class TeacherService {
       case QuestionType.oneOrMoreOptionsCorrect: return 'One or more options correct';
       case QuestionType.matrixSingle: return 'Single Matrix Match';
       case QuestionType.matrixMulti: return 'Multi Matrix Match';
-      default: return 'Unknown';
+    // [FIX] Map unknown to Single Correct to avoid "Unknown" keys in Firestore maps
+      case QuestionType.unknown: return 'Single Correct';
+      default: return 'Single Correct';
     }
   }
 

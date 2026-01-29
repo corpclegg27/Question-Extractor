@@ -1,5 +1,5 @@
 // lib/models/question_model.dart
-// Description: Data model for a Question. Updated to support 'AIgenSolutionText' and 'correctAnswersOneOrMore'.
+// Description: Data model for a Question. Updated to include 'copyWith' for state updates.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:study_smart_qc/models/test_enums.dart';
@@ -55,14 +55,13 @@ class Question {
     required this.type,
     required this.imageUrl,
     this.solutionUrl,
-    this.aiGenSolutionText, // [NEW] Initialize
+    this.aiGenSolutionText,
     required this.correctAnswer,
-    this.correctAnswersList = const [], // Default to empty
+    this.correctAnswersList = const [],
     required this.difficulty,
     required this.exam,
     required this.isPyq,
     required this.questionNo,
-    // Initialize new fields
     this.qcStatus,
     this.difficultyScore,
     this.pyqYear,
@@ -70,77 +69,100 @@ class Question {
   });
 
   /// UNIFIED GETTER: Returns the correct answer(s) as a clean List<String>.
-  /// Use this in your Scoring Engine and UI instead of accessing raw fields.
   List<String> get actualCorrectAnswers {
-    // 1. If we have the specific list from Firestore, use it (Best for Multi Correct)
     if (correctAnswersList.isNotEmpty) {
       return correctAnswersList;
     }
-
-    // 2. Fallback: Parse the legacy 'Correct Answer' field
     if (correctAnswer != null) {
       String raw = correctAnswer.toString();
-      // Remove spaces and split by comma
-      // e.g., "A, B" -> ["A", "B"]
       return raw.replaceAll(' ', '').split(',').where((e) => e.isNotEmpty).toList();
     }
-
     return [];
+  }
+
+  // [ADDED] copyWith method
+  Question copyWith({
+    String? id,
+    String? customId,
+    String? chapterId,
+    String? topicId,
+    String? topicL2Id,
+    String? subject,
+    String? chapter,
+    String? topic,
+    String? topicL2,
+    QuestionType? type,
+    String? imageUrl,
+    String? solutionUrl,
+    String? aiGenSolutionText,
+    dynamic correctAnswer,
+    List<String>? correctAnswersList,
+    String? difficulty,
+    String? exam,
+    bool? isPyq,
+    int? questionNo,
+    String? qcStatus,
+    num? difficultyScore,
+    int? pyqYear,
+    String? ocrText,
+  }) {
+    return Question(
+      id: id ?? this.id,
+      customId: customId ?? this.customId,
+      chapterId: chapterId ?? this.chapterId,
+      topicId: topicId ?? this.topicId,
+      topicL2Id: topicL2Id ?? this.topicL2Id,
+      subject: subject ?? this.subject,
+      chapter: chapter ?? this.chapter,
+      topic: topic ?? this.topic,
+      topicL2: topicL2 ?? this.topicL2,
+      type: type ?? this.type,
+      imageUrl: imageUrl ?? this.imageUrl,
+      solutionUrl: solutionUrl ?? this.solutionUrl,
+      aiGenSolutionText: aiGenSolutionText ?? this.aiGenSolutionText,
+      correctAnswer: correctAnswer ?? this.correctAnswer,
+      correctAnswersList: correctAnswersList ?? this.correctAnswersList,
+      difficulty: difficulty ?? this.difficulty,
+      exam: exam ?? this.exam,
+      isPyq: isPyq ?? this.isPyq,
+      questionNo: questionNo ?? this.questionNo,
+      qcStatus: qcStatus ?? this.qcStatus,
+      difficultyScore: difficultyScore ?? this.difficultyScore,
+      pyqYear: pyqYear ?? this.pyqYear,
+      ocrText: ocrText ?? this.ocrText,
+    );
   }
 
   factory Question.fromMap(Map<String, dynamic> data, String docId) {
     return Question(
       id: docId,
-      // CAPTURE THE CUSTOM ID (Fallback to docId if missing)
       customId: (data['question_id'] ?? data['id'] ?? docId).toString(),
-
       chapterId: data['chapterId'] ?? '',
       topicId: data['topicId'] ?? '',
       topicL2Id: data['topicL2Id'] ?? '',
-      subject: data['Subject'] ?? 'Physics', // Default to Physics if missing
+      subject: data['Subject'] ?? 'Physics',
       chapter: data['Chapter'] ?? '',
       topic: data['Topic'] ?? '',
       topicL2: data['Topic_L2'] ?? '',
-
       type: _mapStringToType(data['Question type']),
-
-      // CORRECT IMAGE FIELD (Matches your Firestore doc: 'image_url')
       imageUrl: data['image_url'] ?? data['imageUrl'] ?? data['Image'] ?? '',
-
       solutionUrl: data['solution_url'] ?? data['solutionUrl'],
-
-      // [NEW] Map the AI Gen Solution Text
       aiGenSolutionText: data['AIgenSolutionText'],
-
       correctAnswer: data['Correct Answer'],
-
-      // --- MAPPING NEW FIELD ---
-      // Safely read the array we created in the migration script
       correctAnswersList: (data['correctAnswersOneOrMore'] is List)
           ? List<String>.from(data['correctAnswersOneOrMore'])
           : [],
-
-      // Look for 'Difficulty' first (per your Firestore doc), fallback to 'Difficulty_tag'
       difficulty: data['Difficulty'] ?? data['Difficulty_tag'] ?? 'Medium',
-
       exam: data['Exam'] ?? '',
-
-      // Updated Logic: Check if String is 'Yes' (Case insensitive safe check)
       isPyq: (data['PYQ'] ?? '').toString().toLowerCase() == 'yes',
-
       questionNo: data['Question No.'] is int
           ? data['Question No.']
           : int.tryParse(data['Question No.']?.toString() ?? '0') ?? 0,
-
-      // --- MAPPING NEW FIELDS ---
       qcStatus: data['QC_Status'],
       ocrText: data['OCR_Text'],
-
-      // Handle potential String vs Number mismatches safely
       difficultyScore: data['Difficulty_score'] is num
           ? data['Difficulty_score']
           : num.tryParse(data['Difficulty_score']?.toString() ?? '0'),
-
       pyqYear: data['PYQ_Year'] is int
           ? data['PYQ_Year']
           : int.tryParse(data['PYQ_Year']?.toString() ?? '0'),

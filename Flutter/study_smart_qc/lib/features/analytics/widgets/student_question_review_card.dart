@@ -1,9 +1,7 @@
 // lib/features/analytics/widgets/student_question_review_card.dart
 // Description: Displays a single question review card with stats, status, and solution.
-// - [UPDATED] Converted to StatefulWidget to handle on-demand AI generation.
-// - Uses AiSolutionService to fetch solutions if missing.
-// - Renders Image Solutions (Priority 1) or AI Text Solutions (Priority 2).
-// - Includes NativeLatexRenderer for safe math rendering.
+// - [UPDATED] Added Feature Flag '_enableAiSolutions' to disable AI features for shipping.
+// - Logic modified to only show "Show Solution" if an image exists when flag is FALSE.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -12,7 +10,7 @@ import 'package:study_smart_qc/widgets/expandable_image.dart';
 import 'package:study_smart_qc/core/services/ai_solution_service.dart';
 
 class QuestionReviewCard extends StatefulWidget {
-  final String questionId; // [NEW] Required for API call
+  final String questionId;
   final int index;
   final String questionType;
   final String? imageUrl;
@@ -53,6 +51,11 @@ class QuestionReviewCard extends StatefulWidget {
 class _QuestionReviewCardState extends State<QuestionReviewCard> {
   final AiSolutionService _aiService = AiSolutionService();
 
+  // --- [FEATURE FLAG] ---
+  // Set to FALSE to hide AI generation and only show Image solutions.
+  // Set to TRUE to enable AI text generation.
+  static const bool _enableAiSolutions = false;
+
   // State variables for dynamic generation
   bool _isGenerating = false;
   String? _generatedSolution;
@@ -61,16 +64,13 @@ class _QuestionReviewCardState extends State<QuestionReviewCard> {
   @override
   void initState() {
     super.initState();
-    // Initialize with the data passed from parent (if any)
     _generatedSolution = widget.aiSolutionText;
   }
 
-  /// Triggers the cloud function to get the solution
   Future<void> _handleGenerateSolution() async {
     setState(() => _isGenerating = true);
 
     try {
-      // Call our new Service
       final solution = await _aiService.generateSolution(widget.questionId);
 
       if (mounted) {
@@ -94,13 +94,16 @@ class _QuestionReviewCardState extends State<QuestionReviewCard> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Determine what we have
+    // 1. Determine availability
     final bool hasImageSolution = widget.solutionUrl != null && widget.solutionUrl!.isNotEmpty;
-    final bool hasTextSolution = _generatedSolution != null && _generatedSolution!.trim().length > 5;
 
-    // 2. Should we show the "Solution" section at all?
-    // We show it if we have a solution OR if we can generate one.
-    final bool showSolutionSection = true;
+    // AI Text is only valid if the feature is enabled AND we have text
+    final bool hasTextSolution = _enableAiSolutions && _generatedSolution != null && _generatedSolution!.trim().length > 5;
+
+    // 2. Logic: Should we show the "Solution" section?
+    // - If Flag is ON: Show if we have image OR (we can generate AI / have AI text) -> Always True basically
+    // - If Flag is OFF: Show ONLY if we have an image solution.
+    final bool showSolutionSection = _enableAiSolutions ? true : hasImageSolution;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
@@ -253,7 +256,7 @@ class _QuestionReviewCardState extends State<QuestionReviewCard> {
                   children: [
                     const Text("Show solution", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
 
-                    // Show "AI Explained" Badge if we have a text solution
+                    // Show "AI Explained" Badge if we have a text solution AND flag is on
                     if (hasTextSolution && !hasImageSolution) ...[
                       const SizedBox(width: 8),
                       Container(
@@ -291,7 +294,7 @@ class _QuestionReviewCardState extends State<QuestionReviewCard> {
                       ),
                     )
 
-                  // B. AI Solution (Priority 2)
+                  // B. AI Solution (Priority 2) - Only if enabled
                   else if (hasTextSolution)
                     Container(
                       width: double.infinity,
@@ -304,9 +307,9 @@ class _QuestionReviewCardState extends State<QuestionReviewCard> {
                       child: NativeLatexRenderer(text: _generatedSolution!),
                     )
 
-                  // C. No Solution? Show Generate Button
-                  else
-                    _buildGenerateButton(),
+                  // C. Generate Button - Only if enabled
+                  else if (_enableAiSolutions)
+                      _buildGenerateButton(),
                 ],
               ),
             ),

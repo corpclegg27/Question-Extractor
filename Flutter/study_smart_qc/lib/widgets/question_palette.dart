@@ -1,3 +1,5 @@
+//lib/widgets/question_palette.dart
+
 import 'package:flutter/material.dart';
 import 'package:study_smart_qc/models/nta_test_models.dart';
 

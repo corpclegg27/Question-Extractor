@@ -1,6 +1,6 @@
 // lib/features/analytics/screens/smart_question_review_screen.dart
 // Description: Displays list of mistakes with "Not Fixed" vs "Fixed" tabs.
-// UPDATED: Removed 'tabLabels' parameter and added dynamic counts to tab headers.
+// UPDATED: Now passes 'questionId' to support AI Solution generation.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -253,10 +253,12 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
         return QuestionReviewCard(
           // Use docId as Key to ensure Flutter rebuilds correctly when items move between tabs
           key: ValueKey(docId),
+          questionId: q.id, // [FIX] Added required questionId
           index: index,
           questionType: q.type.name,
           imageUrl: q.imageUrl,
           solutionUrl: q.solutionUrl,
+          aiSolutionText: q.aiGenSolutionText, // [FIX] Pass existing AI solution if available
           status: a['status'] ?? 'SKIPPED',
           timeSpent: a['timeSpent'] ?? 0,
           smartTag: a['smartTag'] ?? '',

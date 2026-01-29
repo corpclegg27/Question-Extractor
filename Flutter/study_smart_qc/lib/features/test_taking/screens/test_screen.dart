@@ -1,5 +1,6 @@
 // lib/features/test_taking/screens/test_screen.dart
-// Description: Main test interface. Updated _handleSubmit to automatically handle and skip corrupt questions (missing correct answers) to prevent crashes.
+// Description: Main test interface.
+// UPDATED: Integration with updated TestOverviewSheet (Grouping by Subject/Type).
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -19,6 +20,9 @@ import 'package:study_smart_qc/services/local_session_service.dart';
 import 'package:study_smart_qc/services/universal_scoring_engine.dart';
 import 'package:study_smart_qc/widgets/expandable_image.dart';
 import 'package:study_smart_qc/widgets/question_input_widget.dart';
+
+// 3. IMPORT NEW WIDGET
+import 'package:study_smart_qc/features/test_taking/widgets/test_overview_sheet.dart';
 
 class TestScreen extends StatefulWidget {
   final String sourceId;
@@ -695,6 +699,24 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     return shouldPop ?? false;
   }
 
+  // --- NEW: Open Overview Sheet ---
+  void _showOverviewSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => TestOverviewSheet(
+        answerStates: _answerStates,
+        questions: _sortedQuestions, // [UPDATED] Pass full list of questions
+        onQuestionSelected: (index) {
+          Navigator.pop(context);
+          _pageController.jumpToPage(index);
+        },
+      ),
+    );
+  }
+
   // --- UI BUILDERS ---
 
   @override
@@ -761,13 +783,42 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Q.${index + 1}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            // NEW: Marking Badge
-                            _buildMarkingBadge(q),
-                            _buildQuestionTimerWidget(index),
+                            Row(
+                              children: [
+                                Text('Q.${index + 1}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                const SizedBox(width: 8),
+                                _buildMarkingBadge(q),
+                              ],
+                            ),
+                            // [UPDATED] Timer + View All Qs
+                            Row(
+                              children: [
+                                _buildQuestionTimerWidget(index), // Added timer back here
+                                const SizedBox(width: 10),
+                                InkWell(
+                                  onTap: _showOverviewSheet,
+                                  borderRadius: BorderRadius.circular(20),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade50,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: Colors.blue.shade100),
+                                    ),
+                                    child: Row(
+                                      children: const [
+                                        Text("View All Qs", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 12)),
+                                        SizedBox(width: 4),
+                                        Icon(Icons.arrow_forward_ios, size: 10, color: Colors.blue),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 8),
                         // NEW: Type Label
                         Text(_getQuestionTypeLabel(q.type), style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade600)),
                         const SizedBox(height: 10),
@@ -926,25 +977,36 @@ class _TestScreenState extends State<TestScreen> with WidgetsBindingObserver {
     );
   }
 
-  // --- NEW: Marking Badge Widget ---
+  // --- UPDATED: Marking Badge Widget ---
   Widget _buildMarkingBadge(Question q) {
     final config = _activeMarkingSchemes[q.type] ?? MarkingConfiguration.jeeMain();
 
     String correct = config.correctScore.toString().replaceAll('.0', '');
+    // Check if incorrect is negative
     String incorrect = config.incorrectScore.toString().replaceAll('.0', '');
-    String scheme = "+$correct, $incorrect";
 
-    Color color = Colors.green;
-    if (config.incorrectScore <= -2) color = Colors.orange;
+    // Style logic: +4 is green, -1 is red. If negative is 0, show grey.
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: Colors.grey.shade100, // Neutral background
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color),
+        border: Border.all(color: Colors.grey.shade300),
       ),
-      child: Text(scheme, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          children: [
+            TextSpan(text: "+$correct", style: const TextStyle(color: Colors.green)),
+            const TextSpan(text: "  "),
+            TextSpan(
+                text: incorrect,
+                style: TextStyle(color: config.incorrectScore < 0 ? Colors.red : Colors.grey)
+            ),
+          ],
+        ),
+      ),
     );
   }
 
