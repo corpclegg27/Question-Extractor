@@ -1,19 +1,26 @@
 // lib/features/analytics/screens/results_screen.dart
 // Description: Detailed analysis screen.
-// UPDATED: Implemented Custom 'Segmented' Tab Bar to match UI design.
-// UPDATED: Hides breakdown list in Score Card if only 1 question type exists.
-// UPDATED: Removed redundant section headers inside tabs.
+// UPDATED: Refactored to support either a pre-loaded 'TestResult' object OR fetching via 'attemptId'.
+// UPDATED: Added async loading logic with TestOrchestrationService.
 
-import 'package:fl_chart/fl_chart.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:study_smart_qc/models/attempt_model.dart';
+import 'package:study_smart_qc/models/question_model.dart';
 import 'package:study_smart_qc/models/test_result.dart';
+import 'package:study_smart_qc/services/test_orchestration_service.dart'; // [NEW]
 import 'package:study_smart_qc/widgets/solution_detail_sheet.dart';
 import 'package:study_smart_qc/features/analytics/widgets/student_question_review_card.dart';
 
 class ResultsScreen extends StatefulWidget {
-  final TestResult result;
+  final TestResult? result; // [UPDATED] Made nullable
+  final String? attemptId;  // [NEW] Option to pass ID instead of object
 
-  const ResultsScreen({super.key, required this.result});
+  const ResultsScreen({
+    super.key,
+    this.result,
+    this.attemptId,
+  }) : assert(result != null || attemptId != null, 'Either result or attemptId must be provided');
 
   @override
   State<ResultsScreen> createState() => _ResultsScreenState();
@@ -22,6 +29,11 @@ class ResultsScreen extends StatefulWidget {
 class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   String _selectedFilter = 'All';
+
+  // [NEW] State for async loading
+  bool _isLoading = true;
+  TestResult? _loadedResult;
+  String? _errorMessage;
 
   final List<String> _behavioralOrder = [
     "Perfect Attempt", "Overtime Correct", "Careless Mistake",
@@ -42,13 +54,55 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    // Listen to changes to rebuild the custom tab bar UI
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         setState(() {});
       }
     });
+
+    _initData();
+  }
+
+  // [NEW] Logic to determine source of data
+  Future<void> _initData() async {
+    if (widget.result != null) {
+      // Data passed directly
+      _loadedResult = widget.result;
+      _groupQuestionsForList();
+      if (mounted) setState(() => _isLoading = false);
+    } else if (widget.attemptId != null) {
+      // Need to fetch data
+      try {
+        await _fetchResultData(widget.attemptId!);
+      } catch (e) {
+        if (mounted) setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // [NEW] Fetching logic
+  Future<void> _fetchResultData(String attemptId) async {
+    final firestore = FirebaseFirestore.instance;
+    final service = TestOrchestrationService();
+
+    // 1. Fetch Attempt
+    final attemptDoc = await firestore.collection('attempts').doc(attemptId).get();
+    if (!attemptDoc.exists) throw Exception("Attempt not found");
+    final attempt = AttemptModel.fromFirestore(attemptDoc);
+
+    // 2. Fetch Questions
+    final questionIds = attempt.responses.keys.toList();
+    if (questionIds.isEmpty) throw Exception("No questions in this attempt");
+
+    final questions = await service.getQuestionsByIds(questionIds);
+
+    _loadedResult = TestResult(attempt: attempt, questions: questions);
     _groupQuestionsForList();
+
+    if (mounted) setState(() => _isLoading = false);
   }
 
   @override
@@ -58,18 +112,20 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
   }
 
   void _groupQuestionsForList() {
+    if (_loadedResult == null) return;
+
     for (var key in _behavioralOrder) {
       _smartAnalysisGroups[key] = [];
     }
 
-    final responses = widget.result.attempt.responses;
+    final responses = _loadedResult!.attempt.responses;
 
-    for (int i = 0; i < widget.result.questions.length; i++) {
-      final qId = widget.result.questions[i].id;
+    for (int i = 0; i < _loadedResult!.questions.length; i++) {
+      final qId = _loadedResult!.questions[i].id;
       String keyToUse = qId;
 
       if (!responses.containsKey(keyToUse)) {
-        keyToUse = widget.result.questions[i].customId;
+        keyToUse = _loadedResult!.questions[i].customId;
       }
 
       final response = responses[keyToUse];
@@ -87,6 +143,7 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
   }
 
   void _showSolutionSheet(int initialIndex, {String? category, List<int>? subset}) {
+    if (_loadedResult == null) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -94,7 +151,7 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
         return SizedBox(
           height: MediaQuery.of(context).size.height * 0.9,
           child: SolutionDetailSheet(
-            result: widget.result,
+            result: _loadedResult!,
             initialIndex: initialIndex,
             categoryTitle: category,
             validQuestionIndices: subset,
@@ -106,6 +163,23 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFFAFAFA),
+        appBar: AppBar(backgroundColor: Colors.deepPurple, elevation: 0),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMessage != null || _loadedResult == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFFAFAFA),
+        appBar: AppBar(title: const Text("Error"), backgroundColor: Colors.deepPurple),
+        body: Center(child: Text(_errorMessage ?? "Failed to load results")),
+      );
+    }
+
+    // Existing build logic continues...
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFA),
       appBar: AppBar(
@@ -117,7 +191,7 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
       ),
       body: Column(
         children: [
-          // [UPDATED] Custom Segmented Tab Bar
+          // Custom Segmented Tab Bar
           _buildCustomTabBar(),
 
           Expanded(
@@ -218,7 +292,6 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // [UPDATED] Removed redundant header
           _buildSmartAnalysisList(),
           const SizedBox(height: 32),
         ],
@@ -233,7 +306,6 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // [UPDATED] Removed redundant header
           _buildFilterChips(),
           const SizedBox(height: 16),
           _buildFullPaperReview(),
@@ -245,20 +317,8 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
 
   // --- HELPERS & WIDGETS ---
 
-  // NOTE: Kept for usage inside charts if needed, but removed from main flow tabs
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0),
-      child: Text(
-        title,
-        textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.deepPurple),
-      ),
-    );
-  }
-
   Widget _buildScoreCard() {
-    final attempt = widget.result.attempt;
+    final attempt = _loadedResult!.attempt;
     double max = attempt.maxMarks.toDouble();
     double score = attempt.score.toDouble();
 
@@ -274,11 +334,10 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
     final theme = _getDynamicColors(score, max);
     final String scoreText = "${score.toStringAsFixed(0)} / ${max.toStringAsFixed(0)}";
 
-    // [UPDATED] Check question types count to conditionally show breakdown
+    // Check question types count to conditionally show breakdown
     bool showBreakdown = false;
     final breakdownMap = attempt.marksBreakdown;
 
-    // Logic: Iterate subjects, count total unique question types across all subjects
     int typeCount = 0;
     breakdownMap.forEach((subject, data) {
       if (subject != "Overall" && data is Map) {
@@ -321,7 +380,6 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
             ),
           ),
 
-          // [UPDATED] Only show breakdown if we have more than 1 type
           if (showBreakdown)
             _buildTypeBreakdownList(attempt.marksBreakdown),
         ],
@@ -423,7 +481,7 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
     int partial = 0;
     int incorrect = 0;
 
-    widget.result.attempt.responses.forEach((k, v) {
+    _loadedResult!.attempt.responses.forEach((k, v) {
       if (v.status == 'CORRECT') {
         correct++;
       } else if (v.status == 'PARTIALLY_CORRECT') partial++;
@@ -431,15 +489,15 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
     });
 
     final int attempted = correct + partial + incorrect;
-    final int totalQs = widget.result.attempt.totalQuestions;
+    final int totalQs = _loadedResult!.attempt.totalQuestions;
 
     final double accuracy = (attempted > 0) ? (correct / attempted) * 100 : 0.0;
     final double attemptPercent = (totalQs > 0) ? (attempted / totalQs) * 100 : 0.0;
-    final String timeStr = _formatTimeHHMMSS(widget.result.attempt.timeTakenSeconds);
+    final String timeStr = _formatTimeHHMMSS(_loadedResult!.attempt.timeTakenSeconds);
 
     double timeBarPercent = 1.0;
-    if (widget.result.attempt.timeLimitMinutes != null && widget.result.attempt.timeLimitMinutes! > 0) {
-      timeBarPercent = (widget.result.attempt.timeTakenSeconds / (widget.result.attempt.timeLimitMinutes! * 60)).clamp(0.0, 1.0);
+    if (_loadedResult!.attempt.timeLimitMinutes != null && _loadedResult!.attempt.timeLimitMinutes! > 0) {
+      timeBarPercent = (_loadedResult!.attempt.timeTakenSeconds / (_loadedResult!.attempt.timeLimitMinutes! * 60)).clamp(0.0, 1.0);
     }
 
     return Row(
@@ -458,22 +516,21 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
   Widget _buildQuestionsByResultChart() {
     int c = 0; int p = 0; int i = 0; int s = 0;
 
-    widget.result.attempt.responses.forEach((k, v) {
+    _loadedResult!.attempt.responses.forEach((k, v) {
       if (v.status == 'CORRECT') c++;
       else if (v.status == 'PARTIALLY_CORRECT') p++;
       else if (v.status == 'INCORRECT') i++;
       else s++;
     });
 
-    // Fallback if manual counts exist
     if (c == 0 && p == 0 && i == 0 && s == 0) {
-      c = widget.result.attempt.correctCount;
-      i = widget.result.attempt.incorrectCount;
-      s = widget.result.attempt.skippedCount;
+      c = _loadedResult!.attempt.correctCount;
+      i = _loadedResult!.attempt.incorrectCount;
+      s = _loadedResult!.attempt.skippedCount;
     } else {
       int calculated = c + p + i + s;
-      if (calculated < widget.result.attempt.totalQuestions) {
-        s += (widget.result.attempt.totalQuestions - calculated);
+      if (calculated < _loadedResult!.attempt.totalQuestions) {
+        s += (_loadedResult!.attempt.totalQuestions - calculated);
       }
     }
 
@@ -504,7 +561,7 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
   }
 
   Widget _buildTimeByResultChart() {
-    final Map<String, int> data = widget.result.attempt.secondsBreakdownHighLevel;
+    final Map<String, int> data = _loadedResult!.attempt.secondsBreakdownHighLevel;
     int c = data['CORRECT'] ?? 0;
     int p = data['PARTIALLY_CORRECT'] ?? 0;
     int i = data['INCORRECT'] ?? 0;
@@ -536,7 +593,7 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
   }
 
   Widget _buildBehaviorCountChart() {
-    final Map<String, int> counts = widget.result.attempt.smartTimeAnalysisCounts;
+    final Map<String, int> counts = _loadedResult!.attempt.smartTimeAnalysisCounts;
     int totalCount = 0;
     for (var key in _behavioralOrder) {
       String? actualKey = counts.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
@@ -569,7 +626,7 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
   }
 
   Widget _buildBehaviorTimeChart() {
-    final Map<String, int> times = widget.result.attempt.secondsBreakdownSmartTimeAnalysis;
+    final Map<String, int> times = _loadedResult!.attempt.secondsBreakdownSmartTimeAnalysis;
     int totalTime = 0;
     for (var key in _behavioralOrder) {
       String? actualKey = times.keys.firstWhere((k) => k.startsWith(key), orElse: () => '');
@@ -784,17 +841,16 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
 
   // --- FULL PAPER REVIEW ---
   Widget _buildFullPaperReview() {
-    // 1. Filter the questions locally
     List<int> filteredIndices = [];
-    for (int i = 0; i < widget.result.questions.length; i++) {
-      final question = widget.result.questions[i];
+    for (int i = 0; i < _loadedResult!.questions.length; i++) {
+      final question = _loadedResult!.questions[i];
       String keyToUse = question.id;
 
-      if (!widget.result.attempt.responses.containsKey(keyToUse)) {
+      if (!_loadedResult!.attempt.responses.containsKey(keyToUse)) {
         keyToUse = question.customId;
       }
 
-      final response = widget.result.attempt.responses[keyToUse];
+      final response = _loadedResult!.attempt.responses[keyToUse];
       final status = response?.status ?? 'SKIPPED';
 
       bool matches = false;
@@ -820,12 +876,12 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
 
     return Column(
       children: filteredIndices.map((realIndex) {
-        final question = widget.result.questions[realIndex];
+        final question = _loadedResult!.questions[realIndex];
         String keyToUse = question.id;
-        if (!widget.result.attempt.responses.containsKey(keyToUse)) {
+        if (!_loadedResult!.attempt.responses.containsKey(keyToUse)) {
           keyToUse = question.customId;
         }
-        final response = widget.result.attempt.responses[keyToUse];
+        final response = _loadedResult!.attempt.responses[keyToUse];
 
         final status = response?.status ?? 'SKIPPED';
         final timeSpent = response?.timeSpent ?? 0;

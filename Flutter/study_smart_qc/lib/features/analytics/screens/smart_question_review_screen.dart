@@ -1,6 +1,6 @@
 // lib/features/analytics/screens/smart_question_review_screen.dart
 // Description: Displays list of mistakes with "Not Fixed" vs "Fixed" tabs.
-// UPDATED: Now passes 'questionId' to support AI Solution generation.
+// UPDATED: Added Aggregation Logic. Toggling 'Fixed' now updates counters in 'student_deep_analysis'.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -60,10 +60,9 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
         query = query.where('topic', isEqualTo: widget.topicName);
       }
 
-      // Fetch latest attempts
+      // [FIX] Removed limit(100) to ensure we get ALL attempts for this chapter.
       final ledgerQuery = await query
           .orderBy('attemptedAt', descending: true)
-          .limit(100)
           .get();
 
       List<QueryDocumentSnapshot> matchingDocs = [];
@@ -146,35 +145,66 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
   }
 
   Future<void> _toggleFixedStatus(String docId, bool currentStatus) async {
-    // 1. Optimistic Update UI
-    setState(() {
-      final index = _allLoadedData.indexWhere((element) => element['docId'] == docId);
-      if (index != -1) {
-        // Toggle the status
-        bool newStatus = !currentStatus;
-        _allLoadedData[index]['attempt']['isMistakeFixed'] = newStatus;
+    // 1. Find the item locally
+    final index = _allLoadedData.indexWhere((element) => element['docId'] == docId);
+    if (index == -1) return;
 
-        // Update counts immediately
-        if (newStatus) {
-          // Changed from Not Fixed -> Fixed
-          _notFixedCount--;
-          _fixedCount++;
-        } else {
-          // Changed from Fixed -> Not Fixed
-          _notFixedCount++;
-          _fixedCount--;
-        }
+    final attemptData = _allLoadedData[index]['attempt'];
+    final String fullTag = attemptData['smartTag'] ?? '';
+
+    // Extract Short Key (e.g., "Careless Mistake" from "Careless Mistake (Incorrect...)")
+    String shortKey = fullTag.split('(').first.trim();
+    if (shortKey.isEmpty) shortKey = "Unknown";
+
+    // 2. Optimistic Update UI
+    setState(() {
+      bool newStatus = !currentStatus;
+      _allLoadedData[index]['attempt']['isMistakeFixed'] = newStatus;
+
+      if (newStatus) {
+        _notFixedCount--;
+        _fixedCount++;
+      } else {
+        _notFixedCount++;
+        _fixedCount--;
       }
     });
 
-    // 2. Background Update Firestore
+    // 3. Background Update Firestore (Batch)
     try {
-      await FirebaseFirestore.instance
-          .collection('attempt_items_detailed')
-          .doc(docId)
-          .update({'isMistakeFixed': !currentStatus});
+      final batch = FirebaseFirestore.instance.batch();
+
+      // A. Update the specific attempt item
+      final attemptRef = FirebaseFirestore.instance.collection('attempt_items_detailed').doc(docId);
+      batch.update(attemptRef, {'isMistakeFixed': !currentStatus});
+
+      // B. Update Aggregates in 'student_deep_analysis'
+      final analysisRef = FirebaseFirestore.instance.collection('student_deep_analysis').doc(widget.userId);
+
+      int change = !currentStatus ? 1 : -1; // +1 if fixing, -1 if unfixing
+
+      // Update Chapter Level
+      // Note: We use dot notation for nested fields
+      batch.update(analysisRef, {
+        'breakdownByChapter.${widget.chapterName}.smartTimeAnalysisFixedCounts.$shortKey': FieldValue.increment(change)
+      });
+
+      // Update Topic Level (if context exists and topic is known)
+      // We use the topic from the attempt item itself to be safe, or fall back to widget.topicName
+      String? actualTopic = attemptData['topic'] ?? widget.topicName;
+
+      if (actualTopic != null && actualTopic.isNotEmpty) {
+        batch.update(analysisRef, {
+          'breakdownByTopic.${widget.chapterName}.$actualTopic.smartTimeAnalysisFixedCounts.$shortKey': FieldValue.increment(change)
+        });
+      }
+
+      await batch.commit();
+      debugPrint("✅ Synced fixed status for $shortKey");
+
     } catch (e) {
-      debugPrint("Error updating fixed status: $e");
+      debugPrint("❌ Error updating fixed status: $e");
+      // Optionally revert UI here if strict consistency is needed
     }
   }
 
@@ -230,7 +260,6 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
   }
 
   Widget _buildQuestionList({required bool showFixedOnly}) {
-    // Filter the master list based on the Tab criteria
     final filtered = _allLoadedData.where((item) {
       final isFixed = item['attempt']['isMistakeFixed'] ?? false;
       return showFixedOnly ? isFixed : !isFixed;
@@ -251,14 +280,13 @@ class _SmartQuestionReviewScreenState extends State<SmartQuestionReviewScreen> w
         final bool isFixed = a['isMistakeFixed'] ?? false;
 
         return QuestionReviewCard(
-          // Use docId as Key to ensure Flutter rebuilds correctly when items move between tabs
           key: ValueKey(docId),
-          questionId: q.id, // [FIX] Added required questionId
+          questionId: q.id,
           index: index,
           questionType: q.type.name,
           imageUrl: q.imageUrl,
           solutionUrl: q.solutionUrl,
-          aiSolutionText: q.aiGenSolutionText, // [FIX] Pass existing AI solution if available
+          aiSolutionText: q.aiGenSolutionText,
           status: a['status'] ?? 'SKIPPED',
           timeSpent: a['timeSpent'] ?? 0,
           smartTag: a['smartTag'] ?? '',

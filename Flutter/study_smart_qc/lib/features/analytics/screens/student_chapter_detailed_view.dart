@@ -1,9 +1,8 @@
 // lib/features/analytics/screens/student_chapter_detailed_view.dart
 // Description: Detailed Chapter View.
-// - Zone A: Chapter Card (Overview + Stacked Bar).
-// - Zone B: Smart Action Grid (Chapter Level).
-// - Zone C: Topic List (Topic Cards + Stacked Bar + Topic Smart Actions).
-// UPDATED: Added a subtle divider above "Topic Breakdown" for better visual separation.
+// UPDATED: Fixes all syntax errors, variable mismatches, and null-safety issues.
+// UPDATED: Progress bars show "Fixed vs Total" progress without text labels.
+// UPDATED: Cards show "Pending" counts.
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -14,33 +13,16 @@ class StudentChapterDetailedView extends StatelessWidget {
   final String userId;
   final String chapterName;
   final String subjectName;
-  final Map<String, dynamic> analysisDoc;
 
   const StudentChapterDetailedView({
     super.key,
     required this.userId,
     required this.chapterName,
     required this.subjectName,
-    required this.analysisDoc,
   });
 
   @override
   Widget build(BuildContext context) {
-    final chapterStats = _safeGet(analysisDoc, ['breakdownByChapter', chapterName]);
-    final topicsMap = _safeGet(analysisDoc, ['breakdownByTopic', chapterName]);
-    final smartCounts = chapterStats['smartTimeAnalysisCounts'] as Map<String, dynamic>? ?? {};
-
-    List<MapEntry<String, dynamic>> topicList = [];
-    if (topicsMap is Map) {
-      final typedMap = Map<String, dynamic>.from(topicsMap);
-      topicList = typedMap.entries.toList();
-      topicList.sort((a, b) {
-        final double accA = (a.value['accuracyPercentage'] ?? 0).toDouble();
-        final double accB = (b.value['accuracyPercentage'] ?? 0).toDouble();
-        return accA.compareTo(accB);
-      });
-    }
-
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       appBar: AppBar(
@@ -49,63 +31,93 @@ class StudentChapterDetailedView extends StatelessWidget {
         foregroundColor: Colors.black87,
         elevation: 0,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ZONE A: CHAPTER OVERVIEW
-            _ChapterCard(name: chapterName, stats: chapterStats),
-            const SizedBox(height: 24),
+      // Real-time listener ensures the UI updates immediately after fixing a question
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance.collection('student_deep_analysis').doc(userId).snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return const Center(child: Text("Error loading data"));
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-            // ZONE B: CHAPTER SMART ACTIONS
-            const Text("Smart Actions", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
-            const SizedBox(height: 12),
-            SmartActionGrid(
-              userId: userId,
-              chapterName: chapterName,
-              counts: smartCounts,
-              topicName: null, // Chapter Level
+          if (!snapshot.data!.exists) return const Center(child: Text("No analysis found."));
+
+          final data = snapshot.data!.data() as Map<String, dynamic>;
+
+          // Helper for safe nested extraction
+          dynamic safeGet(List<String> path) {
+            dynamic current = data;
+            for (var key in path) {
+              if (current is Map && current.containsKey(key)) {
+                current = current[key];
+              } else {
+                return {};
+              }
+            }
+            return current;
+          }
+
+          final chapterStats = safeGet(['breakdownByChapter', chapterName]);
+          final topicsMap = safeGet(['breakdownByTopic', chapterName]);
+
+          // Extract Total Counts and Fixed Counts
+          final smartCounts = chapterStats['smartTimeAnalysisCounts'] as Map<String, dynamic>? ?? {};
+          final fixedCounts = chapterStats['smartTimeAnalysisFixedCounts'] as Map<String, dynamic>? ?? {};
+
+          List<MapEntry<String, dynamic>> topicList = [];
+          if (topicsMap is Map) {
+            final typedMap = Map<String, dynamic>.from(topicsMap);
+            topicList = typedMap.entries.toList();
+            // Sort topics by accuracy (lowest first) to highlight weak areas
+            topicList.sort((a, b) {
+              final double accA = (a.value['accuracyPercentage'] ?? 0).toDouble();
+              final double accB = (b.value['accuracyPercentage'] ?? 0).toDouble();
+              return accA.compareTo(accB);
+            });
+          }
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _ChapterCard(name: chapterName, stats: chapterStats),
+                const SizedBox(height: 24),
+
+                const Text("Smart Actions", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                const SizedBox(height: 12),
+                SmartActionGrid(
+                  userId: userId,
+                  chapterName: chapterName,
+                  counts: smartCounts,
+                  fixedCounts: fixedCounts,
+                  topicName: null, // Chapter Level
+                ),
+
+                const SizedBox(height: 24),
+                const Divider(color: Color(0xFFEEEEEE), thickness: 1.5),
+                const SizedBox(height: 16),
+
+                const Text("Topic Breakdown", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+                const SizedBox(height: 12),
+                if (topicList.isEmpty)
+                  const Center(child: Padding(padding: EdgeInsets.all(16.0), child: Text("No topic data available yet.")))
+                else
+                  ...topicList.map((e) => _TopicCard(
+                    name: e.key,
+                    stats: e.value,
+                    userId: userId,
+                    chapterName: chapterName,
+                  )),
+              ],
             ),
-
-            // [UPDATED] Subtle Divider Section
-            const SizedBox(height: 24),
-            const Divider(color: Color(0xFFEEEEEE), thickness: 1.5),
-            const SizedBox(height: 16),
-
-            // ZONE C: TOPIC HEATMAP
-            const Text("Topic Breakdown", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
-            const SizedBox(height: 12),
-            if (topicList.isEmpty)
-              const Center(child: Padding(padding: EdgeInsets.all(16.0), child: Text("No topic data available yet.")))
-            else
-              ...topicList.map((e) => _TopicCard(
-                name: e.key,
-                stats: e.value,
-                userId: userId,
-                chapterName: chapterName,
-              )),
-          ],
-        ),
+          );
+        },
       ),
     );
-  }
-
-  dynamic _safeGet(Map<String, dynamic> data, List<String> path) {
-    dynamic current = data;
-    for (var key in path) {
-      if (current is Map && current.containsKey(key)) {
-        current = current[key];
-      } else {
-        return {};
-      }
-    }
-    return current;
   }
 }
 
 // =============================================================================
-// REUSABLE SMART ACTION GRID (With Positive Reinforcement)
+// REUSABLE SMART ACTION GRID (With Logic for Pending/Fixed)
 // =============================================================================
 
 class SmartActionGrid extends StatelessWidget {
@@ -113,87 +125,126 @@ class SmartActionGrid extends StatelessWidget {
   final String chapterName;
   final String? topicName;
   final Map<String, dynamic> counts;
+  final Map<String, dynamic> fixedCounts;
 
   const SmartActionGrid({
     super.key,
     required this.userId,
     required this.chapterName,
     required this.counts,
+    this.fixedCounts = const {},
     this.topicName,
   });
 
   @override
   Widget build(BuildContext context) {
-    int careless = _getCount(counts, "Careless Mistake");
-    int wasted = _getCount(counts, "Wasted Attempt") + _getCount(counts, "Time Wasted");
-    int overtime = _getCount(counts, "Overtime Correct");
-    int goodSkip = _getCount(counts, "Good Skip");
+    // 1. Get Totals (Historical)
+    int totalCareless = _getCount(counts, "Careless Mistake");
+    int totalWasted = _getCount(counts, "Wasted Attempt");
+    int totalTimeWasted = _getCount(counts, "Time Wasted");
+    int totalOvertime = _getCount(counts, "Overtime Correct");
+    int totalGoodSkip = _getCount(counts, "Good Skip");
 
-    // Counts for cards
-    int fixMistakesCount = careless + _getCount(counts, "Wasted Attempt");
-    int skippedCount = goodSkip + _getCount(counts, "Time Wasted");
+    // 2. Get Fixed (Already corrected by user)
+    int fixedCareless = _getCount(fixedCounts, "Careless Mistake");
+    int fixedWasted = _getCount(fixedCounts, "Wasted Attempt");
+    int fixedTimeWasted = _getCount(fixedCounts, "Time Wasted");
+    int fixedOvertime = _getCount(fixedCounts, "Overtime Correct");
+    int fixedGoodSkip = _getCount(fixedCounts, "Good Skip");
 
-    // Calculate total activity
-    int totalActivity = 0;
-    counts.forEach((_, value) => totalActivity += (value as num).toInt());
+    // 3. Calculate Pending (To display as the main number)
+    // Pending = Total - Fixed. Ensure it doesn't go below 0.
+    int pendingCareless = (totalCareless - fixedCareless).clamp(0, 99999);
+    int pendingWasted = (totalWasted - fixedWasted).clamp(0, 99999);
+    int pendingOvertime = (totalOvertime - fixedOvertime).clamp(0, 99999);
+    int pendingSkipped = (totalGoodSkip + totalTimeWasted - fixedGoodSkip - fixedTimeWasted).clamp(0, 99999);
 
-    // --- POSITIVE REINFORCEMENT LOGIC ---
-    bool isCleanStreak = totalActivity > 0 && fixMistakesCount == 0;
-    bool isPerfectSpeed = totalActivity > 0 && overtime == 0;
+    // --- GROUP 1: FIX MISTAKES ---
+    int group1Pending = pendingCareless + pendingWasted;
+    int group1Total = totalCareless + totalWasted;
+    // Progress: How much of the total has been fixed?
+    double group1Progress = (group1Total > 0) ? (fixedCareless + fixedWasted) / group1Total : 0.0;
+
+    // --- GROUP 2: SPEED UP ---
+    int group2Pending = pendingOvertime;
+    int group2Total = totalOvertime;
+    double group2Progress = (group2Total > 0) ? fixedOvertime / group2Total : 0.0;
+
+    // --- GROUP 3: TRY SKIPPED ---
+    int group3Pending = pendingSkipped;
+    int group3Total = totalGoodSkip + totalTimeWasted;
+    double group3Progress = (group3Total > 0) ? (fixedGoodSkip + fixedTimeWasted) / group3Total : 0.0;
+
+    // Completion States (Used for styling, NOT for disabling interaction)
+    bool isMistakesDone = group1Total > 0 && group1Pending == 0;
+    bool isSpeedDone = group2Total > 0 && group2Pending == 0;
+    bool isSkippedDone = group3Total > 0 && group3Pending == 0;
 
     return Row(
       children: [
+        // Card 1: Fix Mistakes
         Expanded(
           child: _ActionCard(
-            title: isCleanStreak ? "Clean Streak" : "Fix Mistakes",
-            count: fixMistakesCount,
-            color: isCleanStreak ? Colors.amber.shade700 : Colors.red.shade400,
-            icon: isCleanStreak ? Icons.emoji_events_rounded : Icons.bug_report_outlined,
+            title: "Fix Mistakes",
+            count: group1Pending,
+            total: group1Total,
+            progress: group1Progress,
+            color: isMistakesDone ? Colors.amber.shade700 : Colors.red.shade400,
+            icon: isMistakesDone ? Icons.check_circle_outline : Icons.bug_report_outlined,
             tags: const ["Careless Mistake", "Wasted Attempt"],
             tabLabels: const ["Careless Mistake", "Wasted Attempt"],
-            subtitle: isCleanStreak ? "No silly errors!" : "Review errors",
+            subtitle: isMistakesDone ? "All fixed!" : "Review errors",
             userId: userId,
             chapterName: chapterName,
             topicName: topicName,
-            isSuccessState: isCleanStreak,
+            isCompleted: isMistakesDone,
           ),
         ),
         const SizedBox(width: 8),
-        Expanded(
-          child: _ActionCard(
-            title: isPerfectSpeed ? "Perfect Pace" : "Speed Up",
-            count: overtime,
-            color: isPerfectSpeed ? Colors.green.shade600 : Colors.blue.shade400,
-            icon: isPerfectSpeed ? Icons.timer_off_outlined : Icons.speed,
-            tags: const ["Overtime Correct"],
-            tabLabels: const ["Overtime Correct"],
-            subtitle: isPerfectSpeed ? "Fast & accurate" : "Solve quickly",
-            userId: userId,
-            chapterName: chapterName,
-            topicName: topicName,
-            isSuccessState: isPerfectSpeed,
-          ),
-        ),
-        const SizedBox(width: 8),
+
+        // Card 2: Try Skipped
         Expanded(
           child: _ActionCard(
             title: "Try Skipped",
-            count: skippedCount,
-            color: Colors.orange.shade400,
-            icon: Icons.redo,
+            count: group3Pending,
+            total: group3Total,
+            progress: group3Progress,
+            color: isSkippedDone ? Colors.green.shade600 : Colors.orange.shade400,
+            icon: isSkippedDone ? Icons.check_circle_outline : Icons.redo,
             tags: const ["Good Skip", "Time Wasted"],
             tabLabels: const ["Good Skip", "Time Wasted"],
-            subtitle: "Attempt now",
+            subtitle: isSkippedDone ? "All attempted" : "Attempt now",
             userId: userId,
             chapterName: chapterName,
             topicName: topicName,
-            isSuccessState: false,
+            isCompleted: isSkippedDone,
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Card 3: Speed Up
+        Expanded(
+          child: _ActionCard(
+            title: "Speed Up",
+            count: group2Pending,
+            total: group2Total,
+            progress: group2Progress,
+            color: isSpeedDone ? Colors.green.shade600 : Colors.blue.shade400,
+            icon: isSpeedDone ? Icons.timer_off_outlined : Icons.speed,
+            tags: const ["Overtime Correct"],
+            tabLabels: const ["Overtime Correct"],
+            subtitle: isSpeedDone ? "Fast & accurate" : "Solve quickly",
+            userId: userId,
+            chapterName: chapterName,
+            topicName: topicName,
+            isCompleted: isSpeedDone,
           ),
         ),
       ],
     );
   }
 
+  // Safe integer extraction
   int _getCount(Map<String, dynamic> counts, String key) {
     return (counts[key] as num?)?.toInt() ?? 0;
   }
@@ -202,6 +253,8 @@ class SmartActionGrid extends StatelessWidget {
 class _ActionCard extends StatelessWidget {
   final String title;
   final int count;
+  final int total;
+  final double progress;
   final Color color;
   final IconData icon;
   final List<String> tags;
@@ -210,11 +263,13 @@ class _ActionCard extends StatelessWidget {
   final String userId;
   final String chapterName;
   final String? topicName;
-  final bool isSuccessState;
+  final bool isCompleted;
 
   const _ActionCard({
     required this.title,
     required this.count,
+    required this.total,
+    required this.progress,
     required this.color,
     required this.icon,
     required this.tags,
@@ -223,14 +278,16 @@ class _ActionCard extends StatelessWidget {
     required this.userId,
     required this.chapterName,
     this.topicName,
-    this.isSuccessState = false,
+    this.isCompleted = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    bool isEmpty = count == 0 && !isSuccessState;
+    // Only disable interaction if there is NO history at all (Total is 0)
+    // If Total > 0 but Pending is 0 (isCompleted), user can still click to see "Fixed" items.
+    bool isDisabled = total == 0;
 
-    VoidCallback? onTap = (isEmpty || isSuccessState) ? null : () {
+    VoidCallback? onTap = isDisabled ? null : () {
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -245,45 +302,70 @@ class _ActionCard extends StatelessWidget {
       );
     };
 
+    // Styling logic
+    final double contentOpacity = isDisabled ? 0.4 : 1.0;
+    Color borderColor = isDisabled
+        ? Colors.grey.shade200
+        : color.withOpacity(isCompleted ? 0.6 : 0.3);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 100,
+        height: 110,
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: isEmpty ? Colors.grey.shade200 : color.withOpacity(isSuccessState ? 0.6 : 0.3),
+              color: borderColor,
               width: 1.5
           ),
           boxShadow: [
-            if (!isEmpty)
+            if (!isDisabled)
               BoxShadow(color: color.withOpacity(0.08), blurRadius: 4, offset: const Offset(0, 2))
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(icon, color: isEmpty ? Colors.grey.shade300 : color, size: 20),
-                if (!isEmpty)
-                  isSuccessState
-                      ? Icon(Icons.check_circle, size: 16, color: color)
-                      : Text("$count", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
-              ],
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isEmpty ? Colors.grey : Colors.black87), overflow: TextOverflow.ellipsis),
-                Text(subtitle, style: TextStyle(fontSize: 10, color: Colors.grey.shade500), overflow: TextOverflow.ellipsis),
-              ],
-            )
-          ],
+        child: Opacity(
+          opacity: contentOpacity,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Top Row: Icon + Count
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Icon(icon, color: isDisabled ? Colors.grey.shade300 : color, size: 20),
+                  if (!isDisabled)
+                    Text(
+                        "$count", // Shows pending count
+                        style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)
+                    ),
+                ],
+              ),
+              // Middle: Titles
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isDisabled ? Colors.grey : Colors.black87), overflow: TextOverflow.ellipsis),
+                  Text(subtitle, style: TextStyle(fontSize: 10, color: Colors.grey.shade500), overflow: TextOverflow.ellipsis),
+                ],
+              ),
+              // Bottom: Progress Bar (No Text)
+              if (!isDisabled)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: progress.clamp(0.0, 1.0),
+                    minHeight: 4,
+                    backgroundColor: color.withOpacity(0.1),
+                    color: color,
+                  ),
+                )
+              else
+                const SizedBox(height: 4),
+            ],
+          ),
         ),
       ),
     );
@@ -377,7 +459,10 @@ class _BaseDetailCard extends StatelessWidget {
     final double accuracy = (stats['accuracyPercentage'] ?? 0.0).toDouble();
     final double attemptPct = (stats['attemptPercentage'] ?? 0.0).toDouble();
     final Timestamp? lastSolved = stats['lastCorrectlySolvedAt'];
+
+    // Get stats for Topic Card action grid
     final behaviorCounts = stats['smartTimeAnalysisCounts'] as Map<String, dynamic>? ?? {};
+    final behaviorFixed = stats['smartTimeAnalysisFixedCounts'] as Map<String, dynamic>? ?? {};
 
     String lastSolvedStr = "Never";
     if (lastSolved != null) {
@@ -455,11 +540,13 @@ class _BaseDetailCard extends StatelessWidget {
             const SizedBox(height: 24),
             const Text("Topic Actions", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
             const SizedBox(height: 12),
+            // Pass fixed counts to Topic Level grid too
             SmartActionGrid(
               userId: userId!,
               chapterName: chapterName!,
               topicName: name,
               counts: behaviorCounts,
+              fixedCounts: behaviorFixed,
             ),
           ],
         ],

@@ -1,7 +1,7 @@
 // lib/features/common/widgets/display_results_for_student_id.dart
 // Description: Main Dashboard Widget.
 // FULL CODE: Contains Dashboard, Chapter Insights, Results Tabs, and all Chart Widgets.
-// UPDATED: Added 'Chapter Breakdown' Expandable List below Time Chart.
+// UPDATED: Fixed Bar Chart rounding (top-only) and added total daily count to Chapter Breakdown header.
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -303,7 +303,7 @@ class _DashboardTabState extends State<_DashboardTab> with SingleTickerProviderS
     // Daily Breakdown (Counts & Time)
     final dailyData = (data['dailyQuestionsBreakdown'] ?? data['dailyQuestionsBreakdownbyStatus']) as Map<String, dynamic>? ?? {};
 
-    // [NEW] Daily Chapter Breakdown
+    // Daily Chapter Breakdown
     final dailyChapterData = data['dailyQuestionsBreakdownbyChapter'] as Map<String, dynamic>? ?? {};
 
     final Timestamp? lastUpdated = data['lastUpdated'];
@@ -413,7 +413,7 @@ class _DashboardPageView extends StatefulWidget {
   final Map<String, dynamic> stats;
   final Map<String, dynamic>? chapterData;
   final Map<String, dynamic> dailyData;
-  final Map<String, dynamic> dailyChapterData; // [NEW]
+  final Map<String, dynamic> dailyChapterData;
   final DashboardViewType viewType;
   final String emptyMsg;
   final int? chartDays;
@@ -477,7 +477,7 @@ class _DashboardPageViewState extends State<_DashboardPageView> {
               const SizedBox(height: 16),
               _buildTimeSpentChart(widget.dailyData, widget.chartDays!),
               const SizedBox(height: 16),
-              // [NEW] Add Chapter Breakdown Widget
+              // Chapter Breakdown Widget
               _buildChapterBreakdown(widget.dailyChapterData, widget.chartDays!),
               const SizedBox(height: 24),
             ],
@@ -518,7 +518,6 @@ class _DashboardPageViewState extends State<_DashboardPageView> {
                       userId: widget.userId!,
                       chapterName: entry.key,
                       subjectName: entry.value['subject'] ?? 'Unknown',
-                      analysisDoc: widget.fullDoc!,
                     ),
                   ),
                 );
@@ -533,14 +532,13 @@ class _DashboardPageViewState extends State<_DashboardPageView> {
     );
   }
 
-  // --- [NEW] CHAPTER BREAKDOWN EXPANSION TILE ---
+  // --- CHAPTER BREAKDOWN EXPANSION TILE ---
   Widget _buildChapterBreakdown(Map<String, dynamic> dailyChapterData, int days) {
     final now = DateTime.now();
     List<DateTime> dateRange = [];
     for (int i = 0; i < days; i++) {
       dateRange.add(now.subtract(Duration(days: i)));
     }
-    // We keep dates Newest -> Oldest for the list view
 
     // Check if we have data to show
     bool hasData = false;
@@ -580,12 +578,26 @@ class _DashboardPageViewState extends State<_DashboardPageView> {
                   Map<String, dynamic> chapters = dailyChapterData[key] as Map<String, dynamic>;
                   String niceDate = DateFormat('EEE, d MMM').format(date);
 
+                  // [UPDATED] Calculate Total Questions for this day
+                  int dayTotal = 0;
+                  chapters.forEach((k, v) {
+                    if (v is int) {
+                      dayTotal += v;
+                    } else if (v is num) {
+                      dayTotal += v.toInt();
+                    }
+                  });
+
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 16.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(niceDate, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+                        // [UPDATED] Display Date AND Total Count
+                        Text(
+                            "$niceDate ($dayTotal qs)",
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)
+                        ),
                         const SizedBox(height: 8),
                         ...chapters.entries.map((e) {
                           return Padding(
@@ -666,7 +678,8 @@ class _DashboardPageViewState extends State<_DashboardPageView> {
                 BarChartRodStackItem(correct + incorrect, total, Colors.grey.shade300),
               ],
               width: days == 7 ? 16 : 8,
-              borderRadius: BorderRadius.circular(4),
+              // [UPDATED] Rounded only at the top to fix "detached" look
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
               color: Colors.transparent,
             ),
           ],

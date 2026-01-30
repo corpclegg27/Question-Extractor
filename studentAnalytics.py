@@ -1,10 +1,9 @@
 # studentAnalytics.py
-# Description: Analytics Engine V6.3 (Daily Insights + Time Tracking + Question References).
-# - Renamed 'dailyQuestionsBreakdownbyStatus' -> 'dailyQuestionsBreakdown'.
-# - Added 'timeSpent' to daily breakdown.
-# - [NEW] Added 'qRefAssigned': Maps of lists storing all attempted Question IDs by status.
-# - PRESERVES all existing Chapter/Subject/Topic/Detailed Item logic.
-# - [FIX] Added strict sanitization for empty strings in Subject/Chapter/Topic keys.
+# Description: Analytics Engine V6.7 (Safe Sync & Fix).
+# - [FIX] Corrected variable name bug in '_increment_stats'.
+# - [CRITICAL] Writes detailed items ALWAYS (removed FORCE_FULL_RECALCULATION restriction).
+# - [CRITICAL] Uses 'merge=True' to preserve 'isMistakeFixed' status.
+# - [CRITICAL] Re-tallies 'Fixed' counts from DB to sync Progress Bars.
 
 import firebase_admin
 from firebase_admin import credentials
@@ -16,8 +15,7 @@ from datetime import datetime, timedelta, timezone
 # --- CONFIGURATION ---
 KEY_PATH = 'serviceAccountKey.json' 
 
-# Set to True to re-read ALL history. 
-# CRITICAL: Keep TRUE for this run to populate the new 'timeSpent' field for past dates.
+# Set to True to re-read ALL history.
 FORCE_FULL_RECALCULATION = True 
 
 # --- GLOBAL METRICS ---
@@ -49,8 +47,8 @@ def generate_analytics():
     global TOTAL_READS, TOTAL_WRITES
     start_time = time.time()
     
-    print("\n🚀 STARTING ANALYTICS ENGINE (V6.3 - QREF BUCKETING)")
-    print("=====================================================")
+    print("\n🚀 STARTING ANALYTICS ENGINE (V6.7 - SAFE SYNC)")
+    print("================================================")
     if FORCE_FULL_RECALCULATION:
         print("⚠️  MODE: FORCE FULL RECALCULATION (Reading ALL history)")
 
@@ -169,7 +167,7 @@ def generate_analytics():
         if not new_attempts and not FORCE_FULL_RECALCULATION:
             continue 
 
-        print(f"\n   [{i+1}/{len(students_list)}] Processing: {display_name} ({len(new_attempts)} items)")
+        print(f"\n   [{i+1}/{len(students_list)}] Processing: {display_name} ({len(new_attempts)} attempts)")
 
         # --- Load Existing Analysis ---
         analysis_ref = db.collection('student_deep_analysis').document(user_id)
@@ -224,11 +222,13 @@ def generate_analytics():
         }
 
         # --- Process Attempts (Global Stats + Daily) ---
+        items_processed_count = 0
+        
         for attempt in new_attempts:
             att_data = attempt.to_dict()
             attempt_id = attempt.id
             responses = att_data.get('responses', {})
-            completed_at = att_data.get('completedAt') # Firestore Timestamp
+            completed_at = att_data.get('completedAt')
 
             if not responses: continue
 
@@ -242,10 +242,10 @@ def generate_analytics():
                     date_key = str(dt)[:10]
 
             for q_id, response in responses.items():
+                items_processed_count += 1
                 status = response.get('status', 'SKIPPED')
                 
-                # --- SANITIZATION BLOCK (Fix for empty keys error) ---
-                # Ensure we never have None or empty strings as keys
+                # --- SANITIZATION BLOCK ---
                 subject = response.get('subject')
                 if not subject: subject = 'Unknown'
                 subject = subject.capitalize()
@@ -255,7 +255,7 @@ def generate_analytics():
 
                 topic = response.get('topic')
                 if not topic: topic = 'Unknown'
-                # -----------------------------------------------------
+                # ---------------------------
 
                 time_spent = response.get('timeSpent', 0)
                 smart_tag = _extract_smart_tag(response.get('smartTimeAnalysis', ""))
@@ -319,45 +319,60 @@ def generate_analytics():
                     if _should_update_timestamp(current_last, completed_at):
                         aggregator["breakdownByChapter"][chapter]['lastCorrectlySolvedAt'] = completed_at
 
-                # 8. [NEW] Update qRefAssigned Sets (Additive)
-                # Normalize status to ensure it matches our bucket keys
+                # 8. Update qRefAssigned Sets
                 bucket_key = status
                 if bucket_key not in q_ref_sets:
-                    bucket_key = "SKIPPED" # Fallback
+                    bucket_key = "SKIPPED" 
                 q_ref_sets[bucket_key].add(q_id)
 
-                # 9. Detailed Log
-                if not FORCE_FULL_RECALCULATION:
-                    detailed_item = {
-                        "userId": user_id,
-                        "studentId": student_id,
-                        "questionId": q_id,
-                        "attemptId": attempt_id,
-                        "attemptedAt": completed_at,
-                        "subject": subject,
-                        "chapter": chapter,
-                        "topic": topic,
-                        "exam": response.get('exam'),
-                        "difficulty": response.get('difficultyTag'),
-                        "isPyq": response.get('pyq') == "Yes",
-                        "status": status,
-                        "timeSpent": time_spent,
-                        "selectedOption": response.get('selectedOption'),
-                        "correctOption": response.get('correctOption'),
-                        "smartTag": response.get('smartTimeAnalysis', ""), 
-                        "mistakeCategory": response.get('mistakeCategory'),
-                        "mistakeNote": response.get('mistakeNote')
-                    }
-                    
-                    new_doc_ref = db.collection('attempt_items_detailed').document()
-                    batch.set(new_doc_ref, detailed_item)
-                    batch_op_count += 1
-                    TOTAL_WRITES += 1
+                # 9. Detailed Log (ALWAYS WRITE)
+                detailed_doc_id = f"{attempt_id}_{q_id}"
+                
+                # Payload EXCLUDES 'isMistakeFixed' so we don't overwrite user progress if merging
+                # But ensures all other metadata is refreshed.
+                detailed_item = {
+                    "userId": user_id,
+                    "studentId": str(user_data.get('studentId', '')),
+                    "questionId": q_id,
+                    "attemptId": attempt_id,
+                    "attemptedAt": completed_at,
+                    "subject": subject,
+                    "chapter": chapter,
+                    "topic": topic,
+                    "exam": response.get('exam'),
+                    "difficulty": response.get('difficultyTag'),
+                    "isPyq": response.get('pyq') == "Yes",
+                    "status": status,
+                    "timeSpent": time_spent,
+                    "selectedOption": response.get('selectedOption'),
+                    "correctOption": response.get('correctOption'),
+                    "smartTag": response.get('smartTimeAnalysis', ""), 
+                    "mistakeCategory": response.get('mistakeCategory'),
+                    "mistakeNote": response.get('mistakeNote'),
+                    # We DO NOT set 'isMistakeFixed' here.
+                    # If document exists -> merge=True preserves it.
+                    # If document is new -> default False behavior (field missing) is fine for app logic.
+                }
+                
+                new_doc_ref = db.collection('attempt_items_detailed').document(detailed_doc_id)
+                
+                # If creating new, we might want to default isMistakeFixed to False if not present
+                # But standard practice is merge=True. 
+                # If you want to force False for NEW docs only, requires a read, which is expensive.
+                # Assuming 'null' in DB is treated as False by app is safer.
+                
+                batch.set(new_doc_ref, detailed_item, merge=True)
+                
+                batch_op_count += 1
+                TOTAL_WRITES += 1
 
-                    if batch_op_count >= BATCH_LIMIT:
-                        batch.commit()
-                        batch = db.batch()
-                        batch_op_count = 0
+                if batch_op_count >= BATCH_LIMIT:
+                    batch.commit()
+                    print(f"      -> Flushing batch... ({TOTAL_WRITES} writes total)")
+                    batch = db.batch()
+                    batch_op_count = 0
+
+        print(f"      -> Processed {items_processed_count} individual question items.")
 
         # --- D. ROLLING STATS ---
         aggregator["summary_lastWeek"] = _get_empty_stats_object()
@@ -389,31 +404,42 @@ def generate_analytics():
         # --- E. FINALIZE CALCULATIONS ---
         
         # 1. Standard aggregations
-        _recalculate_percentages(aggregator["summary"])
-        for s in aggregator["breakdownBySubject"].values():
-            _recalculate_percentages(s)
-        for c in aggregator["breakdownByChapter"].values():
-            _recalculate_percentages(c)
-        for chap_key, topic_map in aggregator["breakdownByTopic"].items():
-            for topic_key, topic_stats in topic_map.items():
-                _recalculate_percentages(topic_stats)
+        _finalize_percentages(aggregator)
 
-        # 2. Rolling aggregations
-        _recalculate_percentages(aggregator["summary_lastWeek"])
-        _recalculate_percentages(aggregator["summary_lastMonth"])
+        # 2. Convert Sets back to Lists
+        for k, v in q_ref_sets.items():
+            aggregator["qRefAssigned"][k] = list(v)
 
-        # 3. Daily Breakdown Percentages
-        if "dailyQuestionsBreakdown" in aggregator:
-            for date_key, daily_stats in aggregator["dailyQuestionsBreakdown"].items():
-                _recalculate_percentages(daily_stats)
+        # 3. RE-TALLY FIXED COUNTS (The Real Fix for Progress Bars)
+        # Query the DETAILED collection to find what is ACTUALLY fixed.
+        print("      -> Re-tallying Fixed Counts from DB...")
+        fixed_query = db.collection('attempt_items_detailed')\
+            .where('userId', '==', user_id)\
+            .where('isMistakeFixed', '==', True)\
+            .stream()
+        
+        fixed_count_total = 0
+        for doc in fixed_query:
+            fixed_count_total += 1
+            f_data = doc.to_dict()
+            tag_key = _extract_smart_tag(f_data.get('smartTag'))
+            f_chap = f_data.get('chapter')
+            f_topic = f_data.get('topic')
 
-        # 4. [NEW] Convert Sets back to Lists for Firestore Storage
-        aggregator["qRefAssigned"] = {
-            "CORRECT": list(q_ref_sets["CORRECT"]),
-            "INCORRECT": list(q_ref_sets["INCORRECT"]),
-            "SKIPPED": list(q_ref_sets["SKIPPED"]),
-            "PARTIALLY_CORRECT": list(q_ref_sets["PARTIALLY_CORRECT"])
-        }
+            if tag_key in SMART_CATEGORIES:
+                # Update Chapter Fixed Count
+                if f_chap in aggregator["breakdownByChapter"]:
+                    if "smartTimeAnalysisFixedCounts" not in aggregator["breakdownByChapter"][f_chap]:
+                         aggregator["breakdownByChapter"][f_chap]["smartTimeAnalysisFixedCounts"] = { t: 0 for t in SMART_CATEGORIES }
+                    aggregator["breakdownByChapter"][f_chap]["smartTimeAnalysisFixedCounts"][tag_key] += 1
+                
+                # Update Topic Fixed Count
+                if f_chap in aggregator["breakdownByTopic"] and f_topic in aggregator["breakdownByTopic"][f_chap]:
+                    if "smartTimeAnalysisFixedCounts" not in aggregator["breakdownByTopic"][f_chap][f_topic]:
+                         aggregator["breakdownByTopic"][f_chap][f_topic]["smartTimeAnalysisFixedCounts"] = { t: 0 for t in SMART_CATEGORIES }
+                    aggregator["breakdownByTopic"][f_chap][f_topic]["smartTimeAnalysisFixedCounts"][tag_key] += 1
+        
+        print(f"      -> Found {fixed_count_total} fixed items.")
 
         # --- F. SAVE UPDATES ---
         
@@ -437,6 +463,7 @@ def generate_analytics():
 
         if batch_op_count >= BATCH_LIMIT:
             batch.commit()
+            print(f"      -> Batch commit...")
             batch = db.batch()
             batch_op_count = 0
 
@@ -470,6 +497,8 @@ def generate_analytics():
 def _get_empty_stats_object():
     """Returns a fresh dictionary for stats counting."""
     smart_counts = { tag: 0 for tag in SMART_CATEGORIES }
+    # [NEW] Added initialization for fixed counts to support progress bars
+    fixed_counts = { tag: 0 for tag in SMART_CATEGORIES }
     return {
         "total": 0,
         "correct": 0,
@@ -478,49 +507,52 @@ def _get_empty_stats_object():
         "timeSpent": 0,
         "accuracyPercentage": 0.0,
         "attemptPercentage": 0.0,
-        "smartTimeAnalysisCounts": smart_counts
+        "smartTimeAnalysisCounts": smart_counts,
+        "smartTimeAnalysisFixedCounts": fixed_counts
     }
 
 def _extract_smart_tag(raw_tag):
     if not raw_tag: return "Unknown"
     return raw_tag.split('(')[0].strip()
 
-def _increment_stats(stats_dict, status, time_spent, smart_tag):
+def _increment_stats(stats, status, time, tag):
     """Updates counts in place."""
-    stats_dict["total"] += 1
-    stats_dict["timeSpent"] += time_spent
+    # [FIXED] Changed argument name from stats_dict to stats to match usage
+    stats["total"] += 1
+    stats["timeSpent"] += time
     
     if status == 'CORRECT':
-        stats_dict["correct"] += 1
+        stats["correct"] += 1
     elif status == 'INCORRECT' or status == 'PARTIALLY_CORRECT':
-        stats_dict["incorrect"] += 1
+        stats["incorrect"] += 1
     else:
-        stats_dict["skipped"] += 1
+        stats["skipped"] += 1
         
-    if "smartTimeAnalysisCounts" not in stats_dict:
-        stats_dict["smartTimeAnalysisCounts"] = { tag: 0 for tag in SMART_CATEGORIES }
+    if "smartTimeAnalysisCounts" not in stats:
+        stats["smartTimeAnalysisCounts"] = { tag: 0 for tag in SMART_CATEGORIES }
+    
+    # Ensure fixed counts structure exists
+    if "smartTimeAnalysisFixedCounts" not in stats:
+        stats["smartTimeAnalysisFixedCounts"] = { tag: 0 for tag in SMART_CATEGORIES }
         
-    if smart_tag in SMART_CATEGORIES:
-        stats_dict["smartTimeAnalysisCounts"][smart_tag] += 1
+    if tag in SMART_CATEGORIES:
+        stats["smartTimeAnalysisCounts"][tag] += 1
 
-def _recalculate_percentages(stats_dict):
-    """Calculates accuracy and attempt % based on current totals."""
-    total = stats_dict["total"]
-    correct = stats_dict["correct"]
-    incorrect = stats_dict["incorrect"]
-    
-    # Attempted = Correct + Incorrect (Skipped is ignored for attempted count)
-    attempted_count = correct + incorrect
-    
-    if attempted_count > 0:
-        stats_dict["accuracyPercentage"] = round((correct / attempted_count) * 100, 2)
-    else:
-        stats_dict["accuracyPercentage"] = 0.0
+def _finalize_percentages(agg):
+    _recalculate_percentages(agg["summary"])
+    for s in agg["breakdownBySubject"].values(): _recalculate_percentages(s)
+    for c in agg["breakdownByChapter"].values(): _recalculate_percentages(c)
+    for chap_map in agg["breakdownByTopic"].values():
+        for t_stats in chap_map.values(): _recalculate_percentages(t_stats)
+    for d_stats in agg["dailyQuestionsBreakdown"].values(): _recalculate_percentages(d_stats)
+    _recalculate_percentages(agg["summary_lastWeek"])
+    _recalculate_percentages(agg["summary_lastMonth"])
 
-    if total > 0:
-        stats_dict["attemptPercentage"] = round((attempted_count / total) * 100, 2)
-    else:
-        stats_dict["attemptPercentage"] = 0.0
+def _recalculate_percentages(stats):
+    total = stats["total"]
+    attempted = stats["correct"] + stats["incorrect"]
+    stats["accuracyPercentage"] = round((stats["correct"] / attempted * 100), 2) if attempted > 0 else 0.0
+    stats["attemptPercentage"] = round((attempted / total * 100), 2) if total > 0 else 0.0
 
 def _should_update_timestamp(current, new):
     if current is None: return True

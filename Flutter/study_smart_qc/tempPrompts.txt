@@ -4,7 +4,7 @@
 
 Follow our standard operating procedure. 
 
-1. First identify the relevant files which needs to be modified / created
+1. First reiterate your understanding of the task and identify the relevant files which needs to be modified / created
 
 2. Break the problem into steps
 
@@ -18,4 +18,6 @@ Follow our standard operating procedure.
 
 7. At start of file, add full file path (e.g, // lib/features/student/widgets/student_assignments_list.dart) and detailed 5-6 line description 
 
+8. Always give complete code, and give a summary of # Lines removed and # lines added. This will also help you ensure you dont accidentally delete existing functionality while adding new ones
 
+9. Go step by step. and the end of each step after code also specify what will be the next step

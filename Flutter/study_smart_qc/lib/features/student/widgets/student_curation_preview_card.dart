@@ -1,5 +1,6 @@
 // lib/features/student/widgets/student_curation_preview_card.dart
 // Description: Card widget. Fixed UI Precedence: "Resume" status now overrides "Completed" status.
+// UPDATED: Added logic to extract attempt ID and navigate to ResultsScreen.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -11,6 +12,7 @@ import 'package:study_smart_qc/models/test_enums.dart';
 import 'package:study_smart_qc/services/test_orchestration_service.dart';
 import 'package:study_smart_qc/features/test_taking/screens/test_screen.dart';
 import 'package:study_smart_qc/models/marking_configuration.dart';
+import 'package:study_smart_qc/features/analytics/screens/results_screen.dart'; // [NEW]
 
 class StudentCurationPreviewCard extends StatelessWidget {
   final QueryDocumentSnapshot snapshot;
@@ -64,12 +66,12 @@ class StudentCurationPreviewCard extends StatelessWidget {
           }
         }
 
-        return _buildCardUI(context, data, actuallySubmitted);
+        return _buildCardUI(context, data, actuallySubmitted, uid);
       },
     );
   }
 
-  Widget _buildCardUI(BuildContext context, Map<String, dynamic> data, bool actuallySubmitted) {
+  Widget _buildCardUI(BuildContext context, Map<String, dynamic> data, bool actuallySubmitted, String? uid) {
     // --- 2. PARSE DATA ---
     final Timestamp? createdAtTs = data['createdAt'];
     final Timestamp? deadlineTs = data['deadline'];
@@ -106,8 +108,6 @@ class StudentCurationPreviewCard extends StatelessWidget {
       BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4)),
     ];
 
-    // [CRITICAL FIX] Check Resumable FIRST.
-    // Even if it's "Completed" (retake scenario), we want to show the Resume UI if a session is pending.
     if (isResumable) {
       // 🟠 RESUMABLE: Orange Glow
       borderColor = Colors.orange.shade300;
@@ -187,7 +187,7 @@ class StudentCurationPreviewCard extends StatelessWidget {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => _handleTap(context, data, actuallySubmitted),
+        onTap: () => _handleTap(context, data, actuallySubmitted, uid),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -261,7 +261,6 @@ class StudentCurationPreviewCard extends StatelessWidget {
 
               // --- ACTION BUTTONS ---
 
-              // [CRITICAL FIX] Prioritize Resume Button
               if (isResumable) ...[
                 SizedBox(
                   width: double.infinity,
@@ -283,7 +282,8 @@ class StudentCurationPreviewCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: onViewAnalysisTap,
+                        // [UPDATED] Use local handler instead of callback
+                        onPressed: () => _handleViewAnalysis(context, data, uid),
                         icon: const Icon(Icons.analytics_outlined, size: 18),
                         label: const Text("View Analysis"),
                         style: ElevatedButton.styleFrom(
@@ -326,13 +326,64 @@ class StudentCurationPreviewCard extends StatelessWidget {
   //  LOGIC: HANDLE CLICKS & START TEST
   // ===========================================================================
 
-  void _handleTap(BuildContext context, Map<String, dynamic> data, bool actuallySubmitted) {
+  void _handleTap(BuildContext context, Map<String, dynamic> data, bool actuallySubmitted, String? uid) {
     if (isResumable) {
       onResumeTap();
     } else if (actuallySubmitted) {
-      onViewAnalysisTap();
+      _handleViewAnalysis(context, data, uid);
     } else {
       _initiateTestFlow(context, data);
+    }
+  }
+
+  // [NEW] Logic to find attempt and navigate
+  void _handleViewAnalysis(BuildContext context, Map<String, dynamic> data, String? uid) {
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User not logged in")));
+      return;
+    }
+
+    final List<dynamic> attemptRefs = data['attemptDocRefs'] ?? [];
+    if (attemptRefs.isEmpty) {
+      onViewAnalysisTap(); // Fallback to old behavior if no refs
+      return;
+    }
+
+    // Try to find attempt for current user
+    // The structure is expected to be: { userId: Reference, attemptDocRef: Reference }
+    String? attemptId;
+
+    try {
+      // Search from end to start to get the latest attempt
+      for (int i = attemptRefs.length - 1; i >= 0; i--) {
+        final item = attemptRefs[i];
+        if (item is Map) {
+          final userRef = item['userId'] as DocumentReference?;
+          // Compare paths: /users/UID
+          if (userRef != null && userRef.path.endsWith(uid)) {
+            final attemptRef = item['attemptDocRef'] as DocumentReference?;
+            if (attemptRef != null) {
+              attemptId = attemptRef.id;
+              break;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print("Error parsing attempt refs: $e");
+    }
+
+    if (attemptId != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ResultsScreen(attemptId: attemptId),
+        ),
+      );
+    } else {
+      // If we couldn't find a specific attempt linked in the array (e.g. legacy data),
+      // fallback to the provided callback (which likely goes to generic analysis)
+      onViewAnalysisTap();
     }
   }
 
