@@ -8,7 +8,7 @@ import os
 COMMIT_MESSAGE = "30 Jan: Improved test UI to have summary bottom sheet | fixed issues with unknown question types | improved student chapter view"
 
 # Set this to True to fix the "Secret detected" error by undoing the last local commit
-FIX_BROKEN_COMMIT = True 
+FIX_BROKEN_COMMIT = False 
 # ==========================================
 
 def run_command(command, step_name, ignore_error=False):
